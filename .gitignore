@@ -1,0 +1,4 @@
+/dist/
+/coverage.out
+/coverage-packages.txt
+*.test
