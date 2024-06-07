@@ -12,7 +12,11 @@ Requires Go 1.22 or newer.
 
 ```sh
 go run ./cmd/distroplane help
+go run ./cmd/distroplane version
+go run ./cmd/distroplane version --json
 ```
+
+The version command exposes version, commit, and build date metadata. Release builds can inject these values at link time.
 
 ## License
 
