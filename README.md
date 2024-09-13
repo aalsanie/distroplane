@@ -4,18 +4,42 @@ Distroplane is a lightweight release distribution control plane for deterministi
 
 ## Status
 
-Early foundation: a tested Go CLI with release build tooling. Distribution providers and publishing workflows are planned, not yet implemented.
+Distroplane is in early development. The current repository baseline establishes the engineering, testing, security, and release foundations; provider and distribution functionality will follow incrementally.
+
+## Design principles
+
+- small, provider-neutral core
+- out-of-process providers
+- standard-library-first Go implementation
+- deterministic plans and digest-based artifact identity
+- append-only execution history
+- idempotency-aware execution and reconciliation
+- least-privilege credential isolation
+- local-first operation with no required hosted service
 
 ## Development
 
-Requires Go 1.22 or newer.
+Distroplane targets Go 1.27.1.
 
 ```sh
 go test ./...
-go run ./cmd/distroplane version --json
+go test -race ./...
+./scripts/check-coverage.sh
+./scripts/check-dependencies.sh
+./scripts/check-architecture.sh
 ```
 
-Build cross-platform release binaries and SHA256 checksums using `./scripts/build.sh`, or `./scripts/build.ps1` in Windows PowerShell.
+Build release binaries with:
+
+```sh
+./scripts/build.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+./scripts/build.ps1
+```
 
 ## License
 
