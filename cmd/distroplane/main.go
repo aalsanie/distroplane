@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	arguments = func() []string { return os.Args[1:] }
+	arguments           = func() []string { return os.Args[1:] }
 	stdout    io.Writer = os.Stdout
 	stderr    io.Writer = os.Stderr
 	exit                = os.Exit
