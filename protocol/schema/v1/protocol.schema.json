@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Distroplane provider protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "operation": {
+      "type": "string",
+      "enum": ["describe", "plan", "apply", "reconcile"]
+    },
+    "baseRequest": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "operation", "payload"],
+      "properties": {
+        "protocolVersion": { "const": "1" },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operation": { "$ref": "#/$defs/operation" },
+        "payload": {}
+      }
+    },
+    "request": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseRequest" },
+            { "properties": { "operation": { "const": "describe" }, "payload": { "$ref": "#/$defs/describeRequest" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseRequest" },
+            { "properties": { "operation": { "const": "plan" }, "payload": { "$ref": "#/$defs/planRequest" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseRequest" },
+            { "properties": { "operation": { "const": "apply" }, "payload": { "$ref": "#/$defs/executionRequest" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseRequest" },
+            { "properties": { "operation": { "const": "reconcile" }, "payload": { "$ref": "#/$defs/reconcileRequest" } } }
+          ]
+        }
+      ]
+    },
+    "baseResponse": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "operation", "status"],
+      "properties": {
+        "protocolVersion": { "const": "1" },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operation": { "$ref": "#/$defs/operation" },
+        "status": { "type": "string", "enum": ["ok", "error"] },
+        "payload": {},
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "response": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseResponse" },
+            { "required": ["payload"], "not": { "required": ["error"] }, "properties": { "operation": { "const": "describe" }, "status": { "const": "ok" }, "payload": { "$ref": "#/$defs/describeResponse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseResponse" },
+            { "required": ["payload"], "not": { "required": ["error"] }, "properties": { "operation": { "const": "plan" }, "status": { "const": "ok" }, "payload": { "$ref": "#/$defs/planResponse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseResponse" },
+            { "required": ["payload"], "not": { "required": ["error"] }, "properties": { "operation": { "const": "apply" }, "status": { "const": "ok" }, "payload": { "$ref": "#/$defs/applyResponse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseResponse" },
+            { "required": ["payload"], "not": { "required": ["error"] }, "properties": { "operation": { "const": "reconcile" }, "status": { "const": "ok" }, "payload": { "$ref": "#/$defs/reconcileResponse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/baseResponse" },
+            { "required": ["error"], "not": { "required": ["payload"] }, "properties": { "status": { "const": "error" }, "error": { "$ref": "#/$defs/error" } } }
+          ]
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "PROTOCOL_ERROR",
+            "CONFIGURATION_ERROR",
+            "AUTHENTICATION_ERROR",
+            "AUTHORIZATION_ERROR",
+            "TRANSIENT_EXTERNAL_ERROR",
+            "PERMANENT_EXTERNAL_ERROR",
+            "REJECTED",
+            "TIMEOUT",
+            "CANCELLED",
+            "PROVIDER_INTERNAL_ERROR",
+            "AMBIGUOUS_OUTCOME"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "retryable": { "type": "boolean" },
+        "details": {}
+      }
+    },
+    "providerIdentity": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "describeRequest": {
+      "type": "object"
+    },
+    "describeResponse": {
+      "type": "object",
+      "required": ["provider", "protocolVersions", "capabilities"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/providerIdentity" },
+        "protocolVersions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[0-9]+$" }
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["plan", "apply", "reconcile"] }
+        },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement" }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["name", "digest", "size"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 0 },
+        "mediaType": { "type": "string" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "required": ["id", "artifacts"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifact" } }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["id", "configuration"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "configuration": {}
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "metadata": {}
+      }
+    },
+    "plannedOperation": {
+      "type": "object",
+      "required": ["id", "kind", "sideEffecting", "providerPayload"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "dependencies": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "sideEffecting": { "type": "boolean" },
+        "timeoutMillis": { "type": "integer", "minimum": 0 },
+        "providerPayload": {}
+      }
+    },
+    "planRequest": {
+      "type": "object",
+      "required": ["release", "target"],
+      "properties": {
+        "release": { "$ref": "#/$defs/release" },
+        "target": { "$ref": "#/$defs/target" }
+      }
+    },
+    "planResponse": {
+      "type": "object",
+      "required": ["operations"],
+      "properties": {
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/plannedOperation" } },
+        "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } }
+      }
+    },
+    "executionRequest": {
+      "type": "object",
+      "required": ["planId", "targetId", "operationId", "idempotencyKey", "attempt", "providerPayload"],
+      "properties": {
+        "planId": { "type": "string", "minLength": 1 },
+        "targetId": { "type": "string", "minLength": 1 },
+        "operationId": { "type": "string", "minLength": 1 },
+        "idempotencyKey": { "type": "string", "minLength": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "providerPayload": {}
+      }
+    },
+    "distributionResult": {
+      "type": "object",
+      "required": ["state", "evidence"],
+      "properties": {
+        "state": { "type": "string", "enum": ["WAITING_EXTERNAL", "PUBLISHED", "REJECTED"] },
+        "providerState": { "type": "string" },
+        "evidence": {}
+      }
+    },
+    "applyResponse": {
+      "type": "object",
+      "required": ["result"],
+      "properties": { "result": { "$ref": "#/$defs/distributionResult" } }
+    },
+    "reconcileRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/executionRequest" },
+        { "type": "object", "properties": { "previous": { "$ref": "#/$defs/distributionResult" } } }
+      ]
+    },
+    "reconcileResponse": {
+      "type": "object",
+      "required": ["result"],
+      "properties": { "result": { "$ref": "#/$defs/distributionResult" } }
+    }
+  }
+}
