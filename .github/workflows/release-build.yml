@@ -1,0 +1,87 @@
+name: Release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version metadata embedded in the binaries
+        required: true
+        default: 0.0.0-dev
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.1"
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            extension: ""
+          - goos: linux
+            goarch: arm64
+            extension: ""
+          - goos: darwin
+            goarch: amd64
+            extension: ""
+          - goos: darwin
+            goarch: arm64
+            extension: ""
+          - goos: windows
+            goarch: amd64
+            extension: .exe
+          - goos: windows
+            goarch: arm64
+            extension: .exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Build binary and checksum
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET_GOOS: ${{ matrix.goos }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$ ]]; then
+            echo "invalid version: $VERSION"
+            exit 2
+          fi
+
+          mkdir -p dist
+          build_date="$(git show -s --format=%cI "$GITHUB_SHA")"
+          output="dist/distroplane-${VERSION}-${TARGET_GOOS}-${TARGET_GOARCH}${EXTENSION}"
+
+          CGO_ENABLED=0 GOOS="$TARGET_GOOS" GOARCH="$TARGET_GOARCH" \
+            go build -trimpath \
+            -ldflags="-s -w -X github.com/aalsanie/distroplane/internal/buildinfo.Version=$VERSION -X github.com/aalsanie/distroplane/internal/buildinfo.Commit=$GITHUB_SHA -X github.com/aalsanie/distroplane/internal/buildinfo.BuildDate=$build_date" \
+            -o "$output" ./cmd/distroplane
+
+          sha256sum "$output" > "$output.sha256"
+
+      - name: Upload build output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distroplane-${{ inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
