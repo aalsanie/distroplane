@@ -19,7 +19,7 @@ targets=(
   "windows amd64"
   "windows arm64"
 )
-providers=(npm sdkman)
+providers=(npm sdkman homebrew)
 
 for target in "${targets[@]}"; do
   read -r os arch <<<"$target"
