@@ -9,7 +9,8 @@ out="${OUT_DIR:-dist}"
 rm -rf "$out"
 mkdir -p "$out"
 
-ldflags="-s -w -X main.version=$version -X main.commit=$commit -X main.buildDate=$build_date"
+cli_ldflags="-s -w -X main.version=$version -X main.commit=$commit -X main.buildDate=$build_date"
+provider_ldflags="-s -w -X main.version=$version"
 targets=(
   "linux amd64"
   "linux arm64"
@@ -23,16 +24,21 @@ for target in "${targets[@]}"; do
   read -r os arch <<<"$target"
   extension=""
   if [ "$os" = windows ]; then extension=".exe"; fi
-  name="distroplane_${version}_${os}_${arch}${extension}"
-  echo "building $name"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "$out/$name" ./cmd/distroplane
+
+  cli_name="distroplane_${version}_${os}_${arch}${extension}"
+  echo "building $cli_name"
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$cli_ldflags" -o "$out/$cli_name" ./cmd/distroplane
+
+  provider_name="distroplane-provider-npm_${version}_${os}_${arch}${extension}"
+  echo "building $provider_name"
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$provider_ldflags" -o "$out/$provider_name" ./cmd/distroplane-provider-npm
 done
 
 (
   cd "$out"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum distroplane_* > SHA256SUMS
+    sha256sum distroplane* > SHA256SUMS
   else
-    shasum -a 256 distroplane_* > SHA256SUMS
+    shasum -a 256 distroplane* > SHA256SUMS
   fi
 )

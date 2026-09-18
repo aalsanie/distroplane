@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if grep -R --include='*.go' -nE '(^|\")github\.com/aalsanie/distroplane/(providers|internal/providers)(/|\")' internal cmd 2>/dev/null; then
+if grep -R --include='*.go' -nE '(^|\")github\.com/aalsanie/distroplane/(providers|internal/providers)(/|\")' internal cmd/distroplane 2>/dev/null; then
   echo "core must not import provider implementation packages" >&2
+  exit 1
+fi
+
+provider_core_imports="$(grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/' providers 2>/dev/null | grep -v '"github\.com/aalsanie/distroplane/internal/protocol"' || true)"
+if [ -n "$provider_core_imports" ]; then
+  printf '%s\n' "$provider_core_imports" >&2
+  echo "providers must depend only on the protocol internal package" >&2
   exit 1
 fi
 
