@@ -24,6 +24,7 @@ type Executor struct {
 	maxConcurrency int
 	maxAttempts    uint32
 	backoff        Backoff
+	reconcileOnly  bool
 }
 
 type taskKind uint8
@@ -74,6 +75,7 @@ func New(driver Driver, options Options) (*Executor, error) {
 		maxConcurrency: options.MaxConcurrency,
 		maxAttempts:    options.MaxAttempts,
 		backoff:        options.Backoff,
+		reconcileOnly:  options.ReconcileOnly,
 	}, nil
 }
 
@@ -279,7 +281,7 @@ func (e *Executor) candidates(state journal.DerivedState, operations map[domain.
 			result = append(result, task{kind: taskReconcile, operation: operation, state: operationState})
 			continue
 		}
-		if state.Cancelled {
+		if state.Cancelled || e.reconcileOnly {
 			continue
 		}
 		if operationState.State == domain.StateReady || (operationState.State == domain.StateFailed && operationState.Retryable && operationState.Attempt < e.maxAttempts) {

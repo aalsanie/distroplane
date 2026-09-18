@@ -37,6 +37,17 @@ func newExecutableResolver() executableResolver {
 	return executableResolver{lookPath: exec.LookPath, abs: filepath.Abs, stat: os.Stat}
 }
 
+func ResolveExecutable(baseDir, name, configuredExecutable string) (string, error) {
+	configured := configuredExecutable
+	if configured != "" && !filepath.IsAbs(configured) && strings.ContainsAny(configured, `/\`) {
+		if strings.TrimSpace(baseDir) == "" {
+			return "", fmt.Errorf("base directory must not be empty for relative provider executable")
+		}
+		configured = filepath.Join(baseDir, configured)
+	}
+	return newExecutableResolver().Resolve(name, configured)
+}
+
 func (r executableResolver) Resolve(name, configuredExecutable string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("provider name must not be empty")

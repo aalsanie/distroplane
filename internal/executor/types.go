@@ -106,6 +106,7 @@ type Options struct {
 	MaxAttempts    uint32
 	Backoff        Backoff
 	Leases         LeaseManager
+	ReconcileOnly  bool
 }
 
 func validateText(name, value string, optional bool) error {
