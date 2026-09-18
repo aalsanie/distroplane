@@ -77,6 +77,7 @@ jobs:
         run: |
           go build -trimpath ./cmd/distroplane
           go build -trimpath ./cmd/distroplane-provider-npm
+          go build -trimpath ./cmd/distroplane-provider-sdkman
 
   release-build:
     name: Release build (${{ matrix.os }})
@@ -125,12 +126,18 @@ jobs:
             distroplane-provider-npm_0.0.0-ci_darwin_arm64
             distroplane-provider-npm_0.0.0-ci_windows_amd64.exe
             distroplane-provider-npm_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-sdkman_0.0.0-ci_linux_amd64
+            distroplane-provider-sdkman_0.0.0-ci_linux_arm64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_amd64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_arm64
+            distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe
           )
           for artifact in "${expected[@]}"; do
             test -f "dist/$artifact"
           done
-          test "$(find dist -maxdepth 1 -type f -name 'distroplane*' | wc -l | tr -d ' ')" -eq 12
-          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq 12
+          test "$(find dist -maxdepth 1 -type f -name 'distroplane*' | wc -l | tr -d ' ')" -eq 18
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq 18
           (
             cd dist
             if command -v sha256sum >/dev/null 2>&1; then
@@ -155,18 +162,24 @@ jobs:
             'distroplane-provider-npm_0.0.0-ci_darwin_amd64',
             'distroplane-provider-npm_0.0.0-ci_darwin_arm64',
             'distroplane-provider-npm_0.0.0-ci_windows_amd64.exe',
-            'distroplane-provider-npm_0.0.0-ci_windows_arm64.exe'
+            'distroplane-provider-npm_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe'
           )
           foreach ($artifact in $expected) {
             if (-not (Test-Path (Join-Path 'dist' $artifact) -PathType Leaf)) {
               throw "missing release artifact: $artifact"
             }
           }
-          if ((Get-ChildItem dist -File -Filter 'distroplane*').Count -ne 12) {
+          if ((Get-ChildItem dist -File -Filter 'distroplane*').Count -ne 18) {
             throw 'unexpected release artifact count'
           }
           $lines = @(Get-Content dist/SHA256SUMS)
-          if ($lines.Count -ne 12) {
+          if ($lines.Count -ne 18) {
             throw 'unexpected checksum entry count'
           }
           foreach ($line in $lines) {

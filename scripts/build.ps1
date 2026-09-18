@@ -17,6 +17,7 @@ $Targets = @(
     @('darwin','amd64'), @('darwin','arm64'),
     @('windows','amd64'), @('windows','arm64')
 )
+$Providers = @('npm', 'sdkman')
 
 $OldCgo = $env:CGO_ENABLED
 $OldGoos = $env:GOOS
@@ -34,10 +35,12 @@ try {
         go build -trimpath -ldflags $CliLdFlags -o (Join-Path $Out $CliName) ./cmd/distroplane
         if ($LASTEXITCODE -ne 0) { throw "go build failed for distroplane $Os/$Arch" }
 
-        $ProviderName = "distroplane-provider-npm_${Version}_${Os}_${Arch}${Ext}"
-        Write-Host "building $ProviderName"
-        go build -trimpath -ldflags $ProviderLdFlags -o (Join-Path $Out $ProviderName) ./cmd/distroplane-provider-npm
-        if ($LASTEXITCODE -ne 0) { throw "go build failed for distroplane-provider-npm $Os/$Arch" }
+        foreach ($Provider in $Providers) {
+            $ProviderName = "distroplane-provider-${Provider}_${Version}_${Os}_${Arch}${Ext}"
+            Write-Host "building $ProviderName"
+            go build -trimpath -ldflags $ProviderLdFlags -o (Join-Path $Out $ProviderName) "./cmd/distroplane-provider-${Provider}"
+            if ($LASTEXITCODE -ne 0) { throw "go build failed for distroplane-provider-${Provider} $Os/$Arch" }
+        }
     }
 } finally {
     $env:CGO_ENABLED = $OldCgo
