@@ -1,0 +1,159 @@
+name: Distroplane
+description: 'Plan, apply, reconcile, and export release-distribution evidence with the Distroplane CLI.'
+author: Distroplane
+
+inputs:
+  command:
+    description: 'Distroplane command to run: plan, apply, or reconcile.'
+    required: true
+  version:
+    description: 'Released Distroplane version. Leading v is optional. When omitted, a v-prefixed action ref is used.'
+    required: false
+    default: ''
+  repository:
+    description: 'Repository containing Distroplane release assets.'
+    required: false
+    default: aalsanie/distroplane
+  binary:
+    description: 'Existing Distroplane binary to use instead of installing a release. Intended for development and smoke tests.'
+    required: false
+    default: ''
+  install-providers:
+    description: 'Install checksum-listed provider binaries for the resolved Distroplane release and add them to PATH.'
+    required: false
+    default: 'true'
+  config:
+    description: 'Path to distroplane.json.'
+    required: false
+    default: distroplane.json
+  state-dir:
+    description: 'State directory passed to the plan command.'
+    required: false
+    default: .distroplane
+  plan:
+    description: 'Immutable plan path required by apply and reconcile.'
+    required: false
+    default: ''
+  journal:
+    description: 'Journal path required by apply and reconcile.'
+    required: false
+    default: .distroplane/run.journal
+  run-id:
+    description: 'Optional run ID for apply. Reconcile always uses the journal run ID.'
+    required: false
+    default: ''
+  credential-mappings:
+    description: 'Multiline credential reference to environment-variable mappings in REF=ENV form.'
+    required: false
+    default: ''
+  oidc:
+    description: 'Set to required to fail unless the workflow grants permissions.id-token=write.'
+    required: false
+    default: none
+  evidence-path:
+    description: 'Optional path for a release evidence bundle after apply or reconcile.'
+    required: false
+    default: ''
+  upload-evidence:
+    description: 'Upload generated evidence as a GitHub Actions artifact.'
+    required: false
+    default: 'false'
+  evidence-artifact-name:
+    description: 'Artifact name used when upload-evidence is true.'
+    required: false
+    default: distroplane-evidence
+  attestations:
+    description: 'Optional multiline evidence attestation references in NAME=URI form.'
+    required: false
+    default: ''
+
+outputs:
+  plan-id:
+    description: 'Plan ID returned by Distroplane.'
+    value: ${{ steps.execute.outputs.plan-id }}
+  plan-path:
+    description: 'Persisted plan path returned by the plan command.'
+    value: ${{ steps.execute.outputs.plan-path }}
+  run-id:
+    description: 'Run ID returned by apply or reconcile.'
+    value: ${{ steps.execute.outputs.run-id }}
+  completed:
+    description: 'Whether the run is complete.'
+    value: ${{ steps.execute.outputs.completed }}
+  pending:
+    description: 'Whether Distroplane returned its normalized pending exit status.'
+    value: ${{ steps.execute.outputs.pending }}
+  exit-code:
+    description: 'Native Distroplane command exit code.'
+    value: ${{ steps.execute.outputs.exit-code }}
+  result-json:
+    description: 'Machine-readable JSON returned by the invoked Distroplane command.'
+    value: ${{ steps.execute.outputs.result-json }}
+  oidc-available:
+    description: 'Whether GitHub exposed its native OIDC request environment to the action.'
+    value: ${{ steps.execute.outputs.oidc-available }}
+  evidence-path:
+    description: 'Generated evidence bundle path, when requested.'
+    value: ${{ steps.execute.outputs.evidence-path }}
+  evidence-digest:
+    description: 'SHA-256 digest of the generated evidence bundle.'
+    value: ${{ steps.execute.outputs.evidence-digest }}
+  evidence-artifact-id:
+    description: 'GitHub Actions artifact ID for uploaded evidence.'
+    value: ${{ steps.upload-evidence.outputs.artifact-id }}
+  evidence-artifact-url:
+    description: 'GitHub Actions URL for uploaded evidence.'
+    value: ${{ steps.upload-evidence.outputs.artifact-url }}
+  evidence-artifact-digest:
+    description: 'GitHub Actions artifact digest for uploaded evidence.'
+    value: ${{ steps.upload-evidence.outputs.artifact-digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Execute Distroplane
+      id: execute
+      shell: pwsh
+      env:
+        DISTROPLANE_ACTION_REF: ${{ github.action_ref }}
+        DISTROPLANE_ACTION_REPOSITORY: ${{ inputs.repository }}
+        DISTROPLANE_ATTESTATIONS: ${{ inputs.attestations }}
+        DISTROPLANE_BINARY: ${{ inputs.binary }}
+        DISTROPLANE_COMMAND: ${{ inputs.command }}
+        DISTROPLANE_CONFIG: ${{ inputs.config }}
+        DISTROPLANE_CREDENTIAL_MAPPINGS: ${{ inputs.credential-mappings }}
+        DISTROPLANE_EVIDENCE_PATH: ${{ inputs.evidence-path }}
+        DISTROPLANE_INSTALL_PROVIDERS: ${{ inputs.install-providers }}
+        DISTROPLANE_JOURNAL: ${{ inputs.journal }}
+        DISTROPLANE_OIDC: ${{ inputs.oidc }}
+        DISTROPLANE_PLAN: ${{ inputs.plan }}
+        DISTROPLANE_RUN_ID: ${{ inputs.run-id }}
+        DISTROPLANE_STATE_DIR: ${{ inputs.state-dir }}
+        DISTROPLANE_UPLOAD_EVIDENCE: ${{ inputs.upload-evidence }}
+        DISTROPLANE_VERSION: ${{ inputs.version }}
+      run: '& "$env:GITHUB_ACTION_PATH/action/run.ps1"'
+
+    - name: Upload evidence
+      id: upload-evidence
+      if: ${{ always() && inputs.upload-evidence == 'true' && steps.execute.outputs.evidence-path != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.evidence-artifact-name }}
+        path: ${{ steps.execute.outputs.evidence-path }}
+        if-no-files-found: error
+
+    - name: Enforce Distroplane result
+      if: ${{ always() && steps.execute.outcome == 'success' }}
+      shell: pwsh
+      env:
+        DISTROPLANE_EXIT_CODE: ${{ steps.execute.outputs.exit-code }}
+      run: |
+        $code = [int]$env:DISTROPLANE_EXIT_CODE
+        if ($code -eq 0) {
+          exit 0
+        }
+        if ($code -eq 4) {
+          Write-Host "::notice::Distroplane is waiting on external publication state; reconciliation can continue in a later job."
+          exit 0
+        }
+        throw "Distroplane command failed with exit code $code."
