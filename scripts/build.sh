@@ -19,6 +19,7 @@ targets=(
   "windows amd64"
   "windows arm64"
 )
+providers=(npm sdkman)
 
 for target in "${targets[@]}"; do
   read -r os arch <<<"$target"
@@ -29,9 +30,11 @@ for target in "${targets[@]}"; do
   echo "building $cli_name"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$cli_ldflags" -o "$out/$cli_name" ./cmd/distroplane
 
-  provider_name="distroplane-provider-npm_${version}_${os}_${arch}${extension}"
-  echo "building $provider_name"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$provider_ldflags" -o "$out/$provider_name" ./cmd/distroplane-provider-npm
+  for provider in "${providers[@]}"; do
+    provider_name="distroplane-provider-${provider}_${version}_${os}_${arch}${extension}"
+    echo "building $provider_name"
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$provider_ldflags" -o "$out/$provider_name" "./cmd/distroplane-provider-${provider}"
+  done
 done
 
 (
