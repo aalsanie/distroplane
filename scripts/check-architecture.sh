@@ -28,7 +28,7 @@ if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(con
   exit 1
 fi
 
-protocol_provider_terms="$(grep -R --include='*.go' --exclude='*_test.go' -niE '(^|[^[:alnum:]_])(npm|sdkman|homebrew|formula|cask|tap|git|consumerKey|consumerToken|packagePath|dist-tag|updateBranch|pullRequest)([^[:alnum:]_]|$)' internal/protocol 2>/dev/null || true)"
+protocol_provider_terms="$(grep -R --include='*.go' --exclude='*_test.go' -niE '(^|[^[:alnum:]_])(npm|sdkman|homebrew|winget|formula|cask|tap|git|consumerKey|consumerToken|packagePath|dist-tag|updateBranch|pullRequest|PackageIdentifier|InstallerSha256|ManifestType|ManifestVersion|defaultLocale)([^[:alnum:]_]|$)' internal/protocol 2>/dev/null || true)"
 if [ -n "$protocol_provider_terms" ]; then
   printf '%s\n' "$protocol_provider_terms" >&2
   echo "provider-specific vocabulary must not enter the core protocol" >&2
