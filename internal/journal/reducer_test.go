@@ -127,10 +127,13 @@ func TestReduceReconcileResultStates(t *testing.T) {
 				t.Fatal(err)
 			}
 			op, _ := state.Operation(opID("op-c"))
-			if op.State != want || op.Ambiguous {
+			if op.State != want {
 				t.Fatalf("op=%+v", op)
 			}
 			if (want == domain.StateWaitingExternal) != op.ReconcileRequired {
+				t.Fatalf("op=%+v", op)
+			}
+			if (want == domain.StateWaitingExternal) != op.Ambiguous {
 				t.Fatalf("op=%+v", op)
 			}
 		})
@@ -143,7 +146,7 @@ func TestReduceFailureRetryAndExplicitAmbiguity(t *testing.T) {
 		runStarted(1),
 		attemptStarted(2, "op-c", "target-b", 1),
 		dispatched(3, "op-c", "target-b", 1),
-		event(4, EventOperationResult, "op-c", "target-b", Payload{Attempt: 1, State: domain.StateFailed, ErrorCode: "TRANSIENT_EXTERNAL_ERROR"}),
+		event(4, EventOperationResult, "op-c", "target-b", Payload{Attempt: 1, State: domain.StateFailed, ErrorCode: "TRANSIENT_EXTERNAL_ERROR", Retryable: true}),
 		attemptStarted(5, "op-c", "target-b", 2),
 		dispatched(6, "op-c", "target-b", 2),
 		event(7, EventOutcomeAmbiguous, "op-c", "target-b", Payload{Attempt: 2, ErrorCode: "AMBIGUOUS_OUTCOME"}),
@@ -276,7 +279,7 @@ func TestReduceOneHundredThousandEvents(t *testing.T) {
 		events = append(events,
 			attemptStarted(seq, "op-c", "target-b", attempt),
 			dispatched(seq+1, "op-c", "target-b", attempt),
-			result(seq+2, "op-c", "target-b", attempt, domain.StateFailed),
+			event(seq+2, EventOperationResult, "op-c", "target-b", Payload{Attempt: attempt, State: domain.StateFailed, Retryable: true}),
 		)
 		seq += 3
 	}

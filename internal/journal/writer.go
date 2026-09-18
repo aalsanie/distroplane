@@ -28,6 +28,7 @@ type Writer struct {
 	runID    domain.RunID
 	next     uint64
 	clock    func() time.Time
+	events   []Event
 	poisoned bool
 	closed   bool
 }
@@ -94,7 +95,7 @@ func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
 		return nil, err
 	}
 	keepLock = true
-	return &Writer{file: file, path: absolute, lockPath: lockPath, runID: runID, next: uint64(len(result.Events)) + 1, clock: time.Now}, nil
+	return &Writer{file: file, path: absolute, lockPath: lockPath, runID: runID, next: uint64(len(result.Events)) + 1, clock: time.Now, events: cloneEvents(result.Events)}, nil
 }
 
 func acquireLock(path string) error {
@@ -183,8 +184,18 @@ func (w *Writer) Append(entry Entry) (Event, error) {
 		w.poisoned = true
 		return Event{}, err
 	}
+	w.events = append(w.events, cloneEvent(event))
 	w.next++
-	return event, nil
+	return cloneEvent(event), nil
+}
+
+func (w *Writer) Events() []Event {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return cloneEvents(w.events)
 }
 
 func writeFull(writer io.Writer, data []byte) error {

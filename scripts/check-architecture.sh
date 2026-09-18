@@ -6,4 +6,9 @@ if grep -R --include='*.go' -nE '(^|\")github\.com/aalsanie/distroplane/(provide
   exit 1
 fi
 
+if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(config|fakeprovider|planner|protocol)"' internal/executor 2>/dev/null; then
+  echo "executor must depend only on domain and journal internal packages" >&2
+  exit 1
+fi
+
 echo "architecture guard satisfied"
