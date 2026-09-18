@@ -17,7 +17,7 @@ $Targets = @(
     @('darwin','amd64'), @('darwin','arm64'),
     @('windows','amd64'), @('windows','arm64')
 )
-$Providers = @('npm', 'sdkman', 'homebrew')
+$Providers = @('npm', 'sdkman', 'homebrew', 'winget')
 
 $OldCgo = $env:CGO_ENABLED
 $OldGoos = $env:GOOS
