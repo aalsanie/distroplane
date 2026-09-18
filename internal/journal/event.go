@@ -23,9 +23,12 @@ type EventType string
 
 const (
 	EventRunStarted           EventType = "RUN_STARTED"
+	EventRunCompleted         EventType = "RUN_COMPLETED"
+	EventRunCancelled         EventType = "RUN_CANCELLED"
 	EventAttemptStarted       EventType = "ATTEMPT_STARTED"
 	EventSideEffectDispatched EventType = "SIDE_EFFECT_DISPATCHED"
 	EventOperationResult      EventType = "OPERATION_RESULT"
+	EventOperationCancelled   EventType = "OPERATION_CANCELLED"
 	EventOutcomeAmbiguous     EventType = "OUTCOME_AMBIGUOUS"
 	EventReconcileStarted     EventType = "RECONCILE_STARTED"
 	EventReconcileResult      EventType = "RECONCILE_RESULT"
@@ -47,6 +50,7 @@ type Payload struct {
 	ProviderState string                 `json:"providerState,omitempty"`
 	Evidence      json.RawMessage        `json:"evidence,omitempty"`
 	ErrorCode     string                 `json:"errorCode,omitempty"`
+	Retryable     bool                   `json:"retryable,omitempty"`
 }
 
 type Entry struct {
@@ -70,7 +74,9 @@ type Event struct {
 
 func (t EventType) valid() bool {
 	switch t {
-	case EventRunStarted, EventAttemptStarted, EventSideEffectDispatched, EventOperationResult, EventOutcomeAmbiguous, EventReconcileStarted, EventReconcileResult:
+	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventAttemptStarted,
+		EventSideEffectDispatched, EventOperationResult, EventOperationCancelled,
+		EventOutcomeAmbiguous, EventReconcileStarted, EventReconcileResult:
 		return true
 	default:
 		return false
@@ -84,9 +90,9 @@ func (e Entry) validate() error {
 	if !e.Type.valid() {
 		return fmt.Errorf("%w %q", ErrUnknownEventType, e.Type)
 	}
-	if e.Type == EventRunStarted {
+	if e.Type == EventRunStarted || e.Type == EventRunCompleted || e.Type == EventRunCancelled {
 		if e.OperationID != "" || e.TargetID != "" || !e.Payload.empty() {
-			return fmt.Errorf("run-started event must not contain operation, target, or payload data")
+			return fmt.Errorf("run lifecycle event %q must not contain operation, target, or payload data", e.Type)
 		}
 		return nil
 	}
@@ -113,16 +119,20 @@ func (e Event) validate() error {
 }
 
 func (p Payload) empty() bool {
-	return p.Attempt == 0 && p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == ""
+	return p.Attempt == 0 && p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable
 }
 
 func (p Payload) validate(eventType EventType) error {
 	switch eventType {
+	case EventOperationCancelled:
+		if p.Attempt != 0 || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
+			return fmt.Errorf("operation-cancelled event contains unsupported payload")
+		}
 	case EventAttemptStarted, EventSideEffectDispatched, EventOutcomeAmbiguous, EventReconcileStarted:
 		if p.Attempt == 0 {
 			return fmt.Errorf("attempt must be greater than zero")
 		}
-		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 {
+		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("event %q contains unsupported result payload", eventType)
 		}
 		if eventType != EventOutcomeAmbiguous && p.ErrorCode != "" {
@@ -134,6 +144,9 @@ func (p Payload) validate(eventType EventType) error {
 		}
 		if !resultState(p.State) {
 			return fmt.Errorf("invalid result state %q", p.State)
+		}
+		if p.Retryable && p.State != domain.StateFailed && p.State != domain.StateWaitingExternal {
+			return fmt.Errorf("state %q cannot be retryable", p.State)
 		}
 	default:
 		return fmt.Errorf("%w %q", ErrUnknownEventType, eventType)
@@ -233,4 +246,17 @@ func validateText(name, value string, optional bool) error {
 		}
 	}
 	return nil
+}
+
+func cloneEvent(event Event) Event {
+	event.Payload.Evidence = append(json.RawMessage(nil), event.Payload.Evidence...)
+	return event
+}
+
+func cloneEvents(events []Event) []Event {
+	result := make([]Event, len(events))
+	for i, event := range events {
+		result[i] = cloneEvent(event)
+	}
+	return result
 }

@@ -78,7 +78,7 @@ func benchmarkEvents(count int) []Event {
 		events = append(events,
 			attemptStarted(seq, "op-c", "target-b", attempt),
 			dispatched(seq+1, "op-c", "target-b", attempt),
-			result(seq+2, "op-c", "target-b", attempt, domain.StateFailed),
+			event(seq+2, EventOperationResult, "op-c", "target-b", Payload{Attempt: attempt, State: domain.StateFailed, Retryable: true}),
 		)
 		seq += 3
 		attempt++
