@@ -23,7 +23,9 @@ const helperModeEnv = "DISTROPLANE_PROVIDERHOST_MODE"
 type helperHandler struct{}
 
 type helperConfig struct {
-	Mode string `json:"mode,omitempty"`
+	Mode                 string `json:"mode,omitempty"`
+	ExpectedEnvironment  string `json:"expectedEnvironment,omitempty"`
+	ForbiddenEnvironment string `json:"forbiddenEnvironment,omitempty"`
 }
 
 func (helperHandler) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
@@ -37,6 +39,9 @@ func (helperHandler) Describe(context.Context, protocol.DescribeRequest) (protoc
 		versions = []string{"2"}
 	case "no_reconcile":
 		capabilities = []protocol.Capability{protocol.CapabilityPlan, protocol.CapabilityApply}
+	case "binding_identity":
+		name := filepath.Base(os.Args[0])
+		provider.Name = strings.TrimSuffix(name, filepath.Ext(name))
 	}
 	return protocol.DescribeResponse{Provider: provider, ProtocolVersions: versions, Capabilities: capabilities}, nil
 }
@@ -64,6 +69,34 @@ func (helperHandler) Apply(_ context.Context, request protocol.ApplyRequest) (pr
 		return protocol.ApplyResponse{}, &value
 	}
 	switch cfg.Mode {
+	case "credential":
+		got := os.Getenv(cfg.ExpectedEnvironment)
+		want := ""
+		switch cfg.ExpectedEnvironment {
+		case "CREDENTIAL_A":
+			want = credentialACanary
+		case "CREDENTIAL_B":
+			want = credentialBCanary
+		}
+		if want == "" || got != want {
+			value := protocol.NewProviderError(protocol.ErrorAuthentication, "required credential is missing", false)
+			return protocol.ApplyResponse{}, &value
+		}
+		if cfg.ForbiddenEnvironment != "" && os.Getenv(cfg.ForbiddenEnvironment) != "" {
+			value := protocol.NewProviderError(protocol.ErrorAuthorization, "unrelated credential was exposed", false)
+			return protocol.ApplyResponse{}, &value
+		}
+		return protocol.ApplyResponse{Result: protocol.DistributionResult{State: protocol.ResultPublished, ProviderState: "published", Evidence: json.RawMessage(`{"provider":"helper"}`)}}, nil
+	case "secret_error":
+		value := protocol.NewProviderError(protocol.ErrorAuthentication, "credential "+os.Getenv(cfg.ExpectedEnvironment)+" rejected", false)
+		return protocol.ApplyResponse{}, &value
+	case "secret_evidence":
+		evidence, _ := json.Marshal(map[string]string{"value": os.Getenv(cfg.ExpectedEnvironment)})
+		return protocol.ApplyResponse{Result: protocol.DistributionResult{State: protocol.ResultPublished, ProviderState: "state-" + os.Getenv(cfg.ExpectedEnvironment), Evidence: evidence}}, nil
+	case "secret_crash":
+		_, _ = fmt.Fprintln(os.Stderr, "credential="+os.Getenv(cfg.ExpectedEnvironment))
+		os.Exit(70)
+		return protocol.ApplyResponse{}, nil
 	case "waiting":
 		return protocol.ApplyResponse{Result: protocol.DistributionResult{State: protocol.ResultWaitingExternal, ProviderState: "pending", Evidence: json.RawMessage(`{"provider":"helper"}`)}}, nil
 	case "rejected":
