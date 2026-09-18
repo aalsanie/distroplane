@@ -28,6 +28,11 @@ if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(con
   exit 1
 fi
 
+if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(config|credentials|executor|fakeprovider|planner|protocol|providerhost)"' internal/evidence 2>/dev/null; then
+  echo "evidence must depend only on canonicaljson, domain, and journal internal packages" >&2
+  exit 1
+fi
+
 protocol_provider_terms="$(grep -R --include='*.go' --exclude='*_test.go' -niE '(^|[^[:alnum:]_])(npm|sdkman|homebrew|winget|formula|cask|tap|git|consumerKey|consumerToken|packagePath|dist-tag|updateBranch|pullRequest|PackageIdentifier|InstallerSha256|ManifestType|ManifestVersion|defaultLocale)([^[:alnum:]_]|$)' internal/protocol 2>/dev/null || true)"
 if [ -n "$protocol_provider_terms" ]; then
   printf '%s\n' "$protocol_provider_terms" >&2
