@@ -8,7 +8,9 @@ import (
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
-type Provider struct{}
+type Provider struct {
+	Name string
+}
 
 type config struct {
 	Mode           string `json:"mode,omitempty"`
@@ -16,9 +18,13 @@ type config struct {
 	Credential     string `json:"credential,omitempty"`
 }
 
-func (Provider) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
+func (p Provider) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
+	name := p.Name
+	if name == "" {
+		name = "fake"
+	}
 	return protocol.DescribeResponse{
-		Provider:         protocol.ProviderIdentity{Name: "fake", Version: "1.0.0"},
+		Provider:         protocol.ProviderIdentity{Name: name, Version: "1.0.0"},
 		ProtocolVersions: []string{protocol.Version},
 		Capabilities:     []protocol.Capability{protocol.CapabilityPlan, protocol.CapabilityApply, protocol.CapabilityReconcile},
 	}, nil

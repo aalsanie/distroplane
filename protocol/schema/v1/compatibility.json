@@ -1,0 +1,29 @@
+{
+  "status": "candidate",
+  "protocolVersion": "1",
+  "reservedEnvelopeFields": [
+    "protocolVersion",
+    "requestId",
+    "operation",
+    "status",
+    "payload",
+    "error"
+  ],
+  "extensionPoints": [
+    "describeResponse.requirements",
+    "requirement.metadata",
+    "target.configuration",
+    "plannedOperation.providerPayload",
+    "providerError.details",
+    "distributionResult.evidence",
+    "distributionResult.providerState"
+  ],
+  "unknownFields": "ignored",
+  "unknownOperations": "rejected",
+  "unknownCapabilities": "rejected",
+  "versionNegotiation": {
+    "advertisement": "describeResponse.protocolVersions",
+    "selection": "core requires an exact supported protocol version",
+    "current": "1"
+  }
+}
