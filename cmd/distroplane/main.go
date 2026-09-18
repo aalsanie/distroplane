@@ -58,6 +58,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "reconcile":
 		return runReconcile(args[1:], stdout, stderr)
+	case "evidence":
+		return runEvidence(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		fmt.Fprintln(stderr, "run 'distroplane help' for usage")
@@ -105,5 +107,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "                                      inspect journal-derived state")
 	fmt.Fprintln(w, "  reconcile --config PATH --plan PATH --journal PATH [--json]")
 	fmt.Fprintln(w, "                                      reconcile external state only")
+	fmt.Fprintln(w, "  evidence --plan PATH --journal PATH [--output PATH] [--json]")
+	fmt.Fprintln(w, "                                      export normalized release evidence")
 	fmt.Fprintln(w, "  help                             print this help")
 }
