@@ -11,4 +11,9 @@ if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(con
   exit 1
 fi
 
+if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/fakeprovider"' internal/providerhost 2>/dev/null; then
+  echo "provider host must not import provider implementations" >&2
+  exit 1
+fi
+
 echo "architecture guard satisfied"
