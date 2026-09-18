@@ -41,6 +41,12 @@ On Windows PowerShell:
 ./scripts/build.ps1
 ```
 
+## GitHub Actions
+
+The repository includes a provider-neutral composite Action for `plan`, `apply`, and `reconcile`. It resolves checksum-verified release binaries, exposes normalized JSON outputs, supports native GitHub OIDC permission checks, and can upload release evidence artifacts.
+
+See [docs/github-actions.md](docs/github-actions.md) for usage and CI security guidance.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

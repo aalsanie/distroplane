@@ -1,0 +1,252 @@
+name: GitHub Action smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan and handoff (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build smoke fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1
+      - name: Plan with local action
+        id: plan
+        uses: ./
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          state-dir: state
+      - name: Verify plan outputs
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.plan.outputs.plan-id }}
+          PLAN_PATH: ${{ steps.plan.outputs.plan-path }}
+          EXIT_CODE: ${{ steps.plan.outputs.exit-code }}
+          RESULT_JSON: ${{ steps.plan.outputs.result-json }}
+        run: |
+          if (-not $env:PLAN_ID) { throw 'plan-id output is empty' }
+          if (-not (Test-Path -LiteralPath $env:PLAN_PATH -PathType Leaf)) { throw 'plan-path output is missing' }
+          if ($env:EXIT_CODE -ne '0') { throw "unexpected plan exit code $env:EXIT_CODE" }
+          $result = $env:RESULT_JSON | ConvertFrom-Json
+          if ($result.planId -ne $env:PLAN_ID -or $result.targets -ne 1 -or $result.operations -ne 1) {
+            throw 'plan result outputs are inconsistent'
+          }
+      - name: Upload plan handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: p14-plan-${{ matrix.os }}
+          path: smoke
+          if-no-files-found: error
+
+  apply:
+    name: Apply and evidence (${{ matrix.os }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download plan handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: p14-plan-${{ matrix.os }}
+          path: smoke
+      - name: Restore handoff
+        id: fixture
+        shell: pwsh
+        run: |
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          $cli = (Resolve-Path "smoke/bin/distroplane$extension").Path
+          $provider = (Resolve-Path "smoke/bin/distroplane-provider-fake$extension").Path
+          if (-not $IsWindows) {
+            & chmod +x $cli $provider
+            if ($LASTEXITCODE -ne 0) { throw 'failed to restore executable permissions' }
+          }
+          $configPath = (Resolve-Path 'smoke/distroplane.json').Path
+          $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $config.targets[0].provider.executable = $provider
+          $config | ConvertTo-Json -Depth 12 -Compress | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+          $plan = Get-ChildItem -LiteralPath 'smoke/state/plans' -File -Filter '*.json'
+          if ($plan.Count -ne 1) { throw 'expected exactly one handed-off plan' }
+          "cli=$cli" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+          "config=$configPath" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+          "plan=$($plan[0].FullName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+      - name: Apply with local action
+        id: apply
+        uses: ./
+        with:
+          command: apply
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          plan: ${{ steps.fixture.outputs.plan }}
+          journal: smoke/run.journal
+          run-id: run-p14-smoke
+          evidence-path: smoke/evidence.json
+          upload-evidence: 'true'
+          evidence-artifact-name: p14-evidence-${{ matrix.os }}
+      - name: Verify apply outputs
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.apply.outputs.plan-id }}
+          RUN_ID: ${{ steps.apply.outputs.run-id }}
+          COMPLETED: ${{ steps.apply.outputs.completed }}
+          PENDING: ${{ steps.apply.outputs.pending }}
+          EXIT_CODE: ${{ steps.apply.outputs.exit-code }}
+          RESULT_JSON: ${{ steps.apply.outputs.result-json }}
+          EVIDENCE_PATH: ${{ steps.apply.outputs.evidence-path }}
+          EVIDENCE_DIGEST: ${{ steps.apply.outputs.evidence-digest }}
+          EVIDENCE_ARTIFACT_ID: ${{ steps.apply.outputs.evidence-artifact-id }}
+        run: |
+          if (-not $env:PLAN_ID) { throw 'plan-id output is empty' }
+          if ($env:RUN_ID -ne 'run-p14-smoke') { throw "unexpected run ID $env:RUN_ID" }
+          if ($env:COMPLETED -ne 'true' -or $env:PENDING -ne 'false' -or $env:EXIT_CODE -ne '0') {
+            throw 'apply did not complete successfully'
+          }
+          if (-not (Test-Path -LiteralPath $env:EVIDENCE_PATH -PathType Leaf)) { throw 'evidence output is missing' }
+          if ($env:EVIDENCE_DIGEST -notmatch '^sha256:[0-9a-f]{64}$') { throw 'invalid evidence digest' }
+          if (-not $env:EVIDENCE_ARTIFACT_ID) { throw 'evidence artifact ID is empty' }
+          $result = $env:RESULT_JSON | ConvertFrom-Json
+          if ($result.targets.Count -ne 1 -or $result.targets[0].state -ne 'PUBLISHED') {
+            throw 'unexpected normalized target state'
+          }
+
+  evidence-handoff:
+    name: Evidence handoff (${{ matrix.os }})
+    needs: apply
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download action evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: p14-evidence-${{ matrix.os }}
+          path: evidence
+      - name: Verify evidence bundle
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -LiteralPath evidence -Recurse -File -Filter '*.json'
+          if ($files.Count -ne 1) { throw 'expected exactly one evidence bundle' }
+          $bundle = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          if ($bundle.schemaVersion -ne '1' -or $bundle.run.id -ne 'run-p14-smoke') {
+            throw 'invalid evidence identity'
+          }
+          if ($bundle.targets.Count -ne 1 -or $bundle.targets[0].state -ne 'PUBLISHED') {
+            throw 'evidence does not contain published target state'
+          }
+
+  oidc-denied:
+    name: OIDC permission denied
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build valid smoke fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1
+      - name: Require unavailable OIDC
+        id: oidc
+        continue-on-error: true
+        uses: ./
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          state-dir: oidc-state
+          oidc: required
+      - name: Verify OIDC permission failure
+        shell: pwsh
+        env:
+          ACTION_OUTCOME: ${{ steps.oidc.outcome }}
+        run: |
+          if ($env:ACTION_OUTCOME -ne 'failure') {
+            throw "OIDC requirement unexpectedly succeeded without id-token: write"
+          }
+
+  oidc-granted:
+    name: OIDC permission granted
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build valid smoke fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1
+      - name: Plan with native OIDC enabled
+        id: oidc
+        uses: ./
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          state-dir: oidc-state
+          oidc: required
+      - name: Verify OIDC availability
+        shell: pwsh
+        env:
+          OIDC_AVAILABLE: ${{ steps.oidc.outputs.oidc-available }}
+          EXIT_CODE: ${{ steps.oidc.outputs.exit-code }}
+        run: |
+          if ($env:OIDC_AVAILABLE -ne 'true' -or $env:EXIT_CODE -ne '0') {
+            throw 'OIDC was not exposed after granting id-token: write'
+          }
