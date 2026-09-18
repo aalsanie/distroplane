@@ -125,6 +125,14 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 		if err != nil {
 			return DistributionPlan{}, fmt.Errorf("target %q requirements: %w", targetConfig.ID, err)
 		}
+		domainRequirements, err := buildDomainRequirements(requirements)
+		if err != nil {
+			return DistributionPlan{}, fmt.Errorf("target %q requirements: %w", targetConfig.ID, err)
+		}
+		target, err = domain.NewTargetWithRequirements(targetID, providerRef, configuration, domainRequirements)
+		if err != nil {
+			return DistributionPlan{}, err
+		}
 
 		targets = append(targets, target)
 		targetDocs = append(targetDocs, targetDocument{
@@ -388,4 +396,16 @@ func operationIDsToStrings(values []domain.OperationID) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func buildDomainRequirements(values []requirementDocument) ([]domain.Requirement, error) {
+	result := make([]domain.Requirement, 0, len(values))
+	for _, requirement := range values {
+		value, err := domain.NewRequirement(requirement.Kind, requirement.Name, requirement.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
 }

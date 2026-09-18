@@ -16,4 +16,9 @@ if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/fake
   exit 1
 fi
 
+if grep -R --include='*.go' -nE '"github\.com/aalsanie/distroplane/internal/(config|executor|fakeprovider|journal|planner|protocol|providerhost)"' internal/credentials 2>/dev/null; then
+  echo "credentials must depend only on domain internal package" >&2
+  exit 1
+fi
+
 echo "architecture guard satisfied"

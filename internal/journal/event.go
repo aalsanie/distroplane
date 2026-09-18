@@ -26,6 +26,7 @@ const (
 	EventRunCompleted         EventType = "RUN_COMPLETED"
 	EventRunCancelled         EventType = "RUN_CANCELLED"
 	EventAttemptStarted       EventType = "ATTEMPT_STARTED"
+	EventCredentialResolved   EventType = "CREDENTIAL_RESOLVED"
 	EventSideEffectDispatched EventType = "SIDE_EFFECT_DISPATCHED"
 	EventOperationResult      EventType = "OPERATION_RESULT"
 	EventOperationCancelled   EventType = "OPERATION_CANCELLED"
@@ -46,6 +47,7 @@ var (
 
 type Payload struct {
 	Attempt       uint32                 `json:"attempt,omitempty"`
+	CredentialRef domain.CredentialRef   `json:"credentialRef,omitempty"`
 	State         domain.NormalizedState `json:"state,omitempty"`
 	ProviderState string                 `json:"providerState,omitempty"`
 	Evidence      json.RawMessage        `json:"evidence,omitempty"`
@@ -75,7 +77,7 @@ type Event struct {
 func (t EventType) valid() bool {
 	switch t {
 	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventAttemptStarted,
-		EventSideEffectDispatched, EventOperationResult, EventOperationCancelled,
+		EventCredentialResolved, EventSideEffectDispatched, EventOperationResult, EventOperationCancelled,
 		EventOutcomeAmbiguous, EventReconcileStarted, EventReconcileResult:
 		return true
 	default:
@@ -119,26 +121,39 @@ func (e Event) validate() error {
 }
 
 func (p Payload) empty() bool {
-	return p.Attempt == 0 && p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable
+	return p.Attempt == 0 && p.CredentialRef == "" && p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable
 }
 
 func (p Payload) validate(eventType EventType) error {
 	switch eventType {
 	case EventOperationCancelled:
-		if p.Attempt != 0 || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
+		if p.Attempt != 0 || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("operation-cancelled event contains unsupported payload")
+		}
+	case EventCredentialResolved:
+		if p.Attempt == 0 {
+			return fmt.Errorf("attempt must be greater than zero")
+		}
+		if !p.CredentialRef.Valid() {
+			return fmt.Errorf("credential reference is invalid")
+		}
+		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.ErrorCode != "" || p.Retryable {
+			return fmt.Errorf("credential-resolved event contains unsupported payload")
 		}
 	case EventAttemptStarted, EventSideEffectDispatched, EventOutcomeAmbiguous, EventReconcileStarted:
 		if p.Attempt == 0 {
 			return fmt.Errorf("attempt must be greater than zero")
 		}
-		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
+		if p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("event %q contains unsupported result payload", eventType)
 		}
 		if eventType != EventOutcomeAmbiguous && p.ErrorCode != "" {
 			return fmt.Errorf("event %q must not contain an error code", eventType)
 		}
 	case EventOperationResult, EventReconcileResult:
+		if p.CredentialRef != "" {
+			return fmt.Errorf("result event must not contain a credential reference")
+		}
 		if p.Attempt == 0 {
 			return fmt.Errorf("attempt must be greater than zero")
 		}

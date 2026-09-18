@@ -34,10 +34,11 @@ const (
 )
 
 type task struct {
-	kind      taskKind
-	operation domain.Operation
-	state     journal.OperationState
-	lease     Lease
+	kind         taskKind
+	operation    domain.Operation
+	state        journal.OperationState
+	requirements []domain.Requirement
+	lease        Lease
 }
 
 type taskOutcome struct {
@@ -108,6 +109,10 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 	for _, operation := range plan.Operations() {
 		operations[operation.ID()] = operation
 	}
+	targetRequirements := make(map[domain.TargetID][]domain.Requirement, len(plan.Targets()))
+	for _, target := range plan.Targets() {
+		targetRequirements[target.ID()] = target.Requirements()
+	}
 
 	events := writer.Events()
 	state, err := journal.Reduce(plan, events)
@@ -151,7 +156,14 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 		}
 
 		if !state.Cancelled {
-			changed, err := cancelBlocked(runID, writer, state, operations, e.maxAttempts)
+			changed, err := recoverUndispatched(runID, writer, state, operations)
+			if err != nil {
+				return state, err
+			}
+			if changed {
+				continue
+			}
+			changed, err = cancelBlocked(runID, writer, state, operations, e.maxAttempts)
 			if err != nil {
 				return state, err
 			}
@@ -161,6 +173,9 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 		}
 
 		candidates := e.candidates(state, operations, reconciled, deferred)
+		for i := range candidates {
+			candidates[i].requirements = targetRequirements[candidates[i].operation.TargetID()]
+		}
 		if len(candidates) == 0 {
 			if state.Cancelled {
 				return state, nil
@@ -290,14 +305,6 @@ func prepareTask(runID domain.RunID, writer *journal.Writer, current task) error
 		}); err != nil {
 			return err
 		}
-		if current.operation.SideEffecting() {
-			if _, err := writer.Append(journal.Entry{
-				RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-				Payload: journal.Payload{Attempt: attempt},
-			}); err != nil {
-				return err
-			}
-		}
 		return nil
 	}
 	if _, err := writer.Append(journal.Entry{
@@ -324,7 +331,50 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 
 	ctx, cancel := operationContext(parent, current.operation.Timeout())
 	defer cancel()
-	request := Request{PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt}
+	request := Request{
+		PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt,
+		Requirements: append([]domain.Requirement(nil), current.requirements...),
+	}
+	callCtx := ctx
+	var release func()
+	if preparer, ok := e.driver.(Preparer); ok {
+		operation := DriverApply
+		if current.kind == taskReconcile {
+			operation = DriverReconcile
+		}
+		preparation, err := preparer.Prepare(ctx, request, operation)
+		if err != nil {
+			if current.kind == taskReconcile {
+				outcome.infrastructureErr = persistReconcileOutcome(parent, ctx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, Result{}, err)
+			} else {
+				outcome.infrastructureErr = persistPreparationFailure(parent, ctx, writer, runID, current.operation, outcome.attempt, err)
+			}
+			return outcome
+		}
+		if preparation.Context != nil {
+			callCtx = preparation.Context
+		}
+		release = preparation.Release
+		if err := recordCredentialResolution(runID, writer, current.operation, outcome.attempt, preparation.CredentialRefs); err != nil {
+			if release != nil {
+				release()
+			}
+			outcome.infrastructureErr = err
+			return outcome
+		}
+	}
+	if release != nil {
+		defer release()
+	}
+	if current.kind == taskApply && current.operation.SideEffecting() {
+		if _, err := writer.Append(journal.Entry{
+			RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
+			Payload: journal.Payload{Attempt: outcome.attempt},
+		}); err != nil {
+			outcome.infrastructureErr = err
+			return outcome
+		}
+	}
 	if current.kind == taskReconcile {
 		request.Previous = &Previous{
 			State:         current.state.State,
@@ -333,16 +383,39 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			ErrorCode:     current.state.ErrorCode,
 			Ambiguous:     current.state.Ambiguous,
 		}
-		result, err := e.driver.Reconcile(ctx, request)
-		outcome.infrastructureErr = persistReconcileOutcome(parent, ctx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, result, err)
+		result, err := e.driver.Reconcile(callCtx, request)
+		outcome.infrastructureErr = persistReconcileOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, result, err)
 		return outcome
 	}
 
-	result, err := e.driver.Apply(ctx, request)
-	deferred, persistErr := persistApplyOutcome(parent, ctx, writer, runID, current.operation, outcome.attempt, result, err)
+	result, err := e.driver.Apply(callCtx, request)
+	deferred, persistErr := persistApplyOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, result, err)
 	outcome.deferReconcile = deferred
 	outcome.infrastructureErr = persistErr
 	return outcome
+}
+
+func recordCredentialResolution(runID domain.RunID, writer *journal.Writer, operation domain.Operation, attempt uint32, refs []domain.CredentialRef) error {
+	for _, ref := range refs {
+		if _, err := writer.Append(journal.Entry{
+			RunID: runID, Type: journal.EventCredentialResolved, OperationID: operation.ID(), TargetID: operation.TargetID(),
+			Payload: journal.Payload{Attempt: attempt, CredentialRef: ref},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistPreparationFailure(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, callErr error) error {
+	code, retryable, _, cancelled := classifyCallError(parent, callCtx, callErr)
+	state := domain.StateFailed
+	if cancelled {
+		state = domain.StateCancelled
+		retryable = false
+	}
+	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, code, retryable))
+	return err
 }
 
 func operationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -441,6 +514,24 @@ func ambiguousEntry(runID domain.RunID, operation domain.Operation, attempt uint
 		RunID: runID, Type: journal.EventOutcomeAmbiguous, OperationID: operation.ID(), TargetID: operation.TargetID(),
 		Payload: journal.Payload{Attempt: attempt, ErrorCode: code},
 	}
+}
+
+func recoverUndispatched(runID domain.RunID, writer *journal.Writer, state journal.DerivedState, operations map[domain.OperationID]domain.Operation) (bool, error) {
+	changed := false
+	for _, operationState := range state.Operations() {
+		if operationState.State != domain.StateRunning || operationState.ReconcileRequired {
+			continue
+		}
+		operation, ok := operations[operationState.ID]
+		if !ok {
+			continue
+		}
+		if _, err := writer.Append(resultEntry(runID, operation, operationState.Attempt, domain.StateFailed, "", nil, "INTERRUPTED_BEFORE_DISPATCH", true)); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
 }
 
 func cancelBlocked(runID domain.RunID, writer *journal.Writer, state journal.DerivedState, operations map[domain.OperationID]domain.Operation, maxAttempts uint32) (bool, error) {

@@ -92,9 +92,14 @@ type Target struct {
 	id            TargetID
 	provider      ProviderRef
 	configuration JSONValue
+	requirements  []Requirement
 }
 
 func NewTarget(id TargetID, provider ProviderRef, configuration JSONValue) (Target, error) {
+	return NewTargetWithRequirements(id, provider, configuration, nil)
+}
+
+func NewTargetWithRequirements(id TargetID, provider ProviderRef, configuration JSONValue, requirements []Requirement) (Target, error) {
 	if !id.Valid() {
 		return Target{}, fmt.Errorf("target ID is invalid")
 	}
@@ -104,12 +109,27 @@ func NewTarget(id TargetID, provider ProviderRef, configuration JSONValue) (Targ
 	if !configuration.Valid() {
 		return Target{}, fmt.Errorf("target configuration is invalid")
 	}
-	return Target{id: id, provider: provider, configuration: configuration}, nil
+	seen := make(map[string]struct{}, len(requirements))
+	for _, requirement := range requirements {
+		if !requirement.Valid() {
+			return Target{}, fmt.Errorf("target requirement is invalid")
+		}
+		key := requirement.kind + "\x00" + requirement.name + "\x00" + string(requirement.metadata)
+		if _, exists := seen[key]; exists {
+			return Target{}, fmt.Errorf("duplicate target requirement %q/%q", requirement.kind, requirement.name)
+		}
+		seen[key] = struct{}{}
+	}
+	return Target{
+		id: id, provider: provider, configuration: configuration,
+		requirements: cloneRequirements(requirements),
+	}, nil
 }
 
-func (t Target) ID() TargetID             { return t.id }
-func (t Target) Provider() ProviderRef    { return t.provider }
-func (t Target) Configuration() JSONValue { return JSONValue{raw: t.configuration.Bytes()} }
+func (t Target) ID() TargetID                { return t.id }
+func (t Target) Provider() ProviderRef       { return t.provider }
+func (t Target) Configuration() JSONValue    { return JSONValue{raw: t.configuration.Bytes()} }
+func (t Target) Requirements() []Requirement { return cloneRequirements(t.requirements) }
 
 type Operation struct {
 	id              OperationID

@@ -117,7 +117,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 		if completed {
 			return DerivedState{}, fmt.Errorf("event %q follows terminal run event", event.Type)
 		}
-		if cancelled && event.Type != EventReconcileStarted && event.Type != EventReconcileResult {
+		if cancelled && event.Type != EventReconcileStarted && event.Type != EventCredentialResolved && event.Type != EventReconcileResult {
 			return DerivedState{}, fmt.Errorf("event %q is not allowed after run cancellation", event.Type)
 		}
 		switch event.Type {
@@ -174,6 +174,20 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.ProviderState = ""
 			operation.Evidence = nil
 			operation.ErrorCode = ""
+		case EventCredentialResolved:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if event.Payload.Attempt != operation.Attempt {
+				return DerivedState{}, fmt.Errorf("operation %q has no matching credential resolution attempt", operation.ID)
+			}
+			if operation.reconciling {
+				break
+			}
+			if operation.State != domain.StateRunning || operation.dispatched {
+				return DerivedState{}, fmt.Errorf("operation %q cannot resolve credentials in state %q", operation.ID, operation.State)
+			}
 		case EventSideEffectDispatched:
 			operation, err := eventOperation(event, operations)
 			if err != nil {

@@ -41,6 +41,11 @@ type Client struct {
 	sequence    atomic.Uint64
 }
 
+type callOptions struct {
+	environment []string
+	redactions  [][]byte
+}
+
 type ProcessError struct {
 	Executable  string
 	Err         error
@@ -128,22 +133,34 @@ func (c *Client) Plan(ctx context.Context, endpoint planner.Endpoint, request pr
 }
 
 func (c *Client) apply(ctx context.Context, executable string, request protocol.ApplyRequest) (protocol.ApplyResponse, error) {
+	return c.applyWithOptions(ctx, executable, request, callOptions{})
+}
+
+func (c *Client) applyWithOptions(ctx context.Context, executable string, request protocol.ApplyRequest, options callOptions) (protocol.ApplyResponse, error) {
 	var result protocol.ApplyResponse
-	if err := c.call(ctx, executable, protocol.OperationApply, request, &result); err != nil {
+	if err := c.callWithOptions(ctx, executable, protocol.OperationApply, request, &result, options); err != nil {
 		return protocol.ApplyResponse{}, err
 	}
 	return result, nil
 }
 
 func (c *Client) reconcile(ctx context.Context, executable string, request protocol.ReconcileRequest) (protocol.ReconcileResponse, error) {
+	return c.reconcileWithOptions(ctx, executable, request, callOptions{})
+}
+
+func (c *Client) reconcileWithOptions(ctx context.Context, executable string, request protocol.ReconcileRequest, options callOptions) (protocol.ReconcileResponse, error) {
 	var result protocol.ReconcileResponse
-	if err := c.call(ctx, executable, protocol.OperationReconcile, request, &result); err != nil {
+	if err := c.callWithOptions(ctx, executable, protocol.OperationReconcile, request, &result, options); err != nil {
 		return protocol.ReconcileResponse{}, err
 	}
 	return result, nil
 }
 
 func (c *Client) call(ctx context.Context, executable string, operation protocol.Operation, payload any, destination any) error {
+	return c.callWithOptions(ctx, executable, operation, payload, destination, callOptions{})
+}
+
+func (c *Client) callWithOptions(ctx context.Context, executable string, operation protocol.Operation, payload any, destination any, options callOptions) error {
 	if ctx == nil {
 		return fmt.Errorf("context must not be nil")
 	}
@@ -181,9 +198,14 @@ func (c *Client) call(ctx context.Context, executable string, operation protocol
 	command.Stdin = &input
 	command.Stdout = stdout
 	command.Stderr = stderr
-	command.Env = append([]string(nil), c.environment...)
+	environment := c.environment
+	if options.environment != nil {
+		environment = options.environment
+	}
+	command.Env = append([]string(nil), environment...)
 	command.WaitDelay = c.waitDelay
 	runErr := command.Run()
+	redactions := newRedactor(options.redactions)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
@@ -194,7 +216,7 @@ func (c *Client) call(ctx context.Context, executable string, operation protocol
 		return &ProcessError{
 			Executable:  executable,
 			Err:         runErr,
-			Diagnostics: stderr.String(),
+			Diagnostics: redactions.text(stderr.String()),
 			Truncated:   stderr.truncated,
 		}
 	}
@@ -206,11 +228,14 @@ func (c *Client) call(ctx context.Context, executable string, operation protocol
 		return err
 	}
 	if response.Status == protocol.StatusError {
-		return &ProviderError{Value: *response.Error}
+		value := *response.Error
+		redactProviderError(&value, redactions)
+		return &ProviderError{Value: value}
 	}
 	if err := decodeResponsePayload(response.Payload, destination); err != nil {
 		return fmt.Errorf("decode provider payload: %w", err)
 	}
+	redactDestination(destination, redactions)
 	return nil
 }
 
@@ -248,6 +273,44 @@ func validateExecutable(value string) (string, error) {
 		return "", fmt.Errorf("provider executable %q is a directory", clean)
 	}
 	return clean, nil
+}
+
+func (c *Client) processEnvironment(extra []string) ([]string, error) {
+	if c == nil {
+		return nil, fmt.Errorf("provider client is not initialized")
+	}
+	return mergeEnvironment(c.environment, extra)
+}
+
+func mergeEnvironment(base, extra []string) ([]string, error) {
+	environment := make(map[string]string, len(base)+len(extra))
+	for _, value := range base {
+		key, item, ok := strings.Cut(value, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid provider environment entry")
+		}
+		environment[key] = item
+	}
+	for _, value := range extra {
+		key, item, ok := strings.Cut(value, "=")
+		if !ok || key == "" || strings.ContainsRune(key, '\x00') || strings.ContainsRune(item, '\x00') {
+			return nil, fmt.Errorf("invalid provider environment entry")
+		}
+		if _, exists := environment[key]; exists {
+			return nil, fmt.Errorf("provider environment entry %q is already defined", key)
+		}
+		environment[key] = item
+	}
+	keys := make([]string, 0, len(environment))
+	for key := range environment {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, key+"="+environment[key])
+	}
+	return result, nil
 }
 
 func normalizeEnvironment(values []string) ([]string, error) {

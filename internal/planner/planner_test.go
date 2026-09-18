@@ -51,6 +51,9 @@ func TestBuildDeterministicAcrossOrdering(t *testing.T) {
 	if len(first.document.Targets[0].Requirements) != 2 {
 		t.Fatalf("requirements=%d", len(first.document.Targets[0].Requirements))
 	}
+	if len(first.Plan().Targets()[0].Requirements()) != 2 {
+		t.Fatal("domain target requirements were not preserved")
+	}
 }
 
 func TestBuildIdentityChangesAndIgnoresSourcePath(t *testing.T) {

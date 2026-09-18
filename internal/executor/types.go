@@ -69,16 +69,34 @@ type Previous struct {
 }
 
 type Request struct {
-	PlanID    domain.PlanID
-	RunID     domain.RunID
-	Operation domain.Operation
-	Attempt   uint32
-	Previous  *Previous
+	PlanID       domain.PlanID
+	RunID        domain.RunID
+	Operation    domain.Operation
+	Attempt      uint32
+	Previous     *Previous
+	Requirements []domain.Requirement
 }
 
 type Driver interface {
 	Apply(context.Context, Request) (Result, error)
 	Reconcile(context.Context, Request) (Result, error)
+}
+
+type DriverOperation uint8
+
+const (
+	DriverApply DriverOperation = iota + 1
+	DriverReconcile
+)
+
+type Preparation struct {
+	Context        context.Context
+	CredentialRefs []domain.CredentialRef
+	Release        func()
+}
+
+type Preparer interface {
+	Prepare(context.Context, Request, DriverOperation) (Preparation, error)
 }
 
 type Backoff func(completedAttempt uint32) time.Duration

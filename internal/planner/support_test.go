@@ -218,3 +218,20 @@ func TestNewDefaults(t *testing.T) {
 		t.Fatal("defaults missing")
 	}
 }
+
+func TestBuildDomainRequirements(t *testing.T) {
+	values, err := buildDomainRequirements([]requirementDocument{{
+		Kind: "credential", Name: "release", Metadata: json.RawMessage(`{"environment":"TOKEN"}`),
+	}})
+	if err != nil || len(values) != 1 || values[0].Kind() != "credential" {
+		t.Fatalf("values=%+v err=%v", values, err)
+	}
+	for _, invalid := range []requirementDocument{
+		{Kind: "", Name: "release"},
+		{Kind: "credential", Name: "release", Metadata: json.RawMessage(`{`)},
+	} {
+		if _, err := buildDomainRequirements([]requirementDocument{invalid}); err == nil {
+			t.Fatalf("invalid requirement accepted: %+v", invalid)
+		}
+	}
+}

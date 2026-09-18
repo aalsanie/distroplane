@@ -48,7 +48,9 @@ func (Provider) Plan(_ context.Context, request protocol.PlanRequest) (protocol.
 		}},
 	}
 	if cfg.Credential != "" {
-		response.Requirements = []protocol.Requirement{{Kind: "credential", Name: cfg.Credential}}
+		response.Requirements = []protocol.Requirement{{
+			Kind: "credential", Name: cfg.Credential, Metadata: json.RawMessage(`{"environment":"DISTROPLANE_FAKE_CREDENTIAL"}`),
+		}}
 	}
 	return response, nil
 }
