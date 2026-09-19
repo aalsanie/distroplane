@@ -4,7 +4,6 @@ package providerhost
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"syscall"
 )
@@ -17,12 +16,8 @@ func terminateProcessTree(process *os.Process) error {
 	if process == nil {
 		return nil
 	}
-	if err := syscall.Kill(-process.Pid, syscall.SIGKILL); err == nil || errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	if err := process.Kill(); err == nil || errors.Is(err, os.ErrProcessDone) {
-		return nil
-	} else {
+	if err := syscall.Kill(-process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
+	return nil
 }
