@@ -222,3 +222,23 @@ func TestAttemptReasonAndResultCategoryValidation(t *testing.T) {
 		t.Fatal("unknown result category accepted")
 	}
 }
+
+
+func TestCloneEventCopiesLeaseMetadata(t *testing.T) {
+	original := event(1, EventLeaseAcquired, "op-a", "target-a", Payload{
+		Lease: leasePayload("lease-a", "worker-a", 1, 10),
+	})
+	cloned := cloneEvent(original)
+	if cloned.Payload.Lease == original.Payload.Lease {
+		t.Fatal("lease payload pointer was not copied")
+	}
+	cloned.Payload.Lease.ID = "changed"
+	if original.Payload.Lease.ID != "lease-a" {
+		t.Fatalf("original lease mutated: %+v", original.Payload.Lease)
+	}
+
+	events := cloneEvents([]Event{original})
+	if len(events) != 1 || events[0].Payload.Lease == original.Payload.Lease {
+		t.Fatalf("events=%+v", events)
+	}
+}
