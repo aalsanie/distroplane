@@ -403,7 +403,7 @@ func readJournal(path string) (journal.ReadResult, error) {
 func stateView(plan domain.Plan, state journal.DerivedState, truncated bool) stateOutput {
 	output := stateOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		PlanID: string(plan.ID()), RunID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled,
+		PlanID:              string(plan.ID()), RunID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled,
 		JournalTruncatedTail: truncated, Targets: []targetStateOutput{}, Operations: []operationStateOutput{},
 	}
 	for _, target := range state.Targets() {
