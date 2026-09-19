@@ -869,7 +869,6 @@ func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
 	}
 }
 
-
 func TestPersistOutcomeWriterFailures(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
 	operation := plan.Operations()[0]
