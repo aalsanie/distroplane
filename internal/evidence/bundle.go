@@ -235,7 +235,7 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 			CompletedAt: observations.completedAt, CancelledAt: observations.cancelledAt,
 			Completed: state.Completed, Cancelled: state.Cancelled,
 		},
-		Release:         ReleaseRecord{ID: string(release.ID()), Artifacts: artifacts},
+		Release: ReleaseRecord{ID: string(release.ID()), Artifacts: artifacts},
 		Journal: JournalRecord{
 			Reference: reference, Digest: "sha256:" + hex.EncodeToString(digest[:]), Bytes: read.ValidBytes,
 			Events: len(read.Events), TruncatedTail: read.TruncatedTail, SchemaVersion: journal.SchemaVersion,
