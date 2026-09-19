@@ -63,6 +63,16 @@ The Action resolves the exact CLI version from a versioned Action ref by default
 
 GitHub Actions is optional. The same `plan`, `apply`, `status`, and `reconcile` CLI workflow remains available locally and in other CI systems.
 
+For the same configuration outside GitHub Actions:
+
+```sh
+distroplane plan --config distroplane.json --state-dir .distroplane
+distroplane apply --config distroplane.json --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
+distroplane status --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
+distroplane reconcile --config distroplane.json --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
+distroplane evidence --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal --output .distroplane/evidence.json
+```
+
 ## Evidence artifacts
 
 Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile`. With upload enabled, the Action exports the normalized evidence bundle and uploads it with the pinned GitHub artifact action.
