@@ -351,3 +351,212 @@ func TestHelpersAndValidationBranches(t *testing.T) {
 		t.Fatal("invalid empty lease accepted")
 	}
 }
+
+
+type coverageLease struct {
+	state      LeaseState
+	renewState LeaseState
+	renewErr   error
+	releaseErr error
+}
+
+func (l *coverageLease) State() LeaseState {
+	return l.state
+}
+
+func (l *coverageLease) PreviousExpired() (LeaseState, bool) {
+	return LeaseState{}, false
+}
+
+func (l *coverageLease) Renew(context.Context) (LeaseState, error) {
+	if l.renewErr != nil {
+		return l.state, l.renewErr
+	}
+	if l.renewState.ID != "" {
+		l.state = l.renewState
+	}
+	return l.state, nil
+}
+
+func (l *coverageLease) Release() error {
+	return l.releaseErr
+}
+
+type boundaryReportingDriver struct {
+	enabled bool
+}
+
+func (d boundaryReportingDriver) Apply(context.Context, Request) (Result, error) {
+	return published(), nil
+}
+
+func (d boundaryReportingDriver) Reconcile(context.Context, Request) (Result, error) {
+	return published(), nil
+}
+
+func (d boundaryReportingDriver) ReportsExecutionBoundaries() bool {
+	return d.enabled
+}
+
+func TestExecutionObserverOrderingAndDuplicates(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	operation := plan.Operations()[0]
+	writer := openWriter(t, runID())
+	observer := &journalExecutionObserver{
+		runID: runID(), writer: writer, operation: operation, attempt: 1,
+	}
+	if err := observer.SideEffectDispatched(); err == nil {
+		t.Fatal("dispatch before provider start accepted")
+	}
+	if err := observer.ProviderResponseReceived(); err == nil {
+		t.Fatal("response before provider start accepted")
+	}
+	if err := observer.ProviderProcessStarted(); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.ProviderProcessStarted(); err == nil {
+		t.Fatal("duplicate provider start accepted")
+	}
+	if err := observer.SideEffectDispatched(); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.SideEffectDispatched(); err == nil {
+		t.Fatal("duplicate dispatch accepted")
+	}
+	if err := observer.ProviderResponseReceived(); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.ProviderResponseReceived(); err == nil {
+		t.Fatal("duplicate response accepted")
+	}
+	started, dispatched, responded := observer.snapshot()
+	if !started || !dispatched || !responded {
+		t.Fatalf("snapshot=(%v,%v,%v)", started, dispatched, responded)
+	}
+}
+
+func TestExecutionBoundaryHelpers(t *testing.T) {
+	if reportsExecutionBoundaries(&scriptedDriver{}) {
+		t.Fatal("ordinary driver reported execution boundaries")
+	}
+	if reportsExecutionBoundaries(boundaryReportingDriver{}) {
+		t.Fatal("disabled boundary reporter accepted")
+	}
+	if !reportsExecutionBoundaries(boundaryReportingDriver{enabled: true}) {
+		t.Fatal("enabled boundary reporter ignored")
+	}
+
+	if !providerResponseReceived(nil) {
+		t.Fatal("successful response not recognized")
+	}
+	if !providerResponseReceived(&DriverError{Code: "PERMANENT"}) {
+		t.Fatal("structured provider response not recognized")
+	}
+	if providerResponseReceived(&DriverError{Code: " bad"}) {
+		t.Fatal("invalid driver error recognized as response")
+	}
+	if providerResponseReceived(errors.New("transport failure")) {
+		t.Fatal("transport failure recognized as response")
+	}
+}
+
+func TestLeaseHelperFailurePaths(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	operation := plan.Operations()[0]
+	writer := openWriter(t, runID())
+	now := time.Now().UTC()
+	valid := LeaseState{
+		ID: "lease-a", Owner: "worker-a", OperationID: operation.ID(),
+		AcquiredAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Second),
+	}
+	mismatch := valid
+	mismatch.OperationID = "op-other"
+	if err := appendLeaseEvent(runID(), writer, operation, journal.EventLeaseAcquired, mismatch); err == nil {
+		t.Fatal("mismatched lease operation accepted")
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	active := &coverageLease{state: valid}
+	if err := renewLease(cancelled, func() {}, runID(), writer, operation, active); err != nil {
+		t.Fatalf("cancelled renewal err=%v", err)
+	}
+
+	expiredState := valid
+	expiredState.ExpiresAt = now.Add(-time.Millisecond)
+	expired := &coverageLease{state: expiredState}
+	cancelCalled := false
+	if err := renewLease(context.Background(), func() { cancelCalled = true }, runID(), writer, operation, expired); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("expired renewal err=%v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("expired renewal did not cancel task")
+	}
+
+	releaseExpired := &coverageLease{state: expiredState, releaseErr: ErrLeaseExpired}
+	if err := releaseLease(runID(), writer, operation, releaseExpired); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("expired release err=%v", err)
+	}
+	events := writer.Events()
+	if events[len(events)-1].Type != journal.EventLeaseExpired {
+		t.Fatalf("events=%+v", events)
+	}
+
+	want := errors.New("release failed")
+	releaseFailed := &coverageLease{state: valid, releaseErr: want}
+	count := len(writer.Events())
+	if err := releaseLease(runID(), writer, operation, releaseFailed); !errors.Is(err, want) {
+		t.Fatalf("release err=%v", err)
+	}
+	if len(writer.Events()) != count {
+		t.Fatal("generic release failure journaled a terminal lease event")
+	}
+}
+
+func TestLeaseExpirySchedulingHelpers(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	writer := openWriter(t, runID())
+	now := time.Now().UTC()
+	for _, entry := range []journal.Entry{
+		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
+		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: &journal.LeasePayload{
+			ID: "lease-a", Owner: "worker-a", AcquiredAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Second),
+		}}},
+	} {
+		if _, err := writer.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := journal.Reduce(plan, writer.Events())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry, ok := nextLeaseExpiry(state)
+	if !ok || !expiry.Equal(now.Add(time.Second)) {
+		t.Fatalf("expiry=%v ok=%v", expiry, ok)
+	}
+	changed, err := expireJournalLeases(runID(), writer, state, now)
+	if err != nil || changed {
+		t.Fatalf("future lease changed=%v err=%v", changed, err)
+	}
+	changed, err = expireJournalLeases(runID(), writer, state, now.Add(2*time.Second))
+	if err != nil || !changed {
+		t.Fatalf("expired lease changed=%v err=%v", changed, err)
+	}
+
+	empty, err := journal.Reduce(plan, []journal.Event{{
+		SchemaVersion: journal.SchemaVersion,
+		Sequence:      1,
+		RunID:         runID(),
+		Type:          journal.EventRunStarted,
+		ObservedAt:    time.Unix(1, 0).UTC(),
+		Payload:       journal.Payload{},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expiry, ok := nextLeaseExpiry(empty); ok || !expiry.IsZero() {
+		t.Fatalf("unexpected expiry=%v ok=%v", expiry, ok)
+	}
+}
