@@ -663,7 +663,7 @@ func TestRenewLeaseErrorAndJournalFailure(t *testing.T) {
 	now := time.Now().UTC()
 	state := LeaseState{
 		ID: "lease-a", Owner: "worker-a", OperationID: operation.ID(),
-		AcquiredAt: now, ExpiresAt: now.Add(20 * time.Millisecond),
+		AcquiredAt: now, ExpiresAt: now.Add(500 * time.Millisecond),
 	}
 
 	want := errors.New("renew failed")
@@ -680,9 +680,14 @@ func TestRenewLeaseErrorAndJournalFailure(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	renewed := state
-	renewed.ExpiresAt = now.Add(time.Second)
-	journalFail := &coverageLease{state: state, renewState: renewed}
+	journalNow := time.Now().UTC()
+	journalState := LeaseState{
+		ID: "lease-a", Owner: "worker-a", OperationID: operation.ID(),
+		AcquiredAt: journalNow, ExpiresAt: journalNow.Add(500 * time.Millisecond),
+	}
+	renewed := journalState
+	renewed.ExpiresAt = journalNow.Add(time.Second)
+	journalFail := &coverageLease{state: journalState, renewState: renewed}
 	cancelCalled = false
 	if err := renewLease(context.Background(), func() { cancelCalled = true }, runID(), writer, operation, journalFail); !errors.Is(err, journal.ErrWriterClosed) {
 		t.Fatalf("journal renewal err=%v", err)
@@ -861,5 +866,35 @@ func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
 	}
 	if !executorQuiescent(terminal, 3) {
 		t.Fatal("published operation not quiescent")
+	}
+}
+
+
+func TestPersistOutcomeWriterFailures(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	operation := plan.Operations()[0]
+	writer := openWriter(t, runID())
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := persistApplyOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, false, false, Result{}, nil); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("invalid apply result err=%v", err)
+	}
+	if _, err := persistApplyOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, true, false, published(), nil); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("valid apply result err=%v", err)
+	}
+	if _, err := persistApplyOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, false, false, Result{}, errors.New("transport")); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("apply failure err=%v", err)
+	}
+
+	if err := persistReconcileOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, false, Result{}, nil); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("invalid reconcile result err=%v", err)
+	}
+	if err := persistReconcileOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, false, published(), nil); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("valid reconcile result err=%v", err)
+	}
+	if err := persistReconcileOutcome(context.Background(), context.Background(), writer, runID(), operation, 1, true, Result{}, errors.New("transport")); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("reconcile failure err=%v", err)
 	}
 }
