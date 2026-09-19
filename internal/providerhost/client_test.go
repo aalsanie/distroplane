@@ -26,6 +26,7 @@ type helperConfig struct {
 	Mode                 string `json:"mode,omitempty"`
 	ExpectedEnvironment  string `json:"expectedEnvironment,omitempty"`
 	ForbiddenEnvironment string `json:"forbiddenEnvironment,omitempty"`
+	MarkerPath           string `json:"markerPath,omitempty"`
 }
 
 func (helperHandler) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
@@ -107,6 +108,22 @@ func (helperHandler) Apply(_ context.Context, request protocol.ApplyRequest) (pr
 	case "ambiguous":
 		value := protocol.NewProviderError(protocol.ErrorAmbiguousOutcome, "ambiguous", false)
 		return protocol.ApplyResponse{}, &value
+	case "process_crash_once":
+		if cfg.MarkerPath == "" {
+			value := protocol.NewProviderError(protocol.ErrorConfiguration, "missing marker path", false)
+			return protocol.ApplyResponse{}, &value
+		}
+		marker, err := os.OpenFile(cfg.MarkerPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_ = marker.Close()
+			_, _ = fmt.Fprintln(os.Stderr, "provider crashed after request dispatch")
+			os.Exit(70)
+		}
+		if !errors.Is(err, os.ErrExist) {
+			value := protocol.NewProviderError(protocol.ErrorProviderInternal, "marker creation failed", false)
+			return protocol.ApplyResponse{}, &value
+		}
+		return protocol.ApplyResponse{Result: protocol.DistributionResult{State: protocol.ResultPublished, ProviderState: "published", Evidence: json.RawMessage(`{"provider":"helper"}`)}}, nil
 	default:
 		return protocol.ApplyResponse{Result: protocol.DistributionResult{State: protocol.ResultPublished, ProviderState: "published", Evidence: json.RawMessage(`{"provider":"helper"}`)}}, nil
 	}

@@ -22,12 +22,28 @@ const (
 type EventType string
 
 const (
+	AttemptReasonInitial   = "INITIAL"
+	AttemptReasonRetry     = "RETRY"
+	AttemptReasonReconcile = "RECONCILE"
+
+	ResultCategoryPublished       = "PUBLISHED"
+	ResultCategoryWaitingExternal = "WAITING_EXTERNAL"
+	ResultCategoryRejected        = "REJECTED"
+	ResultCategoryFailedRetryable = "FAILED_RETRYABLE"
+	ResultCategoryFailedPermanent = "FAILED_PERMANENT"
+	ResultCategoryCancelled       = "CANCELLED"
+	ResultCategoryAmbiguous       = "AMBIGUOUS"
+)
+
+const (
 	EventRunStarted               EventType = "RUN_STARTED"
 	EventRunCompleted             EventType = "RUN_COMPLETED"
 	EventRunCancelled             EventType = "RUN_CANCELLED"
 	EventOperationReady           EventType = "OPERATION_READY"
 	EventLeaseAcquired            EventType = "LEASE_ACQUIRED"
+	EventLeaseRenewed             EventType = "LEASE_RENEWED"
 	EventLeaseExpired             EventType = "LEASE_EXPIRED"
+	EventLeaseReleased            EventType = "LEASE_RELEASED"
 	EventAttemptStarted           EventType = "ATTEMPT_STARTED"
 	EventCredentialResolved       EventType = "CREDENTIAL_RESOLVED"
 	EventProviderProcessStarted   EventType = "PROVIDER_PROCESS_STARTED"
@@ -54,14 +70,24 @@ var (
 	ErrWriterClosed       = errors.New("journal writer is closed")
 )
 
+type LeasePayload struct {
+	ID         string    `json:"id"`
+	Owner      string    `json:"owner"`
+	AcquiredAt time.Time `json:"acquiredAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+}
+
 type Payload struct {
-	Attempt       uint32                 `json:"attempt,omitempty"`
-	CredentialRef domain.CredentialRef   `json:"credentialRef,omitempty"`
-	State         domain.NormalizedState `json:"state,omitempty"`
-	ProviderState string                 `json:"providerState,omitempty"`
-	Evidence      json.RawMessage        `json:"evidence,omitempty"`
-	ErrorCode     string                 `json:"errorCode,omitempty"`
-	Retryable     bool                   `json:"retryable,omitempty"`
+	Attempt        uint32                 `json:"attempt,omitempty"`
+	AttemptReason  string                 `json:"attemptReason,omitempty"`
+	ResultCategory string                 `json:"resultCategory,omitempty"`
+	CredentialRef  domain.CredentialRef   `json:"credentialRef,omitempty"`
+	State          domain.NormalizedState `json:"state,omitempty"`
+	ProviderState  string                 `json:"providerState,omitempty"`
+	Evidence       json.RawMessage        `json:"evidence,omitempty"`
+	ErrorCode      string                 `json:"errorCode,omitempty"`
+	Retryable      bool                   `json:"retryable,omitempty"`
+	Lease          *LeasePayload          `json:"lease,omitempty"`
 }
 
 type Entry struct {
@@ -85,8 +111,8 @@ type Event struct {
 
 func (t EventType) valid() bool {
 	switch t {
-	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventOperationReady, EventLeaseAcquired, EventLeaseExpired,
-		EventAttemptStarted, EventCredentialResolved, EventProviderProcessStarted, EventSideEffectDispatched,
+	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventOperationReady, EventLeaseAcquired, EventLeaseRenewed,
+		EventLeaseExpired, EventLeaseReleased, EventAttemptStarted, EventCredentialResolved, EventProviderProcessStarted, EventSideEffectDispatched,
 		EventProviderResponseReceived, EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected,
 		EventOperationFailed, EventOperationResult, EventOperationCancelled, EventOutcomeAmbiguous,
 		EventReconcileStarted, EventReconcileResult:
@@ -132,17 +158,26 @@ func (e Event) validate() error {
 }
 
 func (p Payload) empty() bool {
-	return p.Attempt == 0 && p.CredentialRef == "" && p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable
+	return p.Attempt == 0 && p.AttemptReason == "" && p.ResultCategory == "" && p.CredentialRef == "" &&
+		p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable && p.Lease == nil
 }
 
 func (p Payload) validate(eventType EventType) error {
 	switch eventType {
-	case EventOperationReady, EventLeaseAcquired, EventLeaseExpired:
+	case EventOperationReady:
 		if !p.empty() {
 			return fmt.Errorf("event %q must not contain payload data", eventType)
 		}
+	case EventLeaseAcquired, EventLeaseRenewed, EventLeaseExpired, EventLeaseReleased:
+		if p.Attempt != 0 || p.AttemptReason != "" || p.ResultCategory != "" || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.ErrorCode != "" || p.Retryable {
+			return fmt.Errorf("event %q contains unsupported non-lease payload", eventType)
+		}
+		if p.Lease == nil {
+			return fmt.Errorf("event %q requires lease metadata", eventType)
+		}
+		return p.Lease.validate()
 	case EventOperationCancelled:
-		if p.Attempt != 0 || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
+		if p.Attempt != 0 || p.AttemptReason != "" || p.ResultCategory != "" || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("operation-cancelled event contains unsupported payload")
 		}
 	case EventCredentialResolved:
@@ -152,7 +187,7 @@ func (p Payload) validate(eventType EventType) error {
 		if !p.CredentialRef.Valid() {
 			return fmt.Errorf("credential reference is invalid")
 		}
-		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.ErrorCode != "" || p.Retryable {
+		if p.AttemptReason != "" || p.ResultCategory != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.ErrorCode != "" || p.Retryable {
 			return fmt.Errorf("credential-resolved event contains unsupported payload")
 		}
 	case EventAttemptStarted, EventProviderProcessStarted, EventSideEffectDispatched, EventProviderResponseReceived, EventOutcomeAmbiguous, EventReconcileStarted:
@@ -162,10 +197,27 @@ func (p Payload) validate(eventType EventType) error {
 		if p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("event %q contains unsupported result payload", eventType)
 		}
+		switch eventType {
+		case EventAttemptStarted, EventReconcileStarted:
+			if p.ResultCategory != "" {
+				return fmt.Errorf("event %q must not contain a result category", eventType)
+			}
+		case EventOutcomeAmbiguous:
+			if p.AttemptReason != "" {
+				return fmt.Errorf("event %q must not contain an attempt reason", eventType)
+			}
+		default:
+			if p.AttemptReason != "" || p.ResultCategory != "" {
+				return fmt.Errorf("event %q contains unsupported attempt metadata", eventType)
+			}
+		}
 		if eventType != EventOutcomeAmbiguous && p.ErrorCode != "" {
 			return fmt.Errorf("event %q must not contain an error code", eventType)
 		}
 	case EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected, EventOperationFailed:
+		if p.AttemptReason != "" {
+			return fmt.Errorf("result event must not contain an attempt reason")
+		}
 		if p.CredentialRef != "" {
 			return fmt.Errorf("result event must not contain a credential reference")
 		}
@@ -180,6 +232,9 @@ func (p Payload) validate(eventType EventType) error {
 			return fmt.Errorf("state %q cannot be retryable", state)
 		}
 	case EventOperationResult, EventReconcileResult:
+		if p.AttemptReason != "" {
+			return fmt.Errorf("result event must not contain an attempt reason")
+		}
 		if p.CredentialRef != "" {
 			return fmt.Errorf("result event must not contain a credential reference")
 		}
@@ -195,6 +250,21 @@ func (p Payload) validate(eventType EventType) error {
 	default:
 		return fmt.Errorf("%w %q", ErrUnknownEventType, eventType)
 	}
+	if p.Lease != nil {
+		return fmt.Errorf("event %q must not contain lease metadata", eventType)
+	}
+	if err := validateText("attempt reason", p.AttemptReason, true); err != nil {
+		return err
+	}
+	if p.AttemptReason != "" && !validAttemptReason(p.AttemptReason) {
+		return fmt.Errorf("invalid attempt reason %q", p.AttemptReason)
+	}
+	if err := validateText("result category", p.ResultCategory, true); err != nil {
+		return err
+	}
+	if p.ResultCategory != "" && !validResultCategory(p.ResultCategory) {
+		return fmt.Errorf("invalid result category %q", p.ResultCategory)
+	}
 	if err := validateText("provider state", p.ProviderState, true); err != nil {
 		return err
 	}
@@ -205,6 +275,45 @@ func (p Payload) validate(eventType EventType) error {
 		if err := validateEvidence(p.Evidence); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validAttemptReason(value string) bool {
+	switch value {
+	case AttemptReasonInitial, AttemptReasonRetry, AttemptReasonReconcile:
+		return true
+	default:
+		return false
+	}
+}
+
+func validResultCategory(value string) bool {
+	switch value {
+	case ResultCategoryPublished, ResultCategoryWaitingExternal, ResultCategoryRejected,
+		ResultCategoryFailedRetryable, ResultCategoryFailedPermanent, ResultCategoryCancelled,
+		ResultCategoryAmbiguous:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p LeasePayload) validate() error {
+	if err := validateText("lease ID", p.ID, false); err != nil {
+		return err
+	}
+	if err := validateText("lease owner", p.Owner, false); err != nil {
+		return err
+	}
+	if p.AcquiredAt.IsZero() {
+		return fmt.Errorf("lease acquired time is required")
+	}
+	if p.ExpiresAt.IsZero() {
+		return fmt.Errorf("lease expiry is required")
+	}
+	if !p.ExpiresAt.After(p.AcquiredAt) {
+		return fmt.Errorf("lease expiry must be after acquisition")
 	}
 	return nil
 }
@@ -309,6 +418,10 @@ func validateText(name, value string, optional bool) error {
 
 func cloneEvent(event Event) Event {
 	event.Payload.Evidence = append(json.RawMessage(nil), event.Payload.Evidence...)
+	if event.Payload.Lease != nil {
+		lease := *event.Payload.Lease
+		event.Payload.Lease = &lease
+	}
 	return event
 }
 

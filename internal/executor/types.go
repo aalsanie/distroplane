@@ -68,6 +68,16 @@ type Previous struct {
 	Ambiguous     bool
 }
 
+type ExecutionObserver interface {
+	ProviderProcessStarted() error
+	SideEffectDispatched() error
+	ProviderResponseReceived() error
+}
+
+type ExecutionBoundaryReporter interface {
+	ReportsExecutionBoundaries() bool
+}
+
 type Request struct {
 	PlanID       domain.PlanID
 	RunID        domain.RunID
@@ -75,6 +85,7 @@ type Request struct {
 	Attempt      uint32
 	Previous     *Previous
 	Requirements []domain.Requirement
+	Observer     ExecutionObserver
 }
 
 type Driver interface {
