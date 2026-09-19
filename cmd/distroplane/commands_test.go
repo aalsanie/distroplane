@@ -276,7 +276,6 @@ func minimalStatePlan(t *testing.T) domain.Plan {
 	return plan
 }
 
-
 func TestCLIPlanHonorsCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	providerBinary := buildFakeProvider(t)
