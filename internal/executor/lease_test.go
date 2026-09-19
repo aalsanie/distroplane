@@ -233,11 +233,11 @@ func TestExecuteJournalsLeaseAndProviderLifecycle(t *testing.T) {
 
 func TestExecuteRenewsLongRunningLease(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
-	leases := newMemoryLeases("worker-a", 20*time.Millisecond, time.Now, func() (string, error) {
+	leases := newMemoryLeases("worker-a", 500*time.Millisecond, time.Now, func() (string, error) {
 		return "lease-a", nil
 	})
 	driver := &scriptedDriver{apply: func(context.Context, Request) (Result, error) {
-		time.Sleep(45 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		return published(), nil
 	}}
 	writer := openWriter(t, runID())
