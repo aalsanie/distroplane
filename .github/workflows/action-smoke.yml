@@ -62,7 +62,7 @@ jobs:
       - name: Upload plan handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: p14-plan-${{ matrix.os }}
+          name: action-plan-${{ matrix.os }}
           path: smoke
           if-no-files-found: error
 
@@ -83,7 +83,7 @@ jobs:
       - name: Download plan handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: p14-plan-${{ matrix.os }}
+          name: action-plan-${{ matrix.os }}
           path: smoke
       - name: Restore handoff
         id: fixture
@@ -114,10 +114,10 @@ jobs:
           config: ${{ steps.fixture.outputs.config }}
           plan: ${{ steps.fixture.outputs.plan }}
           journal: smoke/run.journal
-          run-id: run-p14-smoke
+          run-id: run-action-smoke
           evidence-path: smoke/evidence.json
           upload-evidence: 'true'
-          evidence-artifact-name: p14-evidence-${{ matrix.os }}
+          evidence-artifact-name: action-evidence-${{ matrix.os }}
       - name: Verify apply outputs
         shell: pwsh
         env:
@@ -132,7 +132,7 @@ jobs:
           EVIDENCE_ARTIFACT_ID: ${{ steps.apply.outputs.evidence-artifact-id }}
         run: |
           if (-not $env:PLAN_ID) { throw 'plan-id output is empty' }
-          if ($env:RUN_ID -ne 'run-p14-smoke') { throw "unexpected run ID $env:RUN_ID" }
+          if ($env:RUN_ID -ne 'run-action-smoke') { throw "unexpected run ID $env:RUN_ID" }
           if ($env:COMPLETED -ne 'true' -or $env:PENDING -ne 'false' -or $env:EXIT_CODE -ne '0') {
             throw 'apply did not complete successfully'
           }
@@ -157,7 +157,7 @@ jobs:
       - name: Download action evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: p14-evidence-${{ matrix.os }}
+          name: action-evidence-${{ matrix.os }}
           path: evidence
       - name: Verify evidence bundle
         shell: pwsh
@@ -165,7 +165,7 @@ jobs:
           $files = Get-ChildItem -LiteralPath evidence -Recurse -File -Filter '*.json'
           if ($files.Count -ne 1) { throw 'expected exactly one evidence bundle' }
           $bundle = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
-          if ($bundle.schemaVersion -ne '1' -or $bundle.run.id -ne 'run-p14-smoke') {
+          if ($bundle.schemaVersion -ne '1' -or $bundle.run.id -ne 'run-action-smoke') {
             throw 'invalid evidence identity'
           }
           if ($bundle.targets.Count -ne 1 -or $bundle.targets[0].state -ne 'PUBLISHED') {

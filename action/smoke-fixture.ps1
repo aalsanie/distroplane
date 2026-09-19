@@ -33,7 +33,7 @@ $artifact = Join-Path $rootPath 'app.bin'
 $config = [ordered]@{
     schemaVersion = '1'
     release = [ordered]@{
-        id = 'p14-smoke'
+        id = 'action-smoke'
         artifacts = @(
             [ordered]@{
                 name = 'app'

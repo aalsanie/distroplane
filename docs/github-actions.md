@@ -157,7 +157,7 @@ jobs:
           journal: .distroplane/run.journal
 ```
 
-The P14 smoke workflow includes both the denied case (no `id-token: write`) and the granted case.
+The Action smoke workflow includes both the denied case (no `id-token: write`) and the granted case.
 
 ## Plan and artifact handoff
 
