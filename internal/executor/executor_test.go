@@ -555,7 +555,7 @@ func TestExecuteNonSideEffectTimeoutRetries(t *testing.T) {
 func TestExecuteLeaseContentionDoesNotStartAttempt(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
 	leases := NewMemoryLeases()
-	lease, err := leases.Acquire(context.Background(), leaseKey(plan.ID(), "op-a"))
+	lease, err := leases.Acquire(context.Background(), LeaseRequest{Key: leaseKey(plan.ID(), "op-a"), OperationID: "op-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
