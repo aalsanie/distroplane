@@ -18,6 +18,7 @@ const PlanSchemaVersion = "1"
 type providerDocument struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 type artifactDocument struct {
@@ -106,6 +107,7 @@ type operationDraft struct {
 	providerOperationID string
 	targetID            domain.TargetID
 	provider            domain.ProviderRef
+	providerDigest      domain.Digest
 	kind                string
 	dependencies        []domain.OperationID
 	sideEffecting       bool
@@ -122,6 +124,25 @@ type DistributionPlan struct {
 func (p DistributionPlan) Plan() domain.Plan { return p.plan }
 
 func (p DistributionPlan) ID() domain.PlanID { return p.plan.ID() }
+
+func (p DistributionPlan) ProviderDigests() map[domain.ProviderRef]domain.Digest {
+	result := make(map[domain.ProviderRef]domain.Digest)
+	for _, target := range p.document.Targets {
+		if target.Provider.Digest == "" {
+			continue
+		}
+		ref, err := providerRefFromDocument(target.Provider)
+		if err != nil {
+			continue
+		}
+		digest, err := domain.ParseDigest(target.Provider.Digest)
+		if err != nil {
+			continue
+		}
+		result[ref] = digest
+	}
+	return result
+}
 
 func (p DistributionPlan) Bytes() ([]byte, error) {
 	return json.Marshal(p.document)
