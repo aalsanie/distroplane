@@ -352,7 +352,6 @@ func TestHelpersAndValidationBranches(t *testing.T) {
 	}
 }
 
-
 type coverageLease struct {
 	state      LeaseState
 	renewState LeaseState
