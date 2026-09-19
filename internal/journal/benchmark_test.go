@@ -21,8 +21,8 @@ func BenchmarkEncodeFrame(b *testing.B) {
 type benchmarkDurableFile struct{}
 
 func (*benchmarkDurableFile) Write(p []byte) (int, error) { return len(p), nil }
-func (*benchmarkDurableFile) Sync() error                  { return nil }
-func (*benchmarkDurableFile) Close() error                 { return nil }
+func (*benchmarkDurableFile) Sync() error                 { return nil }
+func (*benchmarkDurableFile) Close() error                { return nil }
 
 func BenchmarkWriterAppend(b *testing.B) {
 	file := &benchmarkDurableFile{}
