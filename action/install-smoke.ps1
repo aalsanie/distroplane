@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('success', 'checksum', 'missing')][string]$Mode = 'success',
+    [ValidateSet('success', 'checksum', 'missing', 'unavailable')][string]$Mode = 'success',
     [string]$Root = 'install-smoke'
 )
 
@@ -84,6 +84,9 @@ switch ($Mode) {
 
 $download = {
     param([string]$Uri, [string]$OutFile)
+    if ($Mode -eq 'unavailable') {
+        throw 'fixture release is unavailable'
+    }
     $fileName = [IO.Path]::GetFileName(([Uri]$Uri).AbsolutePath)
     $source = Join-Path $releasePath $fileName
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
@@ -103,6 +106,9 @@ if ($Mode -ne 'success') {
         }
         if ($Mode -eq 'missing' -and $message -notmatch 'does not contain') {
             throw "unexpected missing-release failure: $message"
+        }
+        if ($Mode -eq 'unavailable' -and $message -notmatch 'release is unavailable') {
+            throw "unexpected unavailable-release failure: $message"
         }
         Write-Host "Observed expected $Mode installer failure."
         exit 0
