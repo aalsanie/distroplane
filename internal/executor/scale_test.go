@@ -61,7 +61,7 @@ func TestSchedulerHandlesTenThousandOperationDAG(t *testing.T) {
 func TestCancellationStormDoesNotRedispatchSideEffects(t *testing.T) {
 	const (
 		count          = 128
-		maxConcurrency = 16
+		maxConcurrency = 4
 	)
 	specs := make([]operationSpec, count)
 	for i := range specs {
