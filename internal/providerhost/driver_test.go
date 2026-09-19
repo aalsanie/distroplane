@@ -406,7 +406,7 @@ func executorPlan(t testing.TB, cfg helperConfig) domain.Plan {
 		t.Fatal(err)
 	}
 	operationID, _ := domain.NewOperationID("publish")
-	operation, err := domain.NewOperation(operationID, targetID, provider, "publish", nil, true, "crash-key", time.Second, payload)
+	operation, err := domain.NewOperation(operationID, targetID, provider, "publish", nil, true, "crash-key", 10*time.Second, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
