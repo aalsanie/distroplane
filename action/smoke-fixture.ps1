@@ -1,5 +1,6 @@
 param(
-    [string]$Root = 'smoke'
+    [string]$Root = 'smoke',
+    [ValidateSet('published', 'waiting_external')][string]$Mode = 'published'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,13 @@ if (-not $IsWindows) {
 $artifact = Join-Path $rootPath 'app.bin'
 [IO.File]::WriteAllBytes($artifact, [Text.Encoding]::UTF8.GetBytes('artifact'))
 
+$providerConfiguration = [ordered]@{
+    mode = $Mode
+}
+if ($Mode -eq 'waiting_external') {
+    $providerConfiguration.reconcileState = 'published'
+}
+
 $config = [ordered]@{
     schemaVersion = '1'
     release = [ordered]@{
@@ -49,9 +57,7 @@ $config = [ordered]@{
                 name = 'fake'
                 executable = $provider
             }
-            configuration = [ordered]@{
-                mode = 'published'
-            }
+            configuration = $providerConfiguration
         }
     )
 }

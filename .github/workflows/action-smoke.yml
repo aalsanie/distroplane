@@ -44,6 +44,8 @@ jobs:
           binary: ${{ steps.fixture.outputs.cli }}
           config: ${{ steps.fixture.outputs.config }}
           state-dir: state
+          upload-plan: 'true'
+          plan-artifact-name: action-plan-${{ matrix.os }}
       - name: Verify plan outputs
         shell: pwsh
         env:
@@ -51,19 +53,23 @@ jobs:
           PLAN_PATH: ${{ steps.plan.outputs.plan-path }}
           EXIT_CODE: ${{ steps.plan.outputs.exit-code }}
           RESULT_JSON: ${{ steps.plan.outputs.result-json }}
+          PLAN_ARTIFACT_ID: ${{ steps.plan.outputs.plan-artifact-id }}
         run: |
           if (-not $env:PLAN_ID) { throw 'plan-id output is empty' }
           if (-not (Test-Path -LiteralPath $env:PLAN_PATH -PathType Leaf)) { throw 'plan-path output is missing' }
           if ($env:EXIT_CODE -ne '0') { throw "unexpected plan exit code $env:EXIT_CODE" }
+          if (-not $env:PLAN_ARTIFACT_ID) { throw 'plan artifact ID is empty' }
           $result = $env:RESULT_JSON | ConvertFrom-Json
           if ($result.planId -ne $env:PLAN_ID -or $result.targets -ne 1 -or $result.operations -ne 1) {
             throw 'plan result outputs are inconsistent'
           }
-      - name: Upload plan handoff
+      - name: Upload runtime handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: action-plan-${{ matrix.os }}
-          path: smoke
+          name: action-runtime-${{ matrix.os }}
+          path: |
+            smoke
+            !smoke/state/plans/**
           if-no-files-found: error
 
   apply:
@@ -83,8 +89,10 @@ jobs:
       - name: Download plan handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: action-plan-${{ matrix.os }}
-          path: smoke
+          name: action-runtime-${{ matrix.os }}
+          path: |
+            smoke
+            !smoke/state/plans/**
       - name: Restore handoff
         id: fixture
         shell: pwsh
@@ -100,8 +108,8 @@ jobs:
           $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
           $config.targets[0].provider.executable = $provider
           $config | ConvertTo-Json -Depth 12 -Compress | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
-          $plan = Get-ChildItem -LiteralPath 'smoke/state/plans' -File -Filter '*.json'
-          if ($plan.Count -ne 1) { throw 'expected exactly one handed-off plan' }
+          $plan = Get-ChildItem -LiteralPath 'smoke/action-plan' -Recurse -File -Filter '*.json'
+          if ($plan.Count -ne 1) { throw 'expected exactly one Action-uploaded plan' }
           "cli=$cli" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
           "config=$configPath" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
           "plan=$($plan[0].FullName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
@@ -215,6 +223,119 @@ jobs:
       - name: Verify installer failure
         shell: pwsh
         run: ./action/install-smoke.ps1 -Mode ${{ matrix.mode }} -Root install-smoke-${{ matrix.mode }}
+
+  async-reconcile:
+    name: Pending apply and reconcile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build pending fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1 -Root async-smoke -Mode waiting_external
+      - name: Plan pending target
+        id: plan
+        uses: ./
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          state-dir: async-state
+      - name: Apply pending target
+        id: apply
+        uses: ./
+        with:
+          command: apply
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          plan: ${{ steps.plan.outputs.plan-path }}
+          journal: async-smoke/run.journal
+          run-id: run-async-smoke
+      - name: Verify pending result
+        shell: pwsh
+        env:
+          PENDING: ${{ steps.apply.outputs.pending }}
+          EXIT_CODE: ${{ steps.apply.outputs.exit-code }}
+        run: |
+          if ($env:PENDING -ne 'true' -or $env:EXIT_CODE -ne '4') {
+            throw 'apply did not expose the asynchronous pending state'
+          }
+      - name: Reconcile pending target
+        id: reconcile
+        uses: ./
+        with:
+          command: reconcile
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          plan: ${{ steps.plan.outputs.plan-path }}
+          journal: async-smoke/run.journal
+          evidence-path: async-smoke/evidence.json
+      - name: Verify reconciliation
+        shell: pwsh
+        env:
+          COMPLETED: ${{ steps.reconcile.outputs.completed }}
+          PENDING: ${{ steps.reconcile.outputs.pending }}
+          EXIT_CODE: ${{ steps.reconcile.outputs.exit-code }}
+          EVIDENCE_PATH: ${{ steps.reconcile.outputs.evidence-path }}
+        run: |
+          if ($env:COMPLETED -ne 'true' -or $env:PENDING -ne 'false' -or $env:EXIT_CODE -ne '0') {
+            throw 'reconcile did not complete the pending publication'
+          }
+          if (-not (Test-Path -LiteralPath $env:EVIDENCE_PATH -PathType Leaf)) {
+            throw 'reconcile evidence output is missing'
+          }
+
+  oidc-environment-absent:
+    name: OIDC environment absent
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build valid smoke fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1 -Root oidc-env-smoke
+      - name: Require cleared OIDC environment
+        id: oidc
+        continue-on-error: true
+        uses: ./
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          state-dir: oidc-env-state
+          oidc: required
+      - name: Verify absent OIDC environment failure
+        shell: pwsh
+        env:
+          ACTION_OUTCOME: ${{ steps.oidc.outcome }}
+        run: |
+          if ($env:ACTION_OUTCOME -ne 'failure') {
+            throw 'OIDC requirement unexpectedly succeeded without the native request environment'
+          }
 
   oidc-denied:
     name: OIDC permission denied

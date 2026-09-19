@@ -14,16 +14,16 @@ jobs:
   distribute:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: plan
-        uses: aalsanie/distroplane@v0.1.0
+        uses: aalsanie/distroplane@v0.5.0
         with:
           command: plan
           config: distroplane.json
 
       - id: apply
-        uses: aalsanie/distroplane@v0.1.0
+        uses: aalsanie/distroplane@v0.5.0
         with:
           command: apply
           config: distroplane.json
@@ -40,9 +40,9 @@ The `binary` input bypasses release installation and is intended for repository 
 
 ## Commands and outputs
 
-The Action supports `plan`, `apply`, and `reconcile`. The optional `concurrency` input is forwarded to apply/reconcile and defaults to the executor's normal bounded-concurrency behavior. It always invokes the CLI in JSON mode and exposes:
+The Action supports `plan`, `apply`, and `reconcile`. The optional `concurrency` input is forwarded to apply/reconcile and defaults to the executor's normal bounded-concurrency behavior. Set `upload-plan: 'true'` when the immutable plan should be handed to another job as a GitHub artifact. The Action always invokes the CLI in JSON mode and exposes:
 
-- `plan-id` and `plan-path`;
+- `plan-id`, `plan-path`, and uploaded plan artifact metadata when requested;
 - `run-id`, `completed`, and `pending`;
 - the native Distroplane `exit-code`;
 - `result-json` for the complete normalized result;
@@ -50,13 +50,26 @@ The Action supports `plan`, `apply`, and `reconcile`. The optional `concurrency`
 
 Distroplane exit code `4` is a normal asynchronous state. The Action reports `pending=true` and succeeds so a later workflow or scheduled job can reconcile it. Rejected, failed, invalid, and operational outcomes still fail the Action after evidence upload has had a chance to run.
 
+
+## Compatibility
+
+The beta integration has an explicit compatibility contract:
+
+| Action major | Distroplane CLI | Provider protocol | Support |
+| --- | --- | --- | --- |
+| `v0` | `0.5.x` beta line | `1` candidate | Supported beta integration |
+
+The Action resolves the exact CLI version from a versioned Action ref by default. When the Action is pinned by immutable commit, pass `version` explicitly. Cross-major Action/CLI compatibility is not promised; protocol major mismatches remain rejected by Distroplane before provider side effects.
+
+GitHub Actions is optional. The same `plan`, `apply`, `status`, and `reconcile` CLI workflow remains available locally and in other CI systems.
+
 ## Evidence artifacts
 
 Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile`. With upload enabled, the Action exports the P13 evidence bundle and uploads it with the pinned GitHub artifact action.
 
 ```yaml
 - id: apply
-  uses: aalsanie/distroplane@v0.1.0
+  uses: aalsanie/distroplane@v0.5.0
   with:
     command: apply
     config: distroplane.json
@@ -74,7 +87,7 @@ Optional `attestations` are newline-delimited `NAME=URI` references and are pass
 Credentials remain environment variables resolved by Distroplane. The Action accepts only reference-to-environment mappings, never secret values:
 
 ```yaml
-- uses: aalsanie/distroplane@v0.1.0
+- uses: aalsanie/distroplane@v0.5.0
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
@@ -86,7 +99,7 @@ Credentials remain environment variables resolved by Distroplane. The Action acc
       npm-publish=NPM_TOKEN
 ```
 
-Prefer GitHub environments for targets with different trust boundaries. Put each credential boundary in its own job/environment and give that job only the secrets and permissions it needs. Distroplane still supports local multi-target execution; job isolation is a CI security recommendation, not a core semantic requirement.
+Prefer GitHub environments for targets with different trust boundaries. Put each credential boundary in its own job/environment and give that job only the secrets and permissions it needs. Start with `permissions: contents: read`; add `id-token: write` only to jobs whose provider requires OIDC. Distroplane still supports local multi-target execution; job isolation is a CI security recommendation, not a core semantic requirement.
 
 When credentials must be isolated, use target-scoped Distroplane configuration/plan pairs in separate jobs rather than giving one job every provider secret. For example:
 
@@ -94,15 +107,17 @@ When credentials must be isolated, use target-scoped Distroplane configuration/p
 jobs:
   npm:
     environment: npm-production
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: plan
-        uses: aalsanie/distroplane@v0.1.0
+        uses: aalsanie/distroplane@v0.5.0
         with:
           command: plan
           config: distroplane.npm.json
-      - uses: aalsanie/distroplane@v0.1.0
+      - uses: aalsanie/distroplane@v0.5.0
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
@@ -114,19 +129,23 @@ jobs:
 
   vendor:
     environment: vendor-production
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: plan
-        uses: aalsanie/distroplane@v0.1.0
+        uses: aalsanie/distroplane@v0.5.0
         with:
           command: plan
           config: distroplane.vendor.json
-      - uses: aalsanie/distroplane@v0.1.0
+      - uses: aalsanie/distroplane@v0.5.0
         env:
           VENDOR_TOKEN: ${{ secrets.VENDOR_TOKEN }}
         with:
           command: apply
+          oidc: required
           config: distroplane.vendor.json
           plan: ${{ steps.plan.outputs.plan-path }}
           journal: .distroplane/vendor.journal
@@ -147,8 +166,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: aalsanie/distroplane@v0.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aalsanie/distroplane@v0.5.0
         with:
           command: apply
           oidc: required
@@ -159,8 +178,55 @@ jobs:
 
 The Action smoke workflow includes both the denied case (no `id-token: write`) and the granted case.
 
+
+## Release-candidate, approval, and asynchronous reconciliation
+
+A production workflow can keep build, approval, execution, and reconciliation as separate boundaries without putting provider publication commands in YAML:
+
+1. Build the release candidate and preserve the exact artifacts.
+2. Run `plan` with `upload-plan: 'true'`; hand the immutable plan and release artifacts to the next job.
+3. Put the apply job behind a protected GitHub environment with required reviewers. That environment is the manual approval boundary.
+4. Run `apply`. Exit code `4` is exposed as `pending=true` and does not fail the Action.
+5. Preserve the plan, journal, and immutable release artifacts for a later scheduled or manually dispatched reconciliation job.
+6. Run `reconcile` and upload the resulting evidence bundle.
+
+The approval job should use only `contents: read` unless a target needs more. Add `id-token: write` only to a job whose provider actually consumes GitHub OIDC. Third-party workflow actions should be pinned by immutable commit; the repository smoke workflow demonstrates this for checkout, artifact upload/download, and setup actions.
+
+A protected apply job can therefore look like:
+
+```yaml
+apply:
+  needs: plan
+  environment: distribution-production # configure required reviewers in GitHub
+  permissions:
+    contents: read
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: distroplane-plan
+        path: .distroplane/plan
+    - id: plan-file
+      shell: bash
+      run: echo "path=$(find .distroplane/plan -type f -name '*.json' -print -quit)" >> "$GITHUB_OUTPUT"
+    - id: apply
+      uses: aalsanie/distroplane@v0.5.0
+      with:
+        command: apply
+        version: 0.5.0
+        config: distroplane.json
+        plan: ${{ steps.plan-file.outputs.path }}
+        journal: .distroplane/run.journal
+        upload-evidence: 'true'
+```
+
+If `steps.apply.outputs.pending == 'true'`, persist the journal and exact release artifacts and invoke `command: reconcile` in a later workflow run. The smoke workflow exercises a pending apply followed by reconciliation and evidence export.
+
 ## Plan and artifact handoff
 
-When planning and applying in separate jobs, upload the persisted plan together with the exact release artifacts and restore them before apply. The repository smoke workflow exercises this handoff on Linux, macOS, and Windows, then separately downloads the evidence artifact produced by the Action.
+When planning and applying in separate jobs, set `upload-plan: 'true'` and restore that Action-produced plan artifact together with the exact release artifacts before apply. The repository smoke workflow exercises this handoff on Linux, macOS, and Windows, then separately downloads the evidence artifact produced by the Action.
 
 A provider-specific publish command should not appear in workflow YAML. Provider configuration belongs in Distroplane configuration; provider implementations remain isolated executables speaking the protocol.
