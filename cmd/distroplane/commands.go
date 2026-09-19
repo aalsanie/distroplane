@@ -91,7 +91,7 @@ type stateOutput struct {
 
 type errorOutput struct {
 	OutputSchemaVersion string `json:"outputSchemaVersion"`
-	Error struct {
+	Error               struct {
 		Kind    string `json:"kind"`
 		Message string `json:"message"`
 	} `json:"error"`
