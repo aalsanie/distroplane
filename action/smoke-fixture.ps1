@@ -35,7 +35,7 @@ $providerConfiguration = [ordered]@{
     mode = $Mode
 }
 if ($Mode -eq 'waiting_external') {
-    $providerConfiguration.reconcileState = 'published'
+    $providerConfiguration['reconcileState'] = 'published'
 }
 
 $config = [ordered]@{
