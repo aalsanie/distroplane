@@ -11,7 +11,6 @@ import (
 	"github.com/aalsanie/distroplane/internal/journal"
 )
 
-
 type renewingLeaseManager struct {
 	renewed chan struct{}
 }
