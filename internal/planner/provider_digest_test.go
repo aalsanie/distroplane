@@ -99,3 +99,24 @@ func TestProviderExecutableDigestAffectsPlanIdentity(t *testing.T) {
 		t.Fatal("provider executable replacement did not change plan identity")
 	}
 }
+
+
+func TestVerifyProviderDigestsRejectsLegacyExecutionPlan(t *testing.T) {
+	providerDigest, _ := domain.NewSHA256Digest(strings.Repeat("b", 64))
+	p, loaded := providerDigestPlanner(t, providerDigest)
+	plan, err := p.Build(context.Background(), loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.VerifyProviderDigests(); err != nil {
+		t.Fatalf("digest-bound plan rejected: %v", err)
+	}
+
+	plan.document.Targets[0].Provider.Digest = ""
+	for i := range plan.document.Operations {
+		plan.document.Operations[i].Provider.Digest = ""
+	}
+	if err := plan.VerifyProviderDigests(); err == nil || !strings.Contains(err.Error(), "create a new plan") {
+		t.Fatalf("legacy execution plan accepted: %v", err)
+	}
+}
