@@ -23,6 +23,10 @@ type Binding struct {
 	Executable string
 }
 
+func (*Driver) ReportsExecutionBoundaries() bool {
+	return true
+}
+
 type Driver struct {
 	client   *Client
 	resolver credentials.Resolver
@@ -248,7 +252,15 @@ func consumePrepared(ctx context.Context, request executor.Request, operation ex
 	if !invocation.used.CompareAndSwap(false, true) {
 		return callOptions{}, fmt.Errorf("provider invocation preparation has already been used")
 	}
-	return callOptions{environment: invocation.environment, redactions: invocation.redactions}, nil
+	options := callOptions{environment: invocation.environment, redactions: invocation.redactions}
+	if request.Observer != nil {
+		options.onStarted = request.Observer.ProviderProcessStarted
+		if operation == executor.DriverApply && request.Operation.SideEffecting() {
+			options.onDispatched = request.Observer.SideEffectDispatched
+		}
+		options.onResponse = request.Observer.ProviderResponseReceived
+	}
+	return options, nil
 }
 
 func preparedFromContext(ctx context.Context) *preparedInvocation {
