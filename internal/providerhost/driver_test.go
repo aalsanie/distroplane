@@ -435,7 +435,8 @@ func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := helperClient(t, "normal", nil)
-	if _, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}}); err != nil {
+	driver, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}})
+	if err != nil {
 		t.Fatalf("original provider rejected: %v", err)
 	}
 	file, err := os.OpenFile(copyPath, os.O_APPEND|os.O_WRONLY, 0)
@@ -449,7 +450,11 @@ func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	request := testExecutorRequest(t, "normal", true, nil)
+	if _, err := driver.Apply(context.Background(), request); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
+		t.Fatalf("replaced provider accepted by existing driver: %v", err)
+	}
 	if _, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}}); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
-		t.Fatalf("replaced provider accepted: %v", err)
+		t.Fatalf("replaced provider accepted by new driver: %v", err)
 	}
 }
