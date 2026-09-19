@@ -34,6 +34,14 @@ inputs:
     description: 'Immutable plan path required by apply and reconcile.'
     required: false
     default: ''
+  upload-plan:
+    description: 'Upload the generated immutable plan as a GitHub Actions artifact.'
+    required: false
+    default: 'false'
+  plan-artifact-name:
+    description: 'Artifact name used when upload-plan is true.'
+    required: false
+    default: distroplane-plan
   journal:
     description: 'Journal path required by apply and reconcile.'
     required: false
@@ -42,6 +50,10 @@ inputs:
     description: 'Optional run ID for apply. Reconcile always uses the journal run ID.'
     required: false
     default: ''
+  concurrency:
+    description: 'Maximum concurrent operations for apply or reconcile. Zero uses the executor default.'
+    required: false
+    default: '0'
   credential-mappings:
     description: 'Multiline credential reference to environment-variable mappings in REF=ENV form.'
     required: false
@@ -74,6 +86,15 @@ outputs:
   plan-path:
     description: 'Persisted plan path returned by the plan command.'
     value: ${{ steps.execute.outputs.plan-path }}
+  plan-artifact-id:
+    description: 'GitHub Actions artifact ID for an uploaded plan.'
+    value: ${{ steps.upload-plan.outputs.artifact-id }}
+  plan-artifact-url:
+    description: 'GitHub Actions URL for an uploaded plan.'
+    value: ${{ steps.upload-plan.outputs.artifact-url }}
+  plan-artifact-digest:
+    description: 'GitHub Actions artifact digest for an uploaded plan.'
+    value: ${{ steps.upload-plan.outputs.artifact-digest }}
   run-id:
     description: 'Run ID returned by apply or reconcile.'
     value: ${{ steps.execute.outputs.run-id }}
@@ -120,6 +141,7 @@ runs:
         DISTROPLANE_ATTESTATIONS: ${{ inputs.attestations }}
         DISTROPLANE_BINARY: ${{ inputs.binary }}
         DISTROPLANE_COMMAND: ${{ inputs.command }}
+        DISTROPLANE_CONCURRENCY: ${{ inputs.concurrency }}
         DISTROPLANE_CONFIG: ${{ inputs.config }}
         DISTROPLANE_CREDENTIAL_MAPPINGS: ${{ inputs.credential-mappings }}
         DISTROPLANE_EVIDENCE_PATH: ${{ inputs.evidence-path }}
@@ -132,6 +154,15 @@ runs:
         DISTROPLANE_UPLOAD_EVIDENCE: ${{ inputs.upload-evidence }}
         DISTROPLANE_VERSION: ${{ inputs.version }}
       run: '& "$env:GITHUB_ACTION_PATH/action/run.ps1"'
+
+    - name: Upload plan
+      id: upload-plan
+      if: ${{ always() && inputs.command == 'plan' && inputs.upload-plan == 'true' && steps.execute.outputs.plan-path != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.plan-artifact-name }}
+        path: ${{ steps.execute.outputs.plan-path }}
+        if-no-files-found: error
 
     - name: Upload evidence
       id: upload-evidence
