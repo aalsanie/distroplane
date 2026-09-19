@@ -134,7 +134,7 @@ func BenchmarkExecuteOneThousandOperationsPeakMemory(b *testing.B) {
 				case <-stop:
 					return
 				default:
-					runtime.Gosched()
+					time.Sleep(250 * time.Microsecond)
 				}
 			}
 		}()
