@@ -17,7 +17,7 @@ type fixedLeaseManager struct {
 	err   error
 }
 
-func (m fixedLeaseManager) Acquire(context.Context, string) (Lease, error) {
+func (m fixedLeaseManager) Acquire(context.Context, LeaseRequest) (Lease, error) {
 	return m.lease, m.err
 }
 
@@ -340,7 +340,7 @@ func TestHelpersAndValidationBranches(t *testing.T) {
 
 	leases := NewMemoryLeases()
 	leases.held = nil
-	lease, err := leases.Acquire(context.Background(), "key")
+	lease, err := leases.Acquire(context.Background(), LeaseRequest{Key: "key", OperationID: "op-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
