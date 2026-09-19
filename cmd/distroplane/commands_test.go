@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -41,7 +42,7 @@ func TestCLIEndToEndMultiProviderPlanApplyStatusReconcile(t *testing.T) {
 		t.Fatalf("validate code=%d stderr=%s", code, stderr.String())
 	}
 	var validated validateOutput
-	if err := json.Unmarshal(stdout.Bytes(), &validated); err != nil || !validated.Valid || validated.Targets != 2 {
+	if err := json.Unmarshal(stdout.Bytes(), &validated); err != nil || validated.OutputSchemaVersion != outputSchemaVersion || !validated.Valid || validated.Targets != 2 {
 		t.Fatalf("validated=%+v err=%v", validated, err)
 	}
 
@@ -54,21 +55,21 @@ func TestCLIEndToEndMultiProviderPlanApplyStatusReconcile(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &planned); err != nil {
 		t.Fatal(err)
 	}
-	if planned.Targets != 2 || planned.Operations != 2 || planned.PlanID == "" {
+	if planned.OutputSchemaVersion != outputSchemaVersion || planned.Targets != 2 || planned.Operations != 2 || planned.PlanID == "" {
 		t.Fatalf("planned=%+v", planned)
 	}
 	journalPath := filepath.Join(dir, "run.journal")
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--run", "run-e2e", "--json"}, &stdout, &stderr); code != exitPending {
+	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--run", "run-e2e", "--concurrency", "1", "--json"}, &stdout, &stderr); code != exitPending {
 		t.Fatalf("apply code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	var applied stateOutput
 	if err := json.Unmarshal(stdout.Bytes(), &applied); err != nil {
 		t.Fatal(err)
 	}
-	if applied.RunID != "run-e2e" || len(applied.Targets) != 2 {
+	if applied.OutputSchemaVersion != outputSchemaVersion || applied.RunID != "run-e2e" || len(applied.Targets) != 2 {
 		t.Fatalf("applied=%+v", applied)
 	}
 
@@ -80,14 +81,14 @@ func TestCLIEndToEndMultiProviderPlanApplyStatusReconcile(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := execute([]string{"reconcile", "--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--json"}, &stdout, &stderr); code != exitOK {
+	if code := execute([]string{"reconcile", "--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--concurrency", "1", "--json"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("reconcile code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	var reconciled stateOutput
 	if err := json.Unmarshal(stdout.Bytes(), &reconciled); err != nil {
 		t.Fatal(err)
 	}
-	if !reconciled.Completed {
+	if reconciled.OutputSchemaVersion != outputSchemaVersion || !reconciled.Completed {
 		t.Fatalf("reconciled=%+v", reconciled)
 	}
 	for _, target := range reconciled.Targets {
@@ -113,6 +114,7 @@ func TestCLIUsageAndInvalidInputs(t *testing.T) {
 		{"apply"},
 		{"status"},
 		{"reconcile"},
+		{"apply", "--plan", "p", "--journal", "j", "--concurrency", "-1"},
 	}
 	for _, args := range cases {
 		var stdout, stderr bytes.Buffer
@@ -130,7 +132,7 @@ func TestCLIUsageAndInvalidInputs(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
 	var output errorOutput
-	if err := json.Unmarshal(stderr.Bytes(), &output); err != nil || output.Error.Kind != "invalid_config" {
+	if err := json.Unmarshal(stderr.Bytes(), &output); err != nil || output.OutputSchemaVersion != outputSchemaVersion || output.Error.Kind != "invalid_config" {
 		t.Fatalf("output=%+v err=%v", output, err)
 	}
 }
@@ -272,4 +274,37 @@ func minimalStatePlan(t *testing.T) domain.Plan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+
+func TestCLIPlanHonorsCancelledContext(t *testing.T) {
+	dir := t.TempDir()
+	providerBinary := buildFakeProvider(t)
+	artifact := filepath.Join(dir, "app.bin")
+	if err := os.WriteFile(artifact, []byte("artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "distroplane.json")
+	rawConfig := `{
+	  "schemaVersion":"1",
+	  "release":{"id":"v1","artifacts":[{"name":"app","source":"app.bin"}]},
+	  "targets":[{"id":"fake","provider":{"name":"fake","executable":` + jsonString(providerBinary) + `},"configuration":{"mode":"published"}}]
+	}`
+	if err := os.WriteFile(configPath, []byte(rawConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var stdout, stderr bytes.Buffer
+	code := executeContext(ctx, []string{"plan", "--config", configPath, "--json"}, &stdout, &stderr)
+	if code != exitOperational {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var output errorOutput
+	if err := json.Unmarshal(stderr.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.OutputSchemaVersion != outputSchemaVersion || output.Error.Kind != "plan_failed" {
+		t.Fatalf("output=%+v", output)
+	}
 }
