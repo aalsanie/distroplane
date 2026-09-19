@@ -6,6 +6,7 @@ $Commit = if ($env:COMMIT) { $env:COMMIT } else {
 }
 $BuildDate = if ($env:BUILD_DATE) { $env:BUILD_DATE } else { [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ') }
 $Out = if ($env:OUT_DIR) { $env:OUT_DIR } else { 'dist' }
+$GoVersion = (go env GOVERSION).Trim()
 
 if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
 New-Item -ItemType Directory -Path $Out | Out-Null
@@ -53,3 +54,14 @@ $Lines = Get-ChildItem $Out -File -Filter 'distroplane*' | Sort-Object Name | Fo
     "$Hash  $($_.Name)"
 }
 Set-Content -Path (Join-Path $Out 'SHA256SUMS') -Value $Lines -Encoding ascii
+
+
+$Metadata = [ordered]@{
+    schemaVersion = '1'
+    version = $Version
+    commit = $Commit
+    buildDate = $BuildDate
+    goVersion = $GoVersion
+    cgoEnabled = $false
+}
+$Metadata | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $Out 'RELEASE-METADATA.json') -Encoding ascii
