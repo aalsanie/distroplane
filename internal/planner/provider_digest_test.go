@@ -24,7 +24,7 @@ func (h pathDigestHasher) Hash(path string) (domain.Digest, int64, error) {
 	return h.artifact, 3, nil
 }
 
-func providerDigestPlanner(t testing.TB, providerDigest domain.Digest) (*Planner, config.Loaded) {
+func providerDigestPlanner(t *testing.T, providerDigest domain.Digest) (*Planner, config.Loaded) {
 	t.Helper()
 	artifactDigest, err := domain.NewSHA256Digest(strings.Repeat("a", 64))
 	if err != nil {
