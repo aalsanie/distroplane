@@ -55,6 +55,7 @@ type failureStage uint8
 const (
 	failureBeforeProvider failureStage = iota + 1
 	failureAfterProviderStart
+	failureAfterDispatch
 )
 
 type failureAction uint8
@@ -69,6 +70,80 @@ type failureDecision struct {
 	code      string
 	action    failureAction
 	cancelled bool
+}
+
+type journalExecutionObserver struct {
+	mu         sync.Mutex
+	runID      domain.RunID
+	writer     *journal.Writer
+	operation  domain.Operation
+	attempt    uint32
+	started    bool
+	dispatched bool
+	responded  bool
+}
+
+func (o *journalExecutionObserver) ProviderProcessStarted() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.started {
+		return fmt.Errorf("provider process start already recorded")
+	}
+	if _, err := o.writer.Append(journal.Entry{
+		RunID: o.runID, Type: journal.EventProviderProcessStarted,
+		OperationID: o.operation.ID(), TargetID: o.operation.TargetID(),
+		Payload: journal.Payload{Attempt: o.attempt},
+	}); err != nil {
+		return err
+	}
+	o.started = true
+	return nil
+}
+
+func (o *journalExecutionObserver) SideEffectDispatched() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.started {
+		return fmt.Errorf("provider process start must be recorded before dispatch")
+	}
+	if o.dispatched {
+		return fmt.Errorf("side-effect dispatch already recorded")
+	}
+	if _, err := o.writer.Append(journal.Entry{
+		RunID: o.runID, Type: journal.EventSideEffectDispatched,
+		OperationID: o.operation.ID(), TargetID: o.operation.TargetID(),
+		Payload: journal.Payload{Attempt: o.attempt},
+	}); err != nil {
+		return err
+	}
+	o.dispatched = true
+	return nil
+}
+
+func (o *journalExecutionObserver) ProviderResponseReceived() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.started {
+		return fmt.Errorf("provider process start must be recorded before response")
+	}
+	if o.responded {
+		return fmt.Errorf("provider response already recorded")
+	}
+	if _, err := o.writer.Append(journal.Entry{
+		RunID: o.runID, Type: journal.EventProviderResponseReceived,
+		OperationID: o.operation.ID(), TargetID: o.operation.TargetID(),
+		Payload: journal.Payload{Attempt: o.attempt},
+	}); err != nil {
+		return err
+	}
+	o.responded = true
+	return nil
+}
+
+func (o *journalExecutionObserver) snapshot() (started, dispatched, responded bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.started, o.dispatched, o.responded
 }
 
 func New(driver Driver, options Options) (*Executor, error) {
@@ -402,9 +477,13 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 
 	ctx, cancel := operationContext(leaseCtx, current.operation.Timeout())
 	defer cancel()
+	observer := &journalExecutionObserver{
+		runID: runID, writer: writer, operation: current.operation, attempt: outcome.attempt,
+	}
 	request := Request{
 		PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt,
 		Requirements: append([]domain.Requirement(nil), current.requirements...),
+		Observer: observer,
 	}
 	callCtx := ctx
 	var release func()
@@ -437,20 +516,17 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	if release != nil {
 		defer release()
 	}
-	if _, err := writer.Append(journal.Entry{
-		RunID: runID, Type: journal.EventProviderProcessStarted, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-		Payload: journal.Payload{Attempt: outcome.attempt},
-	}); err != nil {
-		outcome.infrastructureErr = err
-		return outcome
-	}
-	if current.kind == taskApply && current.operation.SideEffecting() {
-		if _, err := writer.Append(journal.Entry{
-			RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-			Payload: journal.Payload{Attempt: outcome.attempt},
-		}); err != nil {
+	boundaryAware := reportsExecutionBoundaries(e.driver)
+	if !boundaryAware {
+		if err := observer.ProviderProcessStarted(); err != nil {
 			outcome.infrastructureErr = err
 			return outcome
+		}
+		if current.kind == taskApply && current.operation.SideEffecting() {
+			if err := observer.SideEffectDispatched(); err != nil {
+				outcome.infrastructureErr = err
+				return outcome
+			}
 		}
 	}
 	if current.kind == taskReconcile {
@@ -462,11 +538,8 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			Ambiguous:     current.state.Ambiguous,
 		}
 		result, err := e.driver.Reconcile(callCtx, request)
-		if providerResponseReceived(err) {
-			if _, appendErr := writer.Append(journal.Entry{
-				RunID: runID, Type: journal.EventProviderResponseReceived, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-				Payload: journal.Payload{Attempt: outcome.attempt},
-			}); appendErr != nil {
+		if !boundaryAware && providerResponseReceived(err) {
+			if appendErr := observer.ProviderResponseReceived(); appendErr != nil {
 				outcome.infrastructureErr = appendErr
 				return outcome
 			}
@@ -476,16 +549,14 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	}
 
 	result, err := e.driver.Apply(callCtx, request)
-	if providerResponseReceived(err) {
-		if _, appendErr := writer.Append(journal.Entry{
-			RunID: runID, Type: journal.EventProviderResponseReceived, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-			Payload: journal.Payload{Attempt: outcome.attempt},
-		}); appendErr != nil {
+	if !boundaryAware && providerResponseReceived(err) {
+		if appendErr := observer.ProviderResponseReceived(); appendErr != nil {
 			outcome.infrastructureErr = appendErr
 			return outcome
 		}
 	}
-	deferred, persistErr := persistApplyOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, result, err)
+	started, dispatched, _ := observer.snapshot()
+	deferred, persistErr := persistApplyOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, started, dispatched, result, err)
 	outcome.deferReconcile = deferred
 	outcome.infrastructureErr = persistErr
 	return outcome
@@ -520,10 +591,10 @@ func operationContext(parent context.Context, timeout time.Duration) (context.Co
 	return context.WithCancel(parent)
 }
 
-func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, result Result, callErr error) (bool, error) {
+func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, providerStarted, dispatched bool, result Result, callErr error) (bool, error) {
 	if callErr == nil {
 		if err := result.validate(); err != nil {
-			if operation.SideEffecting() {
+			if operation.SideEffecting() && dispatched {
 				if _, appendErr := writer.Append(ambiguousEntry(runID, operation, attempt, "DRIVER_CONTRACT_ERROR")); appendErr != nil {
 					return false, appendErr
 				}
@@ -534,13 +605,26 @@ func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer
 			}
 			return false, err
 		}
+		if operation.SideEffecting() && !dispatched {
+			if _, appendErr := writer.Append(resultEntry(runID, operation, attempt, domain.StateFailed, "", nil, "DRIVER_BOUNDARY_ERROR", true)); appendErr != nil {
+				return false, appendErr
+			}
+			return false, fmt.Errorf("side-effecting operation returned a result before dispatch was recorded")
+		}
 		if _, err := writer.Append(resultEntry(runID, operation, attempt, result.State, result.ProviderState, result.Evidence, "", false)); err != nil {
 			return false, err
 		}
 		return result.State == domain.StateWaitingExternal, nil
 	}
 
-	decision := decideFailure(failureAfterProviderStart, operation.SideEffecting(), parent, callCtx, callErr)
+	stage := failureBeforeProvider
+	if providerStarted {
+		stage = failureAfterProviderStart
+	}
+	if dispatched {
+		stage = failureAfterDispatch
+	}
+	decision := decideFailure(stage, operation.SideEffecting(), parent, callCtx, callErr)
 	if decision.action == failureReconcile {
 		_, err := writer.Append(ambiguousEntry(runID, operation, attempt, decision.code))
 		return false, err
@@ -579,13 +663,13 @@ func persistReconcileOutcome(parent, callCtx context.Context, writer *journal.Wr
 func decideFailure(stage failureStage, sideEffecting bool, parent, callCtx context.Context, callErr error) failureDecision {
 	code, retryable, ambiguous, cancelled := classifyCallError(parent, callCtx, callErr)
 	if cancelled {
-		if stage == failureAfterProviderStart && sideEffecting {
+		if stage == failureAfterDispatch && sideEffecting {
 			return failureDecision{code: code, action: failureReconcile, cancelled: true}
 		}
 		return failureDecision{code: code, action: failureStop, cancelled: true}
 	}
 
-	if stage == failureBeforeProvider {
+	if stage != failureAfterDispatch {
 		if retryable {
 			return failureDecision{code: code, action: failureRetryApply}
 		}
@@ -609,6 +693,11 @@ func decideFailure(stage failureStage, sideEffecting bool, parent, callCtx conte
 		}
 	}
 	return failureDecision{code: code, action: failureStop}
+}
+
+func reportsExecutionBoundaries(driver Driver) bool {
+	reporter, ok := driver.(ExecutionBoundaryReporter)
+	return ok && reporter.ReportsExecutionBoundaries()
 }
 
 func providerResponseReceived(callErr error) bool {
