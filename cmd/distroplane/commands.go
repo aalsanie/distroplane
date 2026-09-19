@@ -214,6 +214,9 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
 	}
+	if err := persisted.VerifyProviderDigests(); err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
+	}
 	if !reconcileOnly {
 		if err := planner.VerifyArtifacts(persisted.Plan(), nil); err != nil {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "artifact_changed", err)
