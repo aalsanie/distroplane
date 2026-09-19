@@ -483,7 +483,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	request := Request{
 		PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt,
 		Requirements: append([]domain.Requirement(nil), current.requirements...),
-		Observer: observer,
+		Observer:     observer,
 	}
 	callCtx := ctx
 	var release func()
