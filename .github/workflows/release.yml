@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - name: Validate release identity
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "invalid VERSION: $version" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME}" != "$tag" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match VERSION $version" >&2
+            exit 1
+          fi
+          commit="$(git rev-parse HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Require tested main revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          require_success() {
+            workflow="$1"
+            label="$2"
+            response="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=push&branch=main&head_sha=$SHA&per_page=10")"
+            count="$(jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length' <<<"$response")"
+            if [[ "$count" -lt 1 ]]; then
+              echo "$label has no successful main run for $SHA" >&2
+              exit 1
+            fi
+          }
+          require_success "ci.yml" "CI"
+          require_success "action-smoke.yml" "GitHub Action smoke"
+
+      - name: Build release assets
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          export COMMIT="${COMMIT:0:12}"
+          export BUILD_DATE="$(git show -s --format=%cI HEAD)"
+          ./scripts/build.sh
+          (cd dist && sha256sum -c SHA256SUMS)
+          test -f dist/RELEASE-METADATA.json
+          "./dist/distroplane_${VERSION}_linux_amd64" version --json | grep -F "\"version\":\"${VERSION}\"" >/dev/null
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists" >&2
+            exit 1
+          fi
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* --verify-tag "${prerelease[@]}" --title "$TAG" --notes "Distroplane $VERSION. Verify downloaded executables against SHA256SUMS; RELEASE-METADATA.json records the source commit and build toolchain."

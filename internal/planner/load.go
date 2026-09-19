@@ -91,6 +91,8 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 
 	targets := make([]domain.Target, 0, len(document.Targets))
 	targetProviders := make(map[domain.TargetID]domain.ProviderRef, len(document.Targets))
+	targetProviderDigests := make(map[domain.TargetID]string, len(document.Targets))
+	providerDigests := make(map[domain.ProviderRef]string)
 	for _, value := range document.Targets {
 		targetID, err := domain.NewTargetID(value.ID)
 		if err != nil {
@@ -99,6 +101,18 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 		providerRef, err := providerRefFromDocument(value.Provider)
 		if err != nil {
 			return DistributionPlan{}, fmt.Errorf("target %q provider: %w", value.ID, err)
+		}
+		if value.Provider.Digest != "" {
+			digest, err := domain.ParseDigest(value.Provider.Digest)
+			if err != nil {
+				return DistributionPlan{}, fmt.Errorf("target %q provider digest: %w", value.ID, err)
+			}
+			canonical := digest.String()
+			targetProviderDigests[targetID] = canonical
+			if existing, exists := providerDigests[providerRef]; exists && existing != canonical {
+				return DistributionPlan{}, fmt.Errorf("provider %q@%q has inconsistent executable digests", providerRef.Name(), providerRef.Version())
+			}
+			providerDigests[providerRef] = canonical
 		}
 		for _, capability := range value.RequiredCapabilities {
 			if !capability.Valid() {
@@ -144,6 +158,15 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 		}
 		if targetProvider, ok := targetProviders[targetID]; !ok || targetProvider != providerRef {
 			return DistributionPlan{}, fmt.Errorf("operation %q provider does not match target", value.ID)
+		}
+		expectedDigest := targetProviderDigests[targetID]
+		if value.Provider.Digest != expectedDigest {
+			return DistributionPlan{}, fmt.Errorf("operation %q provider digest does not match target", value.ID)
+		}
+		if value.Provider.Digest != "" {
+			if _, err := domain.ParseDigest(value.Provider.Digest); err != nil {
+				return DistributionPlan{}, fmt.Errorf("operation %q provider digest: %w", value.ID, err)
+			}
 		}
 		dependencies := make([]domain.OperationID, len(value.Dependencies))
 		for i, dependency := range value.Dependencies {

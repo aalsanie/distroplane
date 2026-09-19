@@ -208,6 +208,13 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	stdout := &limitedWriter{limit: c.codec.MaxMessageBytes}
 	stderr := &captureWriter{limit: c.maxStderr}
 	command := exec.CommandContext(ctx, executable, c.args...)
+	configureProcessTree(command)
+	command.Cancel = func() error {
+		if command.Process == nil {
+			return nil
+		}
+		return terminateProcessTree(command.Process)
+	}
 	inputGate := make(chan struct{})
 	inputReleased := false
 	releaseInput := func() {
@@ -237,7 +244,7 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	cleanup := func() {
 		releaseInput()
 		if command.Process != nil {
-			_ = command.Process.Kill()
+			_ = terminateProcessTree(command.Process)
 		}
 		_ = command.Wait()
 	}

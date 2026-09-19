@@ -5,6 +5,7 @@ version="${VERSION:-0.0.0-dev}"
 commit="${COMMIT:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)}"
 build_date="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 out="${OUT_DIR:-dist}"
+go_version="$(go env GOVERSION)"
 
 rm -rf "$out"
 mkdir -p "$out"
@@ -45,3 +46,8 @@ done
     shasum -a 256 distroplane* > SHA256SUMS
   fi
 )
+
+
+cat > "$out/RELEASE-METADATA.json" <<EOF
+{"schemaVersion":"1","version":"$version","commit":"$commit","buildDate":"$build_date","goVersion":"$go_version","cgoEnabled":false}
+EOF

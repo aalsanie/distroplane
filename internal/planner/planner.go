@@ -63,6 +63,8 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 	targetDocs := make([]targetDocument, 0, len(targetConfigs))
 	drafts := make([]operationDraft, 0)
 	describeCache := make(map[Endpoint]protocol.DescribeResponse)
+	providerDigestCache := make(map[Endpoint]domain.Digest)
+	providerDigests := make(map[domain.ProviderRef]domain.Digest)
 
 	for _, targetConfig := range targetConfigs {
 		endpoint, err := p.resolveEndpoint(targetConfig)
@@ -97,6 +99,18 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 		if err != nil {
 			return DistributionPlan{}, err
 		}
+		providerDigest, ok := providerDigestCache[endpoint]
+		if !ok {
+			providerDigest, _, err = p.hasher.Hash(endpoint.Executable)
+			if err != nil {
+				return DistributionPlan{}, fmt.Errorf("hash provider %q: %w", targetConfig.Provider.Name, err)
+			}
+			providerDigestCache[endpoint] = providerDigest
+		}
+		if existing, exists := providerDigests[providerRef]; exists && existing != providerDigest {
+			return DistributionPlan{}, fmt.Errorf("provider %q@%q resolves to multiple executable digests", providerRef.Name(), providerRef.Version())
+		}
+		providerDigests[providerRef] = providerDigest
 		configuration, err := domain.NewJSONValue(targetConfig.Configuration)
 		if err != nil {
 			return DistributionPlan{}, err
@@ -137,13 +151,13 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 		targets = append(targets, target)
 		targetDocs = append(targetDocs, targetDocument{
 			ID:                   targetConfig.ID,
-			Provider:             providerDocument{Name: describe.Provider.Name, Version: describe.Provider.Version},
+			Provider:             providerDocument{Name: describe.Provider.Name, Version: describe.Provider.Version, Digest: providerDigest.String()},
 			Configuration:        append(json.RawMessage(nil), targetConfig.Configuration...),
 			RequiredCapabilities: append([]protocol.Capability(nil), required...),
 			Requirements:         requirements,
 		})
 
-		targetDrafts, err := buildOperationDrafts(targetID, providerRef, response.Operations)
+		targetDrafts, err := buildOperationDrafts(targetID, providerRef, providerDigest, response.Operations)
 		if err != nil {
 			return DistributionPlan{}, fmt.Errorf("target %q operations: %w", targetConfig.ID, err)
 		}
@@ -192,7 +206,7 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 			ID:                  string(draft.globalID),
 			ProviderOperationID: draft.providerOperationID,
 			TargetID:            string(draft.targetID),
-			Provider:            providerDocument{Name: string(draft.provider.Name()), Version: string(draft.provider.Version())},
+			Provider:            providerDocument{Name: string(draft.provider.Name()), Version: string(draft.provider.Version()), Digest: draft.providerDigest.String()},
 			Kind:                draft.kind,
 			Dependencies:        operationIDsToStrings(draft.dependencies),
 			SideEffecting:       draft.sideEffecting,
@@ -288,7 +302,7 @@ func validateDescription(configuredName string, response protocol.DescribeRespon
 	return ensureCapabilities(response.Capabilities, []protocol.Capability{protocol.CapabilityPlan})
 }
 
-func buildOperationDrafts(targetID domain.TargetID, provider domain.ProviderRef, operations []protocol.PlannedOperation) ([]operationDraft, error) {
+func buildOperationDrafts(targetID domain.TargetID, provider domain.ProviderRef, providerDigest domain.Digest, operations []protocol.PlannedOperation) ([]operationDraft, error) {
 	localToGlobal := make(map[string]domain.OperationID, len(operations))
 	for _, operation := range operations {
 		global, err := namespacedOperationID(targetID, operation.ID)
@@ -325,6 +339,7 @@ func buildOperationDrafts(targetID domain.TargetID, provider domain.ProviderRef,
 			providerOperationID: operation.ID,
 			targetID:            targetID,
 			provider:            provider,
+			providerDigest:      providerDigest,
 			kind:                operation.Kind,
 			dependencies:        dependencies,
 			sideEffecting:       operation.SideEffecting,
@@ -374,7 +389,7 @@ func semanticOperations(drafts []operationDraft) []semanticOperation {
 			ID:                  string(draft.globalID),
 			ProviderOperationID: draft.providerOperationID,
 			TargetID:            string(draft.targetID),
-			Provider:            providerDocument{Name: string(draft.provider.Name()), Version: string(draft.provider.Version())},
+			Provider:            providerDocument{Name: string(draft.provider.Name()), Version: string(draft.provider.Version()), Digest: draft.providerDigest.String()},
 			Kind:                draft.kind,
 			Dependencies:        operationIDsToStrings(draft.dependencies),
 			SideEffecting:       draft.sideEffecting,

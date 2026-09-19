@@ -13,6 +13,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/executor"
 	"github.com/aalsanie/distroplane/internal/journal"
+	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
@@ -416,4 +417,106 @@ func executorPlan(t testing.TB, cfg helperConfig) domain.Plan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
+	source := helperExecutable(t)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(t.TempDir(), "provider-copy"+filepath.Ext(source))
+	if err := os.WriteFile(copyPath, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := (planner.FileHasher{}).Hash(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := helperClient(t, "normal", nil)
+	driver, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}})
+	if err != nil {
+		t.Fatalf("original provider rejected: %v", err)
+	}
+	request := testExecutorRequest(t, "normal", true, nil)
+	if result, err := driver.Apply(context.Background(), request); err != nil || result.State != domain.StatePublished {
+		t.Fatalf("digest-bound provider failed before replacement: result=%+v err=%v", result, err)
+	}
+
+	preparation, err := driver.Prepare(context.Background(), request, executor.DriverApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer preparation.Release()
+	file, err := os.OpenFile(copyPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte{0}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.Apply(preparation.Context, request); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
+		t.Fatalf("provider replacement after preparation accepted: %v", err)
+	}
+	if _, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}}); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
+		t.Fatalf("replaced provider accepted by new driver: %v", err)
+	}
+	if _, err := driver.Prepare(context.Background(), request, executor.DriverApply); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
+		t.Fatalf("replaced provider accepted during preparation: %v", err)
+	}
+
+	if err := os.WriteFile(copyPath, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver, err = NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, err = driver.Prepare(context.Background(), request, executor.DriverApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer preparation.Release()
+	if err := os.Remove(copyPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.Apply(preparation.Context, request); err == nil || !strings.Contains(err.Error(), "hash provider") {
+		t.Fatalf("removed provider executable accepted: %v", err)
+	}
+
+	if err := os.WriteFile(copyPath, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver, err = NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: copyPath, Digest: digest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconcileRequest := testExecutorRequest(t, "normal", true, &executor.Previous{
+		State:         domain.StateWaitingExternal,
+		ProviderState: "pending",
+		Evidence:      json.RawMessage(`{"provider":"helper"}`),
+	})
+	reconcilePreparation, err := driver.Prepare(context.Background(), reconcileRequest, executor.DriverReconcile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reconcilePreparation.Release()
+	file, err = os.OpenFile(copyPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte{0}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.Reconcile(reconcilePreparation.Context, reconcileRequest); err == nil || !strings.Contains(err.Error(), "digest does not match plan") {
+		t.Fatalf("provider replacement after reconcile preparation accepted: %v", err)
+	}
 }

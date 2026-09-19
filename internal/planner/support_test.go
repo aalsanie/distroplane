@@ -188,12 +188,13 @@ func TestSemanticAndOperationValidation(t *testing.T) {
 	name, _ := domain.NewProviderName("p")
 	version, _ := domain.NewProviderVersion("1")
 	ref, _ := domain.NewProviderRef(name, version)
-	if _, err := buildOperationDrafts(target, ref, []protocol.PlannedOperation{{
+	providerDigest := mustDigest(t, '3')
+	if _, err := buildOperationDrafts(target, ref, providerDigest, []protocol.PlannedOperation{{
 		ID: "x", Kind: "x", Dependencies: []string{"missing"}, ProviderPayload: json.RawMessage(`{}`),
 	}}); err == nil {
 		t.Fatal("unknown dependency accepted")
 	}
-	drafts, err := buildOperationDrafts(target, ref, []protocol.PlannedOperation{{
+	drafts, err := buildOperationDrafts(target, ref, providerDigest, []protocol.PlannedOperation{{
 		ID: "x", Kind: "x", TimeoutMillis: 123, ProviderPayload: json.RawMessage(`{}`),
 	}})
 	if err != nil {
