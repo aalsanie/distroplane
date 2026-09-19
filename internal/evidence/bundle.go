@@ -218,7 +218,7 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 			ID:         string(targetState.ID),
 			ObservedAt: observedAt,
 			Provider:   ProviderRecord{Name: string(provider.Name()), Version: string(provider.Version())},
-			State:    string(targetState.State), ReconcileRequired: targetState.ReconcileRequired, Ambiguous: targetState.Ambiguous,
+			State:      string(targetState.State), ReconcileRequired: targetState.ReconcileRequired, Ambiguous: targetState.Ambiguous,
 			ExternalReferences: references, Operations: operations,
 		})
 	}
@@ -244,8 +244,6 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 		Attestations: normalizedAttestations,
 	}, nil
 }
-
-
 
 type observationMetadata struct {
 	observedAt  time.Time
