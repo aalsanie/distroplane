@@ -3,12 +3,65 @@ package executor
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/journal"
 )
+
+
+type renewingLeaseManager struct {
+	renewed chan struct{}
+}
+
+func (m *renewingLeaseManager) Acquire(ctx context.Context, request LeaseRequest) (Lease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &renewingLease{
+		operationID: request.OperationID,
+		acquiredAt:  time.Now().UTC(),
+		renewed:     m.renewed,
+	}, nil
+}
+
+type renewingLease struct {
+	operationID domain.OperationID
+	acquiredAt  time.Time
+	renewed     chan struct{}
+	once        sync.Once
+}
+
+func (l *renewingLease) State() LeaseState {
+	now := time.Now().UTC()
+	return LeaseState{
+		ID:          "lease-a",
+		Owner:       "worker-a",
+		OperationID: l.operationID,
+		AcquiredAt:  l.acquiredAt,
+		ExpiresAt:   now.Add(200 * time.Millisecond),
+	}
+}
+
+func (*renewingLease) PreviousExpired() (LeaseState, bool) {
+	return LeaseState{}, false
+}
+
+func (l *renewingLease) Renew(ctx context.Context) (LeaseState, error) {
+	if err := ctx.Err(); err != nil {
+		return LeaseState{}, err
+	}
+	l.once.Do(func() {
+		close(l.renewed)
+	})
+	return l.State(), nil
+}
+
+func (*renewingLease) Release() error {
+	return nil
+}
 
 func leaseRequest(key string) LeaseRequest {
 	return LeaseRequest{Key: key, OperationID: "op-a"}
@@ -233,12 +286,15 @@ func TestExecuteJournalsLeaseAndProviderLifecycle(t *testing.T) {
 
 func TestExecuteRenewsLongRunningLease(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
-	leases := newMemoryLeases("worker-a", 500*time.Millisecond, time.Now, func() (string, error) {
-		return "lease-a", nil
-	})
-	driver := &scriptedDriver{apply: func(context.Context, Request) (Result, error) {
-		time.Sleep(800 * time.Millisecond)
-		return published(), nil
+	renewed := make(chan struct{})
+	leases := &renewingLeaseManager{renewed: renewed}
+	driver := &scriptedDriver{apply: func(ctx context.Context, _ Request) (Result, error) {
+		select {
+		case <-renewed:
+			return published(), nil
+		case <-ctx.Done():
+			return Result{}, ctx.Err()
+		}
 	}}
 	writer := openWriter(t, runID())
 	state, err := newExecutor(t, driver, Options{Leases: leases}).Execute(context.Background(), plan, runID(), writer)
