@@ -142,13 +142,15 @@ func TestFailureDecisionTable(t *testing.T) {
 		{"pre-provider transient", failureBeforeProvider, true, context.Background(), context.Background(), &DriverError{Code: "TRANSIENT", Retryable: true}, "TRANSIENT", failureRetryApply, false},
 		{"pre-provider permanent", failureBeforeProvider, true, context.Background(), context.Background(), &DriverError{Code: "PERMANENT"}, "PERMANENT", failureStop, false},
 		{"non-side process crash", failureAfterProviderStart, false, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureRetryApply, false},
-		{"side process crash", failureAfterProviderStart, true, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureReconcile, false},
-		{"side transient", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "TRANSIENT", Retryable: true}, "TRANSIENT", failureRetryApply, false},
-		{"side permanent", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "PERMANENT"}, "PERMANENT", failureStop, false},
-		{"side ambiguous", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "AMBIGUOUS", Ambiguous: true}, "AMBIGUOUS", failureReconcile, false},
-		{"side timeout", failureAfterProviderStart, true, context.Background(), context.Background(), context.DeadlineExceeded, "TIMEOUT", failureReconcile, false},
+		{"side process crash before dispatch", failureAfterProviderStart, true, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureRetryApply, false},
+		{"side process crash after dispatch", failureAfterDispatch, true, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureReconcile, false},
+		{"side transient after dispatch", failureAfterDispatch, true, context.Background(), context.Background(), &DriverError{Code: "TRANSIENT", Retryable: true}, "TRANSIENT", failureRetryApply, false},
+		{"side permanent after dispatch", failureAfterDispatch, true, context.Background(), context.Background(), &DriverError{Code: "PERMANENT"}, "PERMANENT", failureStop, false},
+		{"side ambiguous after dispatch", failureAfterDispatch, true, context.Background(), context.Background(), &DriverError{Code: "AMBIGUOUS", Ambiguous: true}, "AMBIGUOUS", failureReconcile, false},
+		{"side timeout after dispatch", failureAfterDispatch, true, context.Background(), context.Background(), context.DeadlineExceeded, "TIMEOUT", failureReconcile, false},
 		{"cancel before provider", failureBeforeProvider, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureStop, true},
-		{"cancel after dispatch", failureAfterProviderStart, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureReconcile, true},
+		{"cancel after start before dispatch", failureAfterProviderStart, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureStop, true},
+		{"cancel after dispatch", failureAfterDispatch, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureReconcile, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
