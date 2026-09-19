@@ -21,6 +21,7 @@ import (
 type Binding struct {
 	Provider   domain.ProviderRef
 	Executable string
+	Digest     domain.Digest
 }
 
 func (*Driver) ReportsExecutionBoundaries() bool {
@@ -70,6 +71,15 @@ func newDriver(client *Client, resolver credentials.Resolver, bindings []Binding
 		executable, err := validateExecutable(binding.Executable)
 		if err != nil {
 			return nil, err
+		}
+		if binding.Digest.Valid() {
+			actual, _, err := (planner.FileHasher{}).Hash(executable)
+			if err != nil {
+				return nil, fmt.Errorf("hash provider %q@%q executable: %w", binding.Provider.Name(), binding.Provider.Version(), err)
+			}
+			if actual != binding.Digest {
+				return nil, fmt.Errorf("provider %q@%q executable digest does not match plan", binding.Provider.Name(), binding.Provider.Version())
+			}
 		}
 		if _, exists := resolved[binding.Provider]; exists {
 			return nil, fmt.Errorf("duplicate provider binding %q@%q", binding.Provider.Name(), binding.Provider.Version())
