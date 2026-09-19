@@ -29,6 +29,11 @@ func TestReduceRequiredLifecycleEvents(t *testing.T) {
 		dispatched(17, "op-c", "target-b", 1),
 		event(18, EventProviderResponseReceived, "op-c", "target-b", Payload{Attempt: 1}),
 		event(19, EventOperationWaitingExternal, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "review", Evidence: evidence(`{"ref":"c"}`)}),
+		reconcileStarted(20, "op-c", "target-b", 1),
+		event(21, EventProviderProcessStarted, "op-c", "target-b", Payload{Attempt: 1}),
+		event(22, EventProviderResponseReceived, "op-c", "target-b", Payload{Attempt: 1}),
+		event(23, EventOperationPublished, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "published", Evidence: evidence(`{"ref":"c"}`)}),
+		event(24, EventRunCompleted, "", "", Payload{}),
 	}
 	state, err := Reduce(plan, events)
 	if err != nil {
@@ -43,8 +48,11 @@ func TestReduceRequiredLifecycleEvents(t *testing.T) {
 		t.Fatalf("op-b=%+v", opB)
 	}
 	opC, _ := state.Operation(opID("op-c"))
-	if opC.State != domain.StateWaitingExternal || opC.LeaseActive || !opC.ReconcileRequired {
+	if opC.State != domain.StatePublished || opC.LeaseActive || opC.ReconcileRequired {
 		t.Fatalf("op-c=%+v", opC)
+	}
+	if !state.Completed {
+		t.Fatalf("state=%+v", state)
 	}
 }
 
