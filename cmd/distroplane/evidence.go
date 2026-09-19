@@ -79,7 +79,7 @@ func runEvidence(args []string, stdout, stderr io.Writer) int {
 	}
 	output := evidenceOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		Path: outputPath, Digest: evidence.Digest(data), PlanID: bundle.PlanID, RunID: bundle.Run.ID,
+		Path:                outputPath, Digest: evidence.Digest(data), PlanID: bundle.PlanID, RunID: bundle.Run.ID,
 	}
 	if jsonMode {
 		return writeJSON(stdout, output)
