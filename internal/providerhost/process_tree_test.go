@@ -1,6 +1,7 @@
 package providerhost
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -91,16 +92,16 @@ func TestClientCancellationKillsProcessTree(t *testing.T) {
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	before, err := os.Stat(heartbeat)
+	before, err := os.ReadFile(heartbeat)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(250 * time.Millisecond)
-	after, err := os.Stat(heartbeat)
+	after, err := os.ReadFile(heartbeat)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+	if !bytes.Equal(after, before) {
 		t.Fatal("provider child process survived parent cancellation")
 	}
 }
