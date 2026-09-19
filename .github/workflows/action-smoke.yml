@@ -321,16 +321,28 @@ jobs:
       - name: Require cleared OIDC environment
         id: oidc
         continue-on-error: true
-        uses: ./
+        shell: pwsh
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: ''
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
-        with:
-          command: plan
-          binary: ${{ steps.fixture.outputs.cli }}
-          config: ${{ steps.fixture.outputs.config }}
-          state-dir: oidc-env-state
-          oidc: required
+          DISTROPLANE_ACTION_REF: ''
+          DISTROPLANE_ACTION_REPOSITORY: aalsanie/distroplane
+          DISTROPLANE_ATTESTATIONS: ''
+          DISTROPLANE_BINARY: ${{ steps.fixture.outputs.cli }}
+          DISTROPLANE_COMMAND: plan
+          DISTROPLANE_CONCURRENCY: '0'
+          DISTROPLANE_CONFIG: ${{ steps.fixture.outputs.config }}
+          DISTROPLANE_CREDENTIAL_MAPPINGS: ''
+          DISTROPLANE_EVIDENCE_PATH: ''
+          DISTROPLANE_INSTALL_PROVIDERS: 'true'
+          DISTROPLANE_JOURNAL: .distroplane/run.journal
+          DISTROPLANE_OIDC: required
+          DISTROPLANE_PLAN: ''
+          DISTROPLANE_RUN_ID: ''
+          DISTROPLANE_STATE_DIR: oidc-env-state
+          DISTROPLANE_UPLOAD_EVIDENCE: 'false'
+          DISTROPLANE_VERSION: ''
+        run: '& "$env:GITHUB_WORKSPACE/action/run.ps1"'
       - name: Verify absent OIDC environment failure
         shell: pwsh
         env:
