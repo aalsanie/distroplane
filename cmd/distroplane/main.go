@@ -29,9 +29,9 @@ const (
 
 type versionInfo struct {
 	OutputSchemaVersion string `json:"outputSchemaVersion"`
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	BuildDate string `json:"buildDate"`
+	Version             string `json:"version"`
+	Commit              string `json:"commit"`
+	BuildDate           string `json:"buildDate"`
 }
 
 func main() {
