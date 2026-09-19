@@ -4,7 +4,7 @@ Distroplane is a lightweight release distribution control plane for deterministi
 
 ## Status
 
-Distroplane is in early development. The current repository baseline establishes the engineering, testing, security, and release foundations; provider and distribution functionality will follow incrementally.
+Distroplane is pre-1.0. The current release-candidate line includes deterministic planning, crash-safe execution and reconciliation, evidence export, npm/SDKMAN/Homebrew/WinGet providers, and the GitHub Action integration.
 
 ## Design principles
 
@@ -46,6 +46,8 @@ On Windows PowerShell:
 The repository includes a provider-neutral composite Action for `plan`, `apply`, and `reconcile`. It resolves checksum-verified release binaries, exposes normalized JSON outputs, supports native GitHub OIDC permission checks, and can upload release evidence artifacts.
 
 See [docs/github-actions.md](docs/github-actions.md) for usage and CI security guidance.
+
+Release safety and verification are documented in [docs/security-model.md](docs/security-model.md), [docs/reliability-validation.md](docs/reliability-validation.md), and [docs/release-verification.md](docs/release-verification.md).
 
 ## License
 
