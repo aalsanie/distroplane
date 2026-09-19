@@ -88,7 +88,6 @@ func benchmarkScheduler(b *testing.B, count int) {
 	}
 }
 
-
 func BenchmarkExecuteOneThousandOperationsPeakMemory(b *testing.B) {
 	operations := make([]operationSpec, 1000)
 	for i := range operations {
