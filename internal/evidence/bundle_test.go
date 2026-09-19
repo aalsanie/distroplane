@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/journal"
@@ -30,6 +31,10 @@ func TestBuildMixedBundleAndDeterministicSerialization(t *testing.T) {
 	if bundle.Run.ID != "run-evidence" || bundle.Run.Completed || bundle.Run.Cancelled {
 		t.Fatalf("run=%+v", bundle.Run)
 	}
+	if bundle.ObservedAt.IsZero() || bundle.Run.StartedAt.IsZero() || bundle.Run.StartedAt.After(bundle.ObservedAt) ||
+		bundle.Run.CompletedAt != nil || bundle.Run.CancelledAt != nil {
+		t.Fatalf("observation metadata bundle=%s run=%+v", bundle.ObservedAt, bundle.Run)
+	}
 	if bundle.Release.ID != "release-evidence" || len(bundle.Release.Artifacts) != 2 {
 		t.Fatalf("release=%+v", bundle.Release)
 	}
@@ -52,6 +57,10 @@ func TestBuildMixedBundleAndDeterministicSerialization(t *testing.T) {
 		states[target.ID] = target.State
 		if target.Provider.Name != "fake" || target.Provider.Version != "1.0.0" || len(target.Operations) != 1 {
 			t.Fatalf("target=%+v", target)
+		}
+		if target.ObservedAt.IsZero() || target.Operations[0].ObservedAt.IsZero() ||
+			!target.ObservedAt.Equal(target.Operations[0].ObservedAt) || target.ObservedAt.After(bundle.ObservedAt) {
+			t.Fatalf("target observation=%+v bundleObservedAt=%s", target, bundle.ObservedAt)
 		}
 	}
 	if states["failed"] != string(domain.StateFailed) ||
@@ -115,6 +124,49 @@ func TestBuildMixedBundleAndDeterministicSerialization(t *testing.T) {
 	}
 	if Digest(first) != Digest(second) || !strings.HasPrefix(Digest(first), "sha256:") {
 		t.Fatalf("digest mismatch")
+	}
+}
+
+func TestBuildCompletedObservationMetadata(t *testing.T) {
+	plan := singlePublishedPlan(t)
+	raw := publishedJournal(t, plan)
+	bundle, err := Build(plan, raw, "run.journal", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Run.CompletedAt == nil || !bundle.Run.CompletedAt.Equal(bundle.ObservedAt) {
+		t.Fatalf("bundleObservedAt=%s run=%+v", bundle.ObservedAt, bundle.Run)
+	}
+	if bundle.Run.CancelledAt != nil || bundle.Run.StartedAt.IsZero() || !bundle.Run.StartedAt.Before(bundle.ObservedAt) {
+		t.Fatalf("run=%+v", bundle.Run)
+	}
+	target := bundle.Targets[0]
+	if target.ObservedAt.IsZero() || target.Operations[0].ObservedAt.IsZero() ||
+		!target.ObservedAt.Equal(target.Operations[0].ObservedAt) || !target.ObservedAt.Before(bundle.ObservedAt) {
+		t.Fatalf("target=%+v bundleObservedAt=%s", target, bundle.ObservedAt)
+	}
+}
+
+func TestDeriveObservationsUsesDurableEventTimes(t *testing.T) {
+	start := time.Unix(10, 0).UTC()
+	ready := time.Unix(20, 0).UTC()
+	dispatched := time.Unix(30, 0).UTC()
+	cancelled := time.Unix(40, 0).UTC()
+	meta := deriveObservations([]journal.Event{
+		{Type: journal.EventRunStarted, ObservedAt: start},
+		{Type: journal.EventOperationReady, OperationID: "op-a", ObservedAt: ready},
+		{Type: journal.EventProviderProcessStarted, OperationID: "op-a", ObservedAt: time.Unix(25, 0).UTC()},
+		{Type: journal.EventSideEffectDispatched, OperationID: "op-a", ObservedAt: dispatched},
+		{Type: journal.EventRunCancelled, ObservedAt: cancelled},
+	})
+	if !meta.startedAt.Equal(start) || !meta.observedAt.Equal(cancelled) || meta.cancelledAt == nil || !meta.cancelledAt.Equal(cancelled) {
+		t.Fatalf("meta=%+v", meta)
+	}
+	if meta.completedAt != nil || !meta.operations["op-a"].Equal(dispatched) {
+		t.Fatalf("meta=%+v", meta)
+	}
+	if operationObservationEvent(journal.EventProviderProcessStarted) {
+		t.Fatal("provider process start treated as evidence state observation")
 	}
 }
 
