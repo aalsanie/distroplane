@@ -80,6 +80,7 @@ func TestCancellationStormDoesNotRedispatchSideEffects(t *testing.T) {
 	engine := newExecutor(t, driver, Options{MaxConcurrency: maxConcurrency})
 	writer := openWriter(t, runID())
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		_, err := engine.Execute(ctx, plan, runID(), writer)
