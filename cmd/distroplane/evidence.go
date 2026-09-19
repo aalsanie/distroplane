@@ -25,10 +25,11 @@ func (a *attestationFlags) Set(value string) error {
 }
 
 type evidenceOutput struct {
-	Path   string `json:"path"`
-	Digest string `json:"digest"`
-	PlanID string `json:"planId"`
-	RunID  string `json:"runId"`
+	OutputSchemaVersion string `json:"outputSchemaVersion"`
+	Path                string `json:"path"`
+	Digest              string `json:"digest"`
+	PlanID              string `json:"planId"`
+	RunID               string `json:"runId"`
 }
 
 func runEvidence(args []string, stdout, stderr io.Writer) int {
@@ -77,7 +78,8 @@ func runEvidence(args []string, stdout, stderr io.Writer) int {
 		return writeCommandError(stderr, jsonMode, exitOperational, "evidence_write_failed", err)
 	}
 	output := evidenceOutput{
-		Path: outputPath, Digest: evidence.Digest(data), PlanID: bundle.PlanID, RunID: bundle.Run.ID,
+		OutputSchemaVersion: outputSchemaVersion,
+		Path:                outputPath, Digest: evidence.Digest(data), PlanID: bundle.PlanID, RunID: bundle.Run.ID,
 	}
 	if jsonMode {
 		return writeJSON(stdout, output)

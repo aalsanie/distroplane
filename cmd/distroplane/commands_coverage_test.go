@@ -137,3 +137,22 @@ func TestCLIErrorsAndOutputContracts(t *testing.T) {
 func journalState(completed, cancelled bool) journal.DerivedState {
 	return journal.DerivedState{Completed: completed, Cancelled: cancelled}
 }
+
+func TestLegacyCommandWrappers(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runPlan([]string{"--unknown"}, &stdout, &stderr); code != exitUsage {
+		t.Fatalf("runPlan code=%d stderr=%s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runApply(nil, &stdout, &stderr); code != exitUsage {
+		t.Fatalf("runApply code=%d stderr=%s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runReconcile(nil, &stdout, &stderr); code != exitUsage {
+		t.Fatalf("runReconcile code=%d stderr=%s", code, stderr.String())
+	}
+}

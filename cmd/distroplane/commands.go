@@ -44,16 +44,18 @@ func (c credentialFlags) Set(value string) error {
 }
 
 type validateOutput struct {
-	Valid         bool   `json:"valid"`
-	SchemaVersion string `json:"schemaVersion"`
-	Targets       int    `json:"targets"`
+	OutputSchemaVersion string `json:"outputSchemaVersion"`
+	Valid               bool   `json:"valid"`
+	SchemaVersion       string `json:"schemaVersion"`
+	Targets             int    `json:"targets"`
 }
 
 type planOutput struct {
-	PlanID     string `json:"planId"`
-	Path       string `json:"path"`
-	Targets    int    `json:"targets"`
-	Operations int    `json:"operations"`
+	OutputSchemaVersion string `json:"outputSchemaVersion"`
+	PlanID              string `json:"planId"`
+	Path                string `json:"path"`
+	Targets             int    `json:"targets"`
+	Operations          int    `json:"operations"`
 }
 
 type targetStateOutput struct {
@@ -77,6 +79,7 @@ type operationStateOutput struct {
 }
 
 type stateOutput struct {
+	OutputSchemaVersion  string                 `json:"outputSchemaVersion"`
 	PlanID               string                 `json:"planId"`
 	RunID                string                 `json:"runId"`
 	Completed            bool                   `json:"completed"`
@@ -87,7 +90,8 @@ type stateOutput struct {
 }
 
 type errorOutput struct {
-	Error struct {
+	OutputSchemaVersion string `json:"outputSchemaVersion"`
+	Error               struct {
 		Kind    string `json:"kind"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -106,7 +110,12 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
-	output := validateOutput{Valid: true, SchemaVersion: loaded.Config.SchemaVersion, Targets: len(loaded.Config.Targets)}
+	output := validateOutput{
+		OutputSchemaVersion: outputSchemaVersion,
+		Valid:               true,
+		SchemaVersion:       loaded.Config.SchemaVersion,
+		Targets:             len(loaded.Config.Targets),
+	}
 	if jsonMode {
 		return writeJSON(stdout, output)
 	}
@@ -115,6 +124,10 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 }
 
 func runPlan(args []string, stdout, stderr io.Writer) int {
+	return runPlanContext(context.Background(), args, stdout, stderr)
+}
+
+func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var configPath, stateDir string
 	var jsonMode bool
 	fs := commandFlags("plan")
@@ -136,7 +149,7 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "runtime", err)
 	}
-	plan, err := builder.Build(context.Background(), loaded)
+	plan, err := builder.Build(ctx, loaded)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "plan_failed", err)
 	}
@@ -149,7 +162,13 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "persist_plan_failed", err)
 	}
-	output := planOutput{PlanID: string(plan.ID()), Path: path, Targets: len(plan.Plan().Targets()), Operations: len(plan.Plan().Operations())}
+	output := planOutput{
+		OutputSchemaVersion: outputSchemaVersion,
+		PlanID:              string(plan.ID()),
+		Path:                path,
+		Targets:             len(plan.Plan().Targets()),
+		Operations:          len(plan.Plan().Operations()),
+	}
 	if jsonMode {
 		return writeJSON(stdout, output)
 	}
@@ -158,19 +177,20 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 }
 
 func runApply(args []string, stdout, stderr io.Writer) int {
-	return runExecution(args, stdout, stderr, false)
+	return runExecutionContext(context.Background(), args, stdout, stderr, false)
 }
 
 func runReconcile(args []string, stdout, stderr io.Writer) int {
-	return runExecution(args, stdout, stderr, true)
+	return runExecutionContext(context.Background(), args, stdout, stderr, true)
 }
 
-func runExecution(args []string, stdout, stderr io.Writer, reconcileOnly bool) int {
+func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly bool) int {
 	command := "apply"
 	if reconcileOnly {
 		command = "reconcile"
 	}
 	var configPath, planPath, journalPath, requestedRun string
+	var concurrency int
 	var jsonMode bool
 	credentialMap := credentialFlags{}
 	fs := commandFlags(command)
@@ -178,6 +198,7 @@ func runExecution(args []string, stdout, stderr io.Writer, reconcileOnly bool) i
 	fs.StringVar(&planPath, "plan", "", "")
 	fs.StringVar(&journalPath, "journal", "", "")
 	fs.StringVar(&requestedRun, "run", "", "")
+	fs.IntVar(&concurrency, "concurrency", 0, "")
 	fs.BoolVar(&jsonMode, "json", false, "")
 	fs.Var(credentialMap, "credential", "")
 	if err := parseCommand(fs, args); err != nil {
@@ -185,6 +206,9 @@ func runExecution(args []string, stdout, stderr io.Writer, reconcileOnly bool) i
 	}
 	if planPath == "" || journalPath == "" {
 		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--plan and --journal are required"))
+	}
+	if concurrency < 0 {
+		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--concurrency must be zero or greater"))
 	}
 	persisted, err := planner.Load(planPath)
 	if err != nil {
@@ -211,12 +235,12 @@ func runExecution(args []string, stdout, stderr io.Writer, reconcileOnly bool) i
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "journal_open_failed", err)
 	}
-	engine, err := executor.New(driver, executor.Options{ReconcileOnly: reconcileOnly})
+	engine, err := executor.New(driver, executor.Options{ReconcileOnly: reconcileOnly, MaxConcurrency: concurrency})
 	if err != nil {
 		_ = writer.Close()
 		return writeCommandError(stderr, jsonMode, exitOperational, "runtime", err)
 	}
-	state, executeErr := engine.Execute(context.Background(), persisted.Plan(), runID, writer)
+	state, executeErr := engine.Execute(ctx, persisted.Plan(), runID, writer)
 	closeErr := writer.Close()
 	if executeErr != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "execution_failed", executeErr)
@@ -378,7 +402,8 @@ func readJournal(path string) (journal.ReadResult, error) {
 
 func stateView(plan domain.Plan, state journal.DerivedState, truncated bool) stateOutput {
 	output := stateOutput{
-		PlanID: string(plan.ID()), RunID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled,
+		OutputSchemaVersion: outputSchemaVersion,
+		PlanID:              string(plan.ID()), RunID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled,
 		JournalTruncatedTail: truncated, Targets: []targetStateOutput{}, Operations: []operationStateOutput{},
 	}
 	for _, target := range state.Targets() {
@@ -468,6 +493,7 @@ func hasJSON(args []string) bool {
 func writeCommandError(w io.Writer, jsonMode bool, code int, kind string, err error) int {
 	if jsonMode {
 		var output errorOutput
+		output.OutputSchemaVersion = outputSchemaVersion
 		output.Error.Kind = kind
 		output.Error.Message = err.Error()
 		if writeJSON(w, output) != exitOK {

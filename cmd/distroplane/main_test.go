@@ -33,6 +33,16 @@ func TestExecuteHelpRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestExecuteContextRejectsNilContext(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := executeContext(nil, []string{"version"}, &stdout, &stderr); code != exitOperational {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "context must not be nil") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
 func TestExecuteUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := execute([]string{"publish"}, &stdout, &stderr); code != 2 {
@@ -77,7 +87,7 @@ func TestVersionJSON(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &got); err != nil {
 		t.Fatalf("decode JSON: %v", err)
 	}
-	want := (versionInfo{Version: "1.2.3", Commit: "abc123", BuildDate: "unknown"})
+	want := (versionInfo{OutputSchemaVersion: outputSchemaVersion, Version: "1.2.3", Commit: "abc123", BuildDate: "unknown"})
 	if got != want {
 		t.Fatalf("version info = %#v, want %#v", got, want)
 	}
