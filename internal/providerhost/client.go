@@ -42,8 +42,21 @@ type Client struct {
 }
 
 type callOptions struct {
-	environment []string
-	redactions  [][]byte
+	environment  []string
+	redactions   [][]byte
+	onStarted    func() error
+	onDispatched func() error
+	onResponse   func() error
+}
+
+type gatedReader struct {
+	reader io.Reader
+	gate   <-chan struct{}
+}
+
+func (r *gatedReader) Read(p []byte) (int, error) {
+	<-r.gate
+	return r.reader.Read(p)
 }
 
 type ProcessError struct {
@@ -195,7 +208,15 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	stdout := &limitedWriter{limit: c.codec.MaxMessageBytes}
 	stderr := &captureWriter{limit: c.maxStderr}
 	command := exec.CommandContext(ctx, executable, c.args...)
-	command.Stdin = &input
+	inputGate := make(chan struct{})
+	inputReleased := false
+	releaseInput := func() {
+		if !inputReleased {
+			close(inputGate)
+			inputReleased = true
+		}
+	}
+	command.Stdin = &gatedReader{reader: bytes.NewReader(input.Bytes()), gate: inputGate}
 	command.Stdout = stdout
 	command.Stderr = stderr
 	environment := c.environment
@@ -204,8 +225,40 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	}
 	command.Env = append([]string(nil), environment...)
 	command.WaitDelay = c.waitDelay
-	runErr := command.Run()
 	redactions := newRedactor(options.redactions)
+
+	if err := command.Start(); err != nil {
+		releaseInput()
+		return &ProcessError{
+			Executable: executable,
+			Err:        err,
+		}
+	}
+	cleanup := func() {
+		releaseInput()
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		_ = command.Wait()
+	}
+	if options.onStarted != nil {
+		if err := options.onStarted(); err != nil {
+			cleanup()
+			return err
+		}
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cleanup()
+		return ctxErr
+	}
+	if options.onDispatched != nil {
+		if err := options.onDispatched(); err != nil {
+			cleanup()
+			return err
+		}
+	}
+	releaseInput()
+	runErr := command.Wait()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
@@ -226,6 +279,11 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	}
 	if err := response.CheckCorrelation(request); err != nil {
 		return err
+	}
+	if options.onResponse != nil {
+		if err := options.onResponse(); err != nil {
+			return err
+		}
 	}
 	if response.Status == protocol.StatusError {
 		value := *response.Error
