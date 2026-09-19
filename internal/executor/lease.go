@@ -9,6 +9,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/aalsanie/distroplane/internal/domain"
 )
 
 const defaultLeaseTTL = 30 * time.Second
@@ -18,11 +20,17 @@ var (
 	ErrLeaseExpired = errors.New("execution lease expired")
 )
 
+type LeaseRequest struct {
+	Key         string
+	OperationID domain.OperationID
+}
+
 type LeaseState struct {
-	ID         string
-	Owner      string
-	AcquiredAt time.Time
-	ExpiresAt  time.Time
+	ID          string
+	Owner       string
+	OperationID domain.OperationID
+	AcquiredAt  time.Time
+	ExpiresAt   time.Time
 }
 
 type Lease interface {
@@ -33,7 +41,7 @@ type Lease interface {
 }
 
 type LeaseManager interface {
-	Acquire(context.Context, string) (Lease, error)
+	Acquire(context.Context, LeaseRequest) (Lease, error)
 }
 
 type leaseIDSource func() (string, error)
@@ -74,15 +82,18 @@ func randomLeaseID() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
-func (m *MemoryLeases) Acquire(ctx context.Context, key string) (Lease, error) {
+func (m *MemoryLeases) Acquire(ctx context.Context, request LeaseRequest) (Lease, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("lease context must not be nil")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if key == "" {
+	if request.Key == "" {
 		return nil, fmt.Errorf("lease key must not be empty")
+	}
+	if !request.OperationID.Valid() {
+		return nil, fmt.Errorf("lease operation ID is invalid")
 	}
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -100,13 +111,13 @@ func (m *MemoryLeases) Acquire(ctx context.Context, key string) (Lease, error) {
 	}
 
 	var expired *LeaseState
-	if current, exists := m.held[key]; exists {
+	if current, exists := m.held[request.Key]; exists {
 		if current.ExpiresAt.After(now) {
 			return nil, ErrLeaseHeld
 		}
 		copy := current
 		expired = &copy
-		delete(m.held, key)
+		delete(m.held, request.Key)
 	}
 
 	id, err := m.newID()
@@ -117,13 +128,14 @@ func (m *MemoryLeases) Acquire(ctx context.Context, key string) (Lease, error) {
 		return nil, err
 	}
 	state := LeaseState{
-		ID:         id,
-		Owner:      m.owner,
-		AcquiredAt: now,
-		ExpiresAt:  now.Add(m.ttl),
+		ID:          id,
+		Owner:       m.owner,
+		OperationID: request.OperationID,
+		AcquiredAt:  now,
+		ExpiresAt:   now.Add(m.ttl),
 	}
-	m.held[key] = state
-	return &memoryLease{manager: m, key: key, state: state, previousExpired: expired}, nil
+	m.held[request.Key] = state
+	return &memoryLease{manager: m, key: request.Key, state: state, previousExpired: expired}, nil
 }
 
 func (m *MemoryLeases) validate() error {
