@@ -722,3 +722,88 @@ func TestMemoryLeaseAdditionalBranches(t *testing.T) {
 		t.Fatalf("renew after release err=%v", err)
 	}
 }
+
+
+func TestRecoveryAndQuiescenceHelperBranches(t *testing.T) {
+	t.Run("ready journaling", func(t *testing.T) {
+		plan := testPlan(t, []operationSpec{{id: "op-a"}})
+		writer := openWriter(t, runID())
+		if _, err := writer.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted}); err != nil {
+			t.Fatal(err)
+		}
+		state, err := journal.Reduce(plan, writer.Events())
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := journalReadyOperations(runID(), writer, state)
+		if err != nil || !changed {
+			t.Fatalf("changed=%v err=%v", changed, err)
+		}
+		state, err = journal.Reduce(plan, writer.Events())
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err = journalReadyOperations(runID(), writer, state)
+		if err != nil || changed {
+			t.Fatalf("second changed=%v err=%v", changed, err)
+		}
+		if executorQuiescent(state, 3) {
+			t.Fatal("ready operation considered quiescent")
+		}
+	})
+
+	cases := []struct {
+		name          string
+		sideEffecting bool
+		providerStart bool
+		wantCode      string
+	}{
+		{"before provider", false, false, "INTERRUPTED_BEFORE_PROVIDER"},
+		{"non-side provider crash", false, true, "PROVIDER_INTERRUPTED"},
+		{"side provider crash", true, true, "INTERRUPTED_BEFORE_DISPATCH"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: tc.sideEffecting}})
+			writer := openWriter(t, runID())
+			entries := []journal.Entry{
+				{RunID: runID(), Type: journal.EventRunStarted},
+				{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
+				{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1, AttemptReason: journal.AttemptReasonInitial}},
+			}
+			if tc.providerStart {
+				entries = append(entries, journal.Entry{
+					RunID: runID(), Type: journal.EventProviderProcessStarted, OperationID: "op-a", TargetID: "target-a",
+					Payload: journal.Payload{Attempt: 1},
+				})
+			}
+			for _, entry := range entries {
+				if _, err := writer.Append(entry); err != nil {
+					t.Fatal(err)
+				}
+			}
+			state, err := journal.Reduce(plan, writer.Events())
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed, err := recoverUndispatched(runID(), writer, state, map[domain.OperationID]domain.Operation{"op-a": plan.Operations()[0]})
+			if err != nil || !changed {
+				t.Fatalf("changed=%v err=%v", changed, err)
+			}
+			state, err = journal.Reduce(plan, writer.Events())
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, _ := state.Operation("op-a")
+			if op.State != domain.StateFailed || op.ErrorCode != tc.wantCode || !op.Retryable {
+				t.Fatalf("op=%+v", op)
+			}
+			if executorQuiescent(state, 3) {
+				t.Fatal("retryable failure below budget considered quiescent")
+			}
+			if !executorQuiescent(state, 1) {
+				t.Fatal("exhausted retry budget not quiescent")
+			}
+		})
+	}
+}
