@@ -485,4 +485,3 @@ func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
 		t.Fatalf("removed provider executable accepted: %v", err)
 	}
 }
-
