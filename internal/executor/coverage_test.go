@@ -27,7 +27,7 @@ type fixedLease struct {
 
 func (l fixedLease) State() LeaseState {
 	return LeaseState{
-		ID: "fixed-lease", Owner: "fixed-worker",
+		ID: "fixed-lease", Owner: "fixed-worker", OperationID: "op-a",
 		AcquiredAt: time.Unix(1, 0).UTC(), ExpiresAt: time.Unix(4102444800, 0).UTC(),
 	}
 }
