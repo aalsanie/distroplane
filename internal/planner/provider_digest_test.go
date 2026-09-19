@@ -100,7 +100,6 @@ func TestProviderExecutableDigestAffectsPlanIdentity(t *testing.T) {
 	}
 }
 
-
 func TestVerifyProviderDigestsRejectsLegacyExecutionPlan(t *testing.T) {
 	providerDigest, _ := domain.NewSHA256Digest(strings.Repeat("b", 64))
 	p, loaded := providerDigestPlanner(t, providerDigest)
