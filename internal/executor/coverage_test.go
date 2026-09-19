@@ -579,7 +579,6 @@ func TestLeaseExpirySchedulingHelpers(t *testing.T) {
 	}
 }
 
-
 func TestExecutionObserverWriterFailures(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	operation := plan.Operations()[0]
