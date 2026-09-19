@@ -216,12 +216,9 @@ func TestWaitingExternalCanBeReconciledRepeatedlyWithoutRepublish(t *testing.T) 
 	}
 }
 
-
 func TestRepeatedExecutionReleasesGoroutines(t *testing.T) {
-	const (
-		operations = 64
-		runs       = 20
-	)
+	const operations = 64
+	const runs = 20
 	specs := make([]operationSpec, operations)
 	for i := range specs {
 		specs[i] = operationSpec{id: fmt.Sprintf("op-%03d", i)}
