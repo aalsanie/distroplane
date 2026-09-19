@@ -806,3 +806,60 @@ func TestRecoveryAndQuiescenceHelperBranches(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+
+	readyWriter := openWriter(t, runID())
+	if _, err := readyWriter.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted}); err != nil {
+		t.Fatal(err)
+	}
+	readyState, err := journal.Reduce(plan, readyWriter.Events())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := readyWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := journalReadyOperations(runID(), readyWriter, readyState); changed || !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("ready changed=%v err=%v", changed, err)
+	}
+
+	leaseWriter := openWriter(t, runID())
+	now := time.Now().UTC()
+	for _, entry := range []journal.Entry{
+		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
+		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: &journal.LeasePayload{
+			ID: "lease-a", Owner: "worker-a", AcquiredAt: now.Add(-2 * time.Second), ExpiresAt: now.Add(-time.Second),
+		}}},
+	} {
+		if _, err := leaseWriter.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leaseState, err := journal.Reduce(plan, leaseWriter.Events())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := leaseWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := expireJournalLeases(runID(), leaseWriter, leaseState, now); changed || !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("expire changed=%v err=%v", changed, err)
+	}
+
+	terminal, err := journal.Reduce(plan, []journal.Event{
+		{SchemaVersion: journal.SchemaVersion, Sequence: 1, RunID: runID(), Type: journal.EventRunStarted, ObservedAt: time.Unix(1, 0).UTC(), Payload: journal.Payload{}},
+		{SchemaVersion: journal.SchemaVersion, Sequence: 2, RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(2, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+		{SchemaVersion: journal.SchemaVersion, Sequence: 3, RunID: runID(), Type: journal.EventProviderProcessStarted, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(3, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+		{SchemaVersion: journal.SchemaVersion, Sequence: 4, RunID: runID(), Type: journal.EventProviderResponseReceived, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(4, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+		{SchemaVersion: journal.SchemaVersion, Sequence: 5, RunID: runID(), Type: journal.EventOperationPublished, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(5, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !executorQuiescent(terminal, 3) {
+		t.Fatal("published operation not quiescent")
+	}
+}
