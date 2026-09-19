@@ -419,7 +419,6 @@ func executorPlan(t testing.TB, cfg helperConfig) domain.Plan {
 	return plan
 }
 
-
 func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
 	source := helperExecutable(t)
 	data, err := os.ReadFile(source)
