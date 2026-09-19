@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -211,5 +213,55 @@ func TestWaitingExternalCanBeReconciledRepeatedlyWithoutRepublish(t *testing.T) 
 	defer driver.mu.Unlock()
 	if len(driver.applyCalls) != 1 {
 		t.Fatalf("final reconciliation republished side effect: %d", len(driver.applyCalls))
+	}
+}
+
+
+func TestRepeatedExecutionReleasesGoroutines(t *testing.T) {
+	const (
+		operations = 64
+		runs       = 20
+	)
+	specs := make([]operationSpec, operations)
+	for i := range specs {
+		specs[i] = operationSpec{id: fmt.Sprintf("op-%03d", i)}
+	}
+	plan := testPlan(t, specs)
+	engine := newExecutor(t, &scriptedDriver{}, Options{MaxConcurrency: 8})
+	baseline := runtime.NumGoroutine()
+
+	for i := 0; i < runs; i++ {
+		run, err := domain.NewRunID(fmt.Sprintf("run-leak-%02d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer, err := journal.OpenWriter(filepath.Join(t.TempDir(), "run.journal"), run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, executeErr := engine.Execute(context.Background(), plan, run, writer)
+		closeErr := writer.Close()
+		if executeErr != nil {
+			t.Fatal(executeErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		if !state.Completed {
+			t.Fatalf("run %d did not complete", i)
+		}
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		runtime.GC()
+		current := runtime.NumGoroutine()
+		if current <= baseline+2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines did not return to baseline: before=%d after=%d", baseline, current)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
