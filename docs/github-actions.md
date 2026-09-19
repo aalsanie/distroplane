@@ -34,13 +34,13 @@ jobs:
 
 Use a released tag or an immutable commit for the Action itself. When the Action is invoked from a `v...` tag, that tag is also used to resolve release binaries. When the Action is pinned by commit, pass `version` explicitly.
 
-The installer downloads `SHA256SUMS`, the matching CLI binary, and by default every provider binary listed for the same release/OS/architecture. Every downloaded executable is SHA-256 verified before execution. Installed provider binaries are added to `PATH`, so an official provider configuration does not need a workflow step that invokes or installs that provider manually.
+The installer downloads `SHA256SUMS`, the matching CLI binary, and by default every provider binary listed for the same release/OS/architecture. Every downloaded executable is SHA-256 verified before execution. Versioned release assets are installed under canonical executable names (`distroplane` and `distroplane-provider-<name>`) and added to `PATH`, so provider discovery works without provider-specific installation commands in workflow YAML.
 
 The `binary` input bypasses release installation and is intended for repository development and smoke tests.
 
 ## Commands and outputs
 
-The Action supports `plan`, `apply`, and `reconcile`. It always invokes the CLI in JSON mode and exposes:
+The Action supports `plan`, `apply`, and `reconcile`. The optional `concurrency` input is forwarded to apply/reconcile and defaults to the executor's normal bounded-concurrency behavior. It always invokes the CLI in JSON mode and exposes:
 
 - `plan-id` and `plan-path`;
 - `run-id`, `completed`, and `pending`;
@@ -87,6 +87,53 @@ Credentials remain environment variables resolved by Distroplane. The Action acc
 ```
 
 Prefer GitHub environments for targets with different trust boundaries. Put each credential boundary in its own job/environment and give that job only the secrets and permissions it needs. Distroplane still supports local multi-target execution; job isolation is a CI security recommendation, not a core semantic requirement.
+
+When credentials must be isolated, use target-scoped Distroplane configuration/plan pairs in separate jobs rather than giving one job every provider secret. For example:
+
+```yaml
+jobs:
+  npm:
+    environment: npm-production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        uses: aalsanie/distroplane@v0.1.0
+        with:
+          command: plan
+          config: distroplane.npm.json
+      - uses: aalsanie/distroplane@v0.1.0
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        with:
+          command: apply
+          config: distroplane.npm.json
+          plan: ${{ steps.plan.outputs.plan-path }}
+          journal: .distroplane/npm.journal
+          credential-mappings: npm-publish=NPM_TOKEN
+
+  vendor:
+    environment: vendor-production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        uses: aalsanie/distroplane@v0.1.0
+        with:
+          command: plan
+          config: distroplane.vendor.json
+      - uses: aalsanie/distroplane@v0.1.0
+        env:
+          VENDOR_TOKEN: ${{ secrets.VENDOR_TOKEN }}
+        with:
+          command: apply
+          config: distroplane.vendor.json
+          plan: ${{ steps.plan.outputs.plan-path }}
+          journal: .distroplane/vendor.journal
+          credential-mappings: vendor-publish=VENDOR_TOKEN
+```
+
+A single multi-target plan remains supported when the workflow intentionally accepts a shared credential boundary.
 
 ## OIDC
 

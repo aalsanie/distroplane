@@ -42,6 +42,10 @@ inputs:
     description: 'Optional run ID for apply. Reconcile always uses the journal run ID.'
     required: false
     default: ''
+  concurrency:
+    description: 'Maximum concurrent operations for apply or reconcile. Zero uses the executor default.'
+    required: false
+    default: '0'
   credential-mappings:
     description: 'Multiline credential reference to environment-variable mappings in REF=ENV form.'
     required: false
@@ -120,6 +124,7 @@ runs:
         DISTROPLANE_ATTESTATIONS: ${{ inputs.attestations }}
         DISTROPLANE_BINARY: ${{ inputs.binary }}
         DISTROPLANE_COMMAND: ${{ inputs.command }}
+        DISTROPLANE_CONCURRENCY: ${{ inputs.concurrency }}
         DISTROPLANE_CONFIG: ${{ inputs.config }}
         DISTROPLANE_CREDENTIAL_MAPPINGS: ${{ inputs.credential-mappings }}
         DISTROPLANE_EVIDENCE_PATH: ${{ inputs.evidence-path }}
