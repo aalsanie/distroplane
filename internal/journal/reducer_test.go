@@ -7,7 +7,6 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 )
 
-
 func TestReduceRequiredLifecycleEvents(t *testing.T) {
 	plan := testPlan(t)
 	events := []Event{
@@ -308,36 +307,36 @@ func TestReduceRejectsInvalidTransitions(t *testing.T) {
 	otherRun := runStarted(2)
 	otherRun.RunID = "run-2"
 	cases := map[string][]Event{
-		"event before run":               {attemptStarted(1, "op-a", "target-a", 1)},
-		"duplicate run":                  {runStarted(1), runStarted(2)},
-		"duplicate ready":                {runStarted(1), event(2, EventOperationReady, "op-a", "target-a", Payload{}), event(3, EventOperationReady, "op-a", "target-a", Payload{})},
-		"lease before ready":             {runStarted(1), event(2, EventLeaseAcquired, "op-b", "target-a", Payload{})},
-		"duplicate lease":                {runStarted(1), event(2, EventLeaseAcquired, "op-a", "target-a", Payload{}), event(3, EventLeaseAcquired, "op-a", "target-a", Payload{})},
-		"lease expiry without acquire":   {runStarted(1), event(2, EventLeaseExpired, "op-a", "target-a", Payload{})},
-		"provider start without attempt": {runStarted(1), event(2, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
+		"event before run":                {attemptStarted(1, "op-a", "target-a", 1)},
+		"duplicate run":                   {runStarted(1), runStarted(2)},
+		"duplicate ready":                 {runStarted(1), event(2, EventOperationReady, "op-a", "target-a", Payload{}), event(3, EventOperationReady, "op-a", "target-a", Payload{})},
+		"lease before ready":              {runStarted(1), event(2, EventLeaseAcquired, "op-b", "target-a", Payload{})},
+		"duplicate lease":                 {runStarted(1), event(2, EventLeaseAcquired, "op-a", "target-a", Payload{}), event(3, EventLeaseAcquired, "op-a", "target-a", Payload{})},
+		"lease expiry without acquire":    {runStarted(1), event(2, EventLeaseExpired, "op-a", "target-a", Payload{})},
+		"provider start without attempt":  {runStarted(1), event(2, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
 		"provider response without start": {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1})},
-		"duplicate sequence":             {runStarted(1), attemptStarted(1, "op-a", "target-a", 1)},
-		"sequence gap":                   {runStarted(1), attemptStarted(3, "op-a", "target-a", 1)},
-		"multiple runs":                  {runStarted(1), otherRun},
-		"unknown operation":              {runStarted(1), attemptStarted(2, "missing", "target-a", 1)},
-		"target mismatch":                {runStarted(1), attemptStarted(2, "op-a", "target-b", 1)},
-		"dependency not ready":           {runStarted(1), attemptStarted(2, "op-b", "target-a", 1)},
-		"attempt gap":                    {runStarted(1), attemptStarted(2, "op-a", "target-a", 2)},
-		"dispatch non side effect":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), dispatched(6, "op-b", "target-a", 1)},
-		"dispatch without attempt":       {runStarted(1), dispatched(2, "op-a", "target-a", 1)},
-		"duplicate provider start":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
-		"duplicate provider response":    {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1}), event(5, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1})},
-		"duplicate dispatch":             {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), dispatched(4, "op-a", "target-a", 1)},
-		"side result before dispatch":    {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), result(3, "op-a", "target-a", 1, domain.StatePublished)},
+		"duplicate sequence":              {runStarted(1), attemptStarted(1, "op-a", "target-a", 1)},
+		"sequence gap":                    {runStarted(1), attemptStarted(3, "op-a", "target-a", 1)},
+		"multiple runs":                   {runStarted(1), otherRun},
+		"unknown operation":               {runStarted(1), attemptStarted(2, "missing", "target-a", 1)},
+		"target mismatch":                 {runStarted(1), attemptStarted(2, "op-a", "target-b", 1)},
+		"dependency not ready":            {runStarted(1), attemptStarted(2, "op-b", "target-a", 1)},
+		"attempt gap":                     {runStarted(1), attemptStarted(2, "op-a", "target-a", 2)},
+		"dispatch non side effect":        {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), dispatched(6, "op-b", "target-a", 1)},
+		"dispatch without attempt":        {runStarted(1), dispatched(2, "op-a", "target-a", 1)},
+		"duplicate provider start":        {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
+		"duplicate provider response":     {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1}), event(5, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1})},
+		"duplicate dispatch":              {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), dispatched(4, "op-a", "target-a", 1)},
+		"side result before dispatch":     {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), result(3, "op-a", "target-a", 1, domain.StatePublished)},
 		"explicit result before dispatch": {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventOperationPublished, "op-a", "target-a", Payload{Attempt: 1})},
-		"result wrong attempt":           {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 2, domain.StatePublished)},
-		"retry while ambiguous":          {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), attemptStarted(4, "op-a", "target-a", 2)},
-		"ambiguous non side effect":      {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), event(6, EventOutcomeAmbiguous, "op-b", "target-a", Payload{Attempt: 1})},
-		"ambiguous before dispatch":      {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventOutcomeAmbiguous, "op-a", "target-a", Payload{Attempt: 1})},
-		"reconcile not required":         {runStarted(1), reconcileStarted(2, "op-a", "target-a", 0)},
-		"reconcile wrong attempt":        {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), reconcileStarted(4, "op-a", "target-a", 2)},
-		"reconcile result without start": {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), reconcileResult(4, "op-a", "target-a", 1, domain.StatePublished)},
-		"start after published":          {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-a", "target-a", 2)},
+		"result wrong attempt":            {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 2, domain.StatePublished)},
+		"retry while ambiguous":           {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), attemptStarted(4, "op-a", "target-a", 2)},
+		"ambiguous non side effect":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), event(6, EventOutcomeAmbiguous, "op-b", "target-a", Payload{Attempt: 1})},
+		"ambiguous before dispatch":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventOutcomeAmbiguous, "op-a", "target-a", Payload{Attempt: 1})},
+		"reconcile not required":          {runStarted(1), reconcileStarted(2, "op-a", "target-a", 0)},
+		"reconcile wrong attempt":         {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), reconcileStarted(4, "op-a", "target-a", 2)},
+		"reconcile result without start":  {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), reconcileResult(4, "op-a", "target-a", 1, domain.StatePublished)},
+		"start after published":           {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-a", "target-a", 2)},
 	}
 	for name, events := range cases {
 		t.Run(name, func(t *testing.T) {
