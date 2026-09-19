@@ -257,3 +257,7 @@ if ($shouldGenerateEvidence) {
 
 Set-ActionOutput -Name 'evidence-path' -Value $evidencePath
 Set-ActionOutput -Name 'evidence-digest' -Value $evidenceDigest
+
+# Native Distroplane exit codes are interpreted by the composite action's
+# enforcement step after outputs and optional evidence have been produced.
+exit 0
