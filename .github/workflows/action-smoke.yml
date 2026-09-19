@@ -210,7 +210,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [checksum, missing]
+        mode: [checksum, missing, unavailable]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
