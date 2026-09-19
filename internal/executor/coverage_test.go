@@ -401,6 +401,14 @@ func TestExecutionObserverOrderingAndDuplicates(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	operation := plan.Operations()[0]
 	writer := openWriter(t, runID())
+	for _, entry := range []journal.Entry{
+		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
+	} {
+		if _, err := writer.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
 	observer := &journalExecutionObserver{
 		runID: runID(), writer: writer, operation: operation, attempt: 1,
 	}
@@ -492,6 +500,17 @@ func TestLeaseHelperFailurePaths(t *testing.T) {
 		t.Fatal("expired renewal did not cancel task")
 	}
 
+	for _, entry := range []journal.Entry{
+		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventOperationReady, OperationID: operation.ID(), TargetID: operation.TargetID()},
+		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Lease: &journal.LeasePayload{
+			ID: expiredState.ID, Owner: expiredState.Owner, AcquiredAt: expiredState.AcquiredAt, ExpiresAt: expiredState.ExpiresAt,
+		}}},
+	} {
+		if _, err := writer.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
 	releaseExpired := &coverageLease{state: expiredState, releaseErr: ErrLeaseExpired}
 	if err := releaseLease(runID(), writer, operation, releaseExpired); !errors.Is(err, ErrLeaseExpired) {
 		t.Fatalf("expired release err=%v", err)
