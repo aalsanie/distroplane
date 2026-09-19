@@ -2,6 +2,7 @@ package planner
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,12 @@ func TestLoadAndVerifyArtifacts(t *testing.T) {
 	}
 	if err := VerifyArtifacts(loaded.Plan(), nil); err == nil || !strings.Contains(err.Error(), "digest changed") {
 		t.Fatalf("err=%v", err)
+	}
+	if err := os.Remove(artifactPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyArtifacts(loaded.Plan(), nil); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed artifact err=%v", err)
 	}
 	if _, err := Load(""); err == nil {
 		t.Fatal("empty plan path accepted")
