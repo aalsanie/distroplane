@@ -105,3 +105,9 @@ func TestClientCancellationKillsProcessTree(t *testing.T) {
 		t.Fatal("provider child process survived parent cancellation")
 	}
 }
+
+func TestTerminateProcessTreeNil(t *testing.T) {
+	if err := terminateProcessTree(nil); err != nil {
+		t.Fatal(err)
+	}
+}
