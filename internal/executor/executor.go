@@ -813,7 +813,7 @@ func expireJournalLeases(runID domain.RunID, writer *journal.Writer, state journ
 			continue
 		}
 		lease := LeaseState{
-			ID: operation.LeaseID, Owner: operation.LeaseOwner,
+			ID: operation.LeaseID, Owner: operation.LeaseOwner, OperationID: operation.ID,
 			AcquiredAt: operation.LeaseAcquiredAt, ExpiresAt: operation.LeaseExpiresAt,
 		}
 		if err := appendLeaseStateEvent(runID, writer, operation.ID, operation.TargetID, journal.EventLeaseExpired, lease); err != nil {
@@ -838,6 +838,9 @@ func nextLeaseExpiry(state journal.DerivedState) (time.Time, bool) {
 }
 
 func appendLeaseEvent(runID domain.RunID, writer *journal.Writer, operation domain.Operation, eventType journal.EventType, lease LeaseState) error {
+	if lease.OperationID != operation.ID() {
+		return fmt.Errorf("lease operation %q does not match operation %q", lease.OperationID, operation.ID())
+	}
 	return appendLeaseStateEvent(runID, writer, operation.ID(), operation.TargetID(), eventType, lease)
 }
 
