@@ -226,6 +226,7 @@ func TestReduceRejectsInvalidTransitions(t *testing.T) {
 	cases := map[string][]Event{
 		"event before run":               {attemptStarted(1, "op-a", "target-a", 1)},
 		"duplicate run":                  {runStarted(1), runStarted(2)},
+		"duplicate sequence":             {runStarted(1), attemptStarted(1, "op-a", "target-a", 1)},
 		"sequence gap":                   {runStarted(1), attemptStarted(3, "op-a", "target-a", 1)},
 		"multiple runs":                  {runStarted(1), otherRun},
 		"unknown operation":              {runStarted(1), attemptStarted(2, "missing", "target-a", 1)},

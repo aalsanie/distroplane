@@ -24,7 +24,7 @@ type Writer struct {
 	mu       sync.Mutex
 	file     durableFile
 	path     string
-	lockPath string
+	lock     *os.File
 	runID    domain.RunID
 	next     uint64
 	clock    func() time.Time
@@ -47,14 +47,14 @@ func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 		return nil, err
 	}
-	lockPath := absolute + ".lock"
-	if err := acquireLock(lockPath); err != nil {
+	lock, err := acquireLock(absolute + ".lock")
+	if err != nil {
 		return nil, err
 	}
 	keepLock := false
 	defer func() {
 		if !keepLock {
-			_ = os.Remove(lockPath)
+			_ = releaseLock(lock)
 		}
 	}()
 
@@ -95,32 +95,55 @@ func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
 		return nil, err
 	}
 	keepLock = true
-	return &Writer{file: file, path: absolute, lockPath: lockPath, runID: runID, next: uint64(len(result.Events)) + 1, clock: time.Now, events: cloneEvents(result.Events)}, nil
+	return &Writer{file: file, path: absolute, lock: lock, runID: runID, next: uint64(len(result.Events)) + 1, clock: time.Now, events: cloneEvents(result.Events)}, nil
 }
 
-func acquireLock(path string) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+func acquireLock(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return ErrWriterLocked
-		}
-		return err
+		return nil, err
 	}
-	ok := false
-	defer func() {
+	if err := lockJournalFile(file); err != nil {
 		_ = file.Close()
-		if !ok {
-			_ = os.Remove(path)
+		if errors.Is(err, errJournalFileLocked) {
+			return nil, ErrWriterLocked
+		}
+		return nil, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = releaseLock(file)
 		}
 	}()
-	if _, err := file.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
-		return err
+	if err := file.Truncate(0); err != nil {
+		return nil, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	if err := writeFull(file, []byte(strconv.Itoa(os.Getpid())+"\n")); err != nil {
+		return nil, err
 	}
 	if err := file.Sync(); err != nil {
-		return err
+		return nil, err
 	}
-	ok = true
-	return nil
+	keep = true
+	return file, nil
+}
+
+func releaseLock(file *os.File) error {
+	if file == nil {
+		return nil
+	}
+	var first error
+	if err := unlockJournalFile(file); err != nil {
+		first = err
+	}
+	if err := file.Close(); err != nil && first == nil {
+		first = err
+	}
+	return first
 }
 
 func readPath(path string) (ReadResult, error) {
@@ -230,10 +253,11 @@ func (w *Writer) Close() error {
 			first = err
 		}
 	}
-	if w.lockPath != "" {
-		if err := os.Remove(w.lockPath); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
+	if w.lock != nil {
+		if err := releaseLock(w.lock); err != nil && first == nil {
 			first = err
 		}
+		w.lock = nil
 	}
 	return first
 }
