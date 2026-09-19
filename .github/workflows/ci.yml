@@ -112,7 +112,365 @@ jobs:
       - name: Execution resource sample
         run: go test ./internal/executor -run '^$' -bench '^BenchmarkExecuteOneThousandOperationsPeakMemory$' -benchmem -benchtime=1x
       - name: Journal
-        run: go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents)$' -benchmem -benchtime=3x
+        run: go test ./internal/journal -run '^
+      - name: Provider process startup
+        run: go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x
+
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Test
+        run: go test ./...
+      - name: Build native binaries
+        run: |
+          go build -trimpath ./cmd/distroplane
+          go build -trimpath ./cmd/distroplane-provider-npm
+          go build -trimpath ./cmd/distroplane-provider-sdkman
+          go build -trimpath ./cmd/distroplane-provider-homebrew
+          go build -trimpath ./cmd/distroplane-provider-winget
+
+  release-build:
+    name: Release build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      VERSION: 0.0.0-ci
+      COMMIT: ci
+      BUILD_DATE: 1970-01-01T00:00:00Z
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build release artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/build.sh
+      - name: Build release artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: Verify release artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          expected=(
+            distroplane_0.0.0-ci_linux_amd64
+            distroplane_0.0.0-ci_linux_arm64
+            distroplane_0.0.0-ci_darwin_amd64
+            distroplane_0.0.0-ci_darwin_arm64
+            distroplane_0.0.0-ci_windows_amd64.exe
+            distroplane_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-npm_0.0.0-ci_linux_amd64
+            distroplane-provider-npm_0.0.0-ci_linux_arm64
+            distroplane-provider-npm_0.0.0-ci_darwin_amd64
+            distroplane-provider-npm_0.0.0-ci_darwin_arm64
+            distroplane-provider-npm_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-npm_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-sdkman_0.0.0-ci_linux_amd64
+            distroplane-provider-sdkman_0.0.0-ci_linux_arm64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_amd64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_arm64
+            distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-homebrew_0.0.0-ci_linux_amd64
+            distroplane-provider-homebrew_0.0.0-ci_linux_arm64
+            distroplane-provider-homebrew_0.0.0-ci_darwin_amd64
+            distroplane-provider-homebrew_0.0.0-ci_darwin_arm64
+            distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-winget_0.0.0-ci_linux_amd64
+            distroplane-provider-winget_0.0.0-ci_linux_arm64
+            distroplane-provider-winget_0.0.0-ci_darwin_amd64
+            distroplane-provider-winget_0.0.0-ci_darwin_arm64
+            distroplane-provider-winget_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-winget_0.0.0-ci_windows_arm64.exe
+          )
+          for artifact in "${expected[@]}"; do
+            test -f "dist/$artifact"
+          done
+          test "$(find dist -maxdepth 1 -type f -name 'distroplane*' | wc -l | tr -d ' ')" -eq 30
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq 30
+          test -f dist/RELEASE-METADATA.json
+          grep -q '"schemaVersion":"1"' dist/RELEASE-METADATA.json
+          grep -q '"version":"0.0.0-ci"' dist/RELEASE-METADATA.json
+          (
+            cd dist
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c SHA256SUMS
+            else
+              shasum -a 256 -c SHA256SUMS
+            fi
+          )
+      - name: Verify release artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $expected = @(
+            'distroplane_0.0.0-ci_linux_amd64',
+            'distroplane_0.0.0-ci_linux_arm64',
+            'distroplane_0.0.0-ci_darwin_amd64',
+            'distroplane_0.0.0-ci_darwin_arm64',
+            'distroplane_0.0.0-ci_windows_amd64.exe',
+            'distroplane_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-npm_0.0.0-ci_linux_amd64',
+            'distroplane-provider-npm_0.0.0-ci_linux_arm64',
+            'distroplane-provider-npm_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-npm_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-npm_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-npm_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-homebrew_0.0.0-ci_linux_amd64',
+            'distroplane-provider-homebrew_0.0.0-ci_linux_arm64',
+            'distroplane-provider-homebrew_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-homebrew_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-winget_0.0.0-ci_linux_amd64',
+            'distroplane-provider-winget_0.0.0-ci_linux_arm64',
+            'distroplane-provider-winget_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-winget_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-winget_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-winget_0.0.0-ci_windows_arm64.exe'
+          )
+          foreach ($artifact in $expected) {
+            if (-not (Test-Path (Join-Path 'dist' $artifact) -PathType Leaf)) {
+              throw "missing release artifact: $artifact"
+            }
+          }
+          if ((Get-ChildItem dist -File -Filter 'distroplane*').Count -ne 30) {
+            throw 'unexpected release artifact count'
+          }
+          $lines = @(Get-Content dist/SHA256SUMS)
+          if ($lines.Count -ne 30) {
+            throw 'unexpected checksum entry count'
+          }
+          $metadataPath = Join-Path 'dist' 'RELEASE-METADATA.json'
+          if (-not (Test-Path $metadataPath -PathType Leaf)) {
+            throw 'missing release metadata'
+          }
+          $metadata = Get-Content $metadataPath -Raw | ConvertFrom-Json
+          if ($metadata.schemaVersion -ne '1' -or $metadata.version -ne '0.0.0-ci') {
+            throw 'invalid release metadata'
+          }
+          foreach ($line in $lines) {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
+              throw "invalid checksum entry: $line"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path 'dist' $Matches[2])).Hash.ToLowerInvariant()
+            if ($actual -ne $Matches[1]) {
+              throw "checksum mismatch: $($Matches[2])"
+            }
+          }
+ -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceOneHundredThousandEvents)
+      - name: Provider process startup
+        run: go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x
+
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Test
+        run: go test ./...
+      - name: Build native binaries
+        run: |
+          go build -trimpath ./cmd/distroplane
+          go build -trimpath ./cmd/distroplane-provider-npm
+          go build -trimpath ./cmd/distroplane-provider-sdkman
+          go build -trimpath ./cmd/distroplane-provider-homebrew
+          go build -trimpath ./cmd/distroplane-provider-winget
+
+  release-build:
+    name: Release build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      VERSION: 0.0.0-ci
+      COMMIT: ci
+      BUILD_DATE: 1970-01-01T00:00:00Z
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build release artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/build.sh
+      - name: Build release artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: Verify release artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          expected=(
+            distroplane_0.0.0-ci_linux_amd64
+            distroplane_0.0.0-ci_linux_arm64
+            distroplane_0.0.0-ci_darwin_amd64
+            distroplane_0.0.0-ci_darwin_arm64
+            distroplane_0.0.0-ci_windows_amd64.exe
+            distroplane_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-npm_0.0.0-ci_linux_amd64
+            distroplane-provider-npm_0.0.0-ci_linux_arm64
+            distroplane-provider-npm_0.0.0-ci_darwin_amd64
+            distroplane-provider-npm_0.0.0-ci_darwin_arm64
+            distroplane-provider-npm_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-npm_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-sdkman_0.0.0-ci_linux_amd64
+            distroplane-provider-sdkman_0.0.0-ci_linux_arm64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_amd64
+            distroplane-provider-sdkman_0.0.0-ci_darwin_arm64
+            distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-homebrew_0.0.0-ci_linux_amd64
+            distroplane-provider-homebrew_0.0.0-ci_linux_arm64
+            distroplane-provider-homebrew_0.0.0-ci_darwin_amd64
+            distroplane-provider-homebrew_0.0.0-ci_darwin_arm64
+            distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe
+            distroplane-provider-winget_0.0.0-ci_linux_amd64
+            distroplane-provider-winget_0.0.0-ci_linux_arm64
+            distroplane-provider-winget_0.0.0-ci_darwin_amd64
+            distroplane-provider-winget_0.0.0-ci_darwin_arm64
+            distroplane-provider-winget_0.0.0-ci_windows_amd64.exe
+            distroplane-provider-winget_0.0.0-ci_windows_arm64.exe
+          )
+          for artifact in "${expected[@]}"; do
+            test -f "dist/$artifact"
+          done
+          test "$(find dist -maxdepth 1 -type f -name 'distroplane*' | wc -l | tr -d ' ')" -eq 30
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq 30
+          test -f dist/RELEASE-METADATA.json
+          grep -q '"schemaVersion":"1"' dist/RELEASE-METADATA.json
+          grep -q '"version":"0.0.0-ci"' dist/RELEASE-METADATA.json
+          (
+            cd dist
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c SHA256SUMS
+            else
+              shasum -a 256 -c SHA256SUMS
+            fi
+          )
+      - name: Verify release artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $expected = @(
+            'distroplane_0.0.0-ci_linux_amd64',
+            'distroplane_0.0.0-ci_linux_arm64',
+            'distroplane_0.0.0-ci_darwin_amd64',
+            'distroplane_0.0.0-ci_darwin_arm64',
+            'distroplane_0.0.0-ci_windows_amd64.exe',
+            'distroplane_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-npm_0.0.0-ci_linux_amd64',
+            'distroplane-provider-npm_0.0.0-ci_linux_arm64',
+            'distroplane-provider-npm_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-npm_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-npm_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-npm_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_linux_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-sdkman_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-homebrew_0.0.0-ci_linux_amd64',
+            'distroplane-provider-homebrew_0.0.0-ci_linux_arm64',
+            'distroplane-provider-homebrew_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-homebrew_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe',
+            'distroplane-provider-winget_0.0.0-ci_linux_amd64',
+            'distroplane-provider-winget_0.0.0-ci_linux_arm64',
+            'distroplane-provider-winget_0.0.0-ci_darwin_amd64',
+            'distroplane-provider-winget_0.0.0-ci_darwin_arm64',
+            'distroplane-provider-winget_0.0.0-ci_windows_amd64.exe',
+            'distroplane-provider-winget_0.0.0-ci_windows_arm64.exe'
+          )
+          foreach ($artifact in $expected) {
+            if (-not (Test-Path (Join-Path 'dist' $artifact) -PathType Leaf)) {
+              throw "missing release artifact: $artifact"
+            }
+          }
+          if ((Get-ChildItem dist -File -Filter 'distroplane*').Count -ne 30) {
+            throw 'unexpected release artifact count'
+          }
+          $lines = @(Get-Content dist/SHA256SUMS)
+          if ($lines.Count -ne 30) {
+            throw 'unexpected checksum entry count'
+          }
+          $metadataPath = Join-Path 'dist' 'RELEASE-METADATA.json'
+          if (-not (Test-Path $metadataPath -PathType Leaf)) {
+            throw 'missing release metadata'
+          }
+          $metadata = Get-Content $metadataPath -Raw | ConvertFrom-Json
+          if ($metadata.schemaVersion -ne '1' -or $metadata.version -ne '0.0.0-ci') {
+            throw 'invalid release metadata'
+          }
+          foreach ($line in $lines) {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
+              throw "invalid checksum entry: $line"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path 'dist' $Matches[2])).Hash.ToLowerInvariant()
+            if ($actual -ne $Matches[1]) {
+              throw "checksum mismatch: $($Matches[2])"
+            }
+          }
+ -benchmem -benchtime=3x
       - name: Provider process startup
         run: go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x
 
