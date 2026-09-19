@@ -42,6 +42,8 @@ func TestEntryValidation(t *testing.T) {
 		{"ready payload", Entry{RunID: runID(), Type: EventOperationReady, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, true},
 		{"provider response missing attempt", Entry{RunID: runID(), Type: EventProviderResponseReceived, OperationID: validOp, TargetID: validTarget}, true},
 		{"explicit result carries state", Entry{RunID: runID(), Type: EventOperationPublished, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StatePublished}}, true},
+		{"explicit result credential", Entry{RunID: runID(), Type: EventOperationFailed, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, CredentialRef: domain.CredentialRef("credential-a")}}, true},
+		{"explicit result missing attempt", Entry{RunID: runID(), Type: EventOperationFailed, OperationID: validOp, TargetID: validTarget}, true},
 		{"retryable published", Entry{RunID: runID(), Type: EventOperationPublished, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, Retryable: true}}, true},
 		{"unsupported attempt payload", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StateFailed}}, true},
 		{"error code on start", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ErrorCode: "X"}}, true},
