@@ -3,6 +3,7 @@ package journal
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 )
@@ -17,8 +18,44 @@ func BenchmarkEncodeFrame(b *testing.B) {
 	}
 }
 
+type benchmarkDurableFile struct{}
+
+func (*benchmarkDurableFile) Write(p []byte) (int, error) { return len(p), nil }
+func (*benchmarkDurableFile) Sync() error                  { return nil }
+func (*benchmarkDurableFile) Close() error                 { return nil }
+
+func BenchmarkWriterAppend(b *testing.B) {
+	file := &benchmarkDurableFile{}
+	w := &Writer{file: file, runID: runID(), next: 1, clock: func() time.Time { return time.Unix(1, 0) }}
+	entry := Entry{RunID: runID(), Type: EventRunStarted}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i == 1 {
+			entry = Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: opID("op-c"), TargetID: targetID("target-b"), Payload: Payload{Attempt: uint32(i)}}
+		} else if i > 1 {
+			entry.Payload.Attempt = uint32(i)
+		}
+		if _, err := w.Append(entry); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkReadTenThousandEvents(b *testing.B) {
 	data := benchmarkJournal(b, 10000)
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Read(bytes.NewReader(data)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReadOneHundredThousandEvents(b *testing.B) {
+	data := benchmarkJournal(b, 100000)
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	b.ResetTimer()

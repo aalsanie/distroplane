@@ -1,10 +1,13 @@
 package journal
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -38,8 +41,15 @@ func TestWriterAppendDurabilityAndLocking(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path + ".lock"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("lock remains: %v", err)
+	if _, err := os.Stat(path + ".lock"); err != nil {
+		t.Fatalf("persistent lock file missing: %v", err)
+	}
+	reopened, err := OpenWriter(path, runID())
+	if err != nil {
+		t.Fatalf("reopen after close: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
 	}
 	read, err := readPath(path)
 	if err != nil {
@@ -243,16 +253,17 @@ func TestWriterFilesystemErrorPaths(t *testing.T) {
 		t.Fatal("mkdir failure not surfaced")
 	}
 	lock := filepath.Join(root, "manual.lock")
-	if err := acquireLock(lock); err != nil {
+	held, err := acquireLock(lock)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := acquireLock(lock); !errors.Is(err, ErrWriterLocked) {
+	if _, err := acquireLock(lock); !errors.Is(err, ErrWriterLocked) {
 		t.Fatalf("second lock err=%v", err)
 	}
-	if err := os.Remove(lock); err != nil {
+	if err := releaseLock(held); err != nil {
 		t.Fatal(err)
 	}
-	if err := acquireLock(filepath.Join(blocker, "lock")); err == nil {
+	if _, err := acquireLock(filepath.Join(blocker, "lock")); err == nil {
 		t.Fatal("lock path error not surfaced")
 	}
 	if runtime.GOOS != "windows" {
@@ -276,15 +287,59 @@ func TestWriterCloseErrorPaths(t *testing.T) {
 	if err := w.Close(); err == nil || err.Error() != "close" {
 		t.Fatalf("close err=%v", err)
 	}
-	lockDir := filepath.Join(t.TempDir(), "lockdir")
-	if err := os.Mkdir(lockDir, 0o700); err != nil {
+	if err := releaseLock(nil); err != nil {
+		t.Fatalf("nil lock release: %v", err)
+	}
+}
+
+func TestWriterLockReleasedAfterForcedProcessExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.journal")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWriterLockHelperProcess$")
+	cmd.Env = append(os.Environ(),
+		"DISTROPLANE_JOURNAL_LOCK_HELPER=1",
+		"DISTROPLANE_JOURNAL_LOCK_PATH="+path,
+	)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(lockDir, "child"), []byte("x"), 0o600); err != nil {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	w = &Writer{file: &closeErrorFile{}, lockPath: lockDir}
-	if err := w.Close(); err == nil {
-		t.Fatal("lock removal error not surfaced")
+	scanner := bufio.NewScanner(stdout)
+	if !scanner.Scan() || scanner.Text() != "locked" {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("helper did not acquire lock: stdout=%q stderr=%q", scanner.Text(), stderr.String())
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+
+	w, err := OpenWriter(path, runID())
+	if err != nil {
+		t.Fatalf("reopen after forced process exit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriterLockHelperProcess(t *testing.T) {
+	if os.Getenv("DISTROPLANE_JOURNAL_LOCK_HELPER") != "1" {
+		return
+	}
+	path := os.Getenv("DISTROPLANE_JOURNAL_LOCK_PATH")
+	w, err := OpenWriter(path, runID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	fmt.Fprintln(os.Stdout, "locked")
+	for {
+		time.Sleep(time.Hour)
 	}
 }
