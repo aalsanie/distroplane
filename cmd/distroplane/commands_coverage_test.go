@@ -138,7 +138,6 @@ func journalState(completed, cancelled bool) journal.DerivedState {
 	return journal.DerivedState{Completed: completed, Cancelled: cancelled}
 }
 
-
 func TestLegacyCommandWrappers(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runPlan([]string{"--unknown"}, &stdout, &stderr); code != exitUsage {
