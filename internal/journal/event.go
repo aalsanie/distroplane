@@ -22,17 +22,26 @@ const (
 type EventType string
 
 const (
-	EventRunStarted           EventType = "RUN_STARTED"
-	EventRunCompleted         EventType = "RUN_COMPLETED"
-	EventRunCancelled         EventType = "RUN_CANCELLED"
-	EventAttemptStarted       EventType = "ATTEMPT_STARTED"
-	EventCredentialResolved   EventType = "CREDENTIAL_RESOLVED"
-	EventSideEffectDispatched EventType = "SIDE_EFFECT_DISPATCHED"
-	EventOperationResult      EventType = "OPERATION_RESULT"
-	EventOperationCancelled   EventType = "OPERATION_CANCELLED"
-	EventOutcomeAmbiguous     EventType = "OUTCOME_AMBIGUOUS"
-	EventReconcileStarted     EventType = "RECONCILE_STARTED"
-	EventReconcileResult      EventType = "RECONCILE_RESULT"
+	EventRunStarted               EventType = "RUN_STARTED"
+	EventRunCompleted             EventType = "RUN_COMPLETED"
+	EventRunCancelled             EventType = "RUN_CANCELLED"
+	EventOperationReady           EventType = "OPERATION_READY"
+	EventLeaseAcquired            EventType = "LEASE_ACQUIRED"
+	EventLeaseExpired             EventType = "LEASE_EXPIRED"
+	EventAttemptStarted           EventType = "ATTEMPT_STARTED"
+	EventCredentialResolved       EventType = "CREDENTIAL_RESOLVED"
+	EventProviderProcessStarted   EventType = "PROVIDER_PROCESS_STARTED"
+	EventSideEffectDispatched     EventType = "SIDE_EFFECT_DISPATCHED"
+	EventProviderResponseReceived EventType = "PROVIDER_RESPONSE_RECEIVED"
+	EventOperationWaitingExternal EventType = "OPERATION_WAITING_EXTERNAL"
+	EventOperationPublished       EventType = "OPERATION_PUBLISHED"
+	EventOperationRejected        EventType = "OPERATION_REJECTED"
+	EventOperationFailed          EventType = "OPERATION_FAILED"
+	EventOperationResult          EventType = "OPERATION_RESULT"
+	EventOperationCancelled       EventType = "OPERATION_CANCELLED"
+	EventOutcomeAmbiguous         EventType = "OUTCOME_AMBIGUOUS"
+	EventReconcileStarted         EventType = "RECONCILE_STARTED"
+	EventReconcileResult          EventType = "RECONCILE_RESULT"
 )
 
 var (
@@ -76,9 +85,11 @@ type Event struct {
 
 func (t EventType) valid() bool {
 	switch t {
-	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventAttemptStarted,
-		EventCredentialResolved, EventSideEffectDispatched, EventOperationResult, EventOperationCancelled,
-		EventOutcomeAmbiguous, EventReconcileStarted, EventReconcileResult:
+	case EventRunStarted, EventRunCompleted, EventRunCancelled, EventOperationReady, EventLeaseAcquired, EventLeaseExpired,
+		EventAttemptStarted, EventCredentialResolved, EventProviderProcessStarted, EventSideEffectDispatched,
+		EventProviderResponseReceived, EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected,
+		EventOperationFailed, EventOperationResult, EventOperationCancelled, EventOutcomeAmbiguous,
+		EventReconcileStarted, EventReconcileResult:
 		return true
 	default:
 		return false
@@ -126,6 +137,10 @@ func (p Payload) empty() bool {
 
 func (p Payload) validate(eventType EventType) error {
 	switch eventType {
+	case EventOperationReady, EventLeaseAcquired, EventLeaseExpired:
+		if !p.empty() {
+			return fmt.Errorf("event %q must not contain payload data", eventType)
+		}
 	case EventOperationCancelled:
 		if p.Attempt != 0 || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("operation-cancelled event contains unsupported payload")
@@ -140,7 +155,7 @@ func (p Payload) validate(eventType EventType) error {
 		if p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.ErrorCode != "" || p.Retryable {
 			return fmt.Errorf("credential-resolved event contains unsupported payload")
 		}
-	case EventAttemptStarted, EventSideEffectDispatched, EventOutcomeAmbiguous, EventReconcileStarted:
+	case EventAttemptStarted, EventProviderProcessStarted, EventSideEffectDispatched, EventProviderResponseReceived, EventOutcomeAmbiguous, EventReconcileStarted:
 		if p.Attempt == 0 {
 			return fmt.Errorf("attempt must be greater than zero")
 		}
@@ -149,6 +164,20 @@ func (p Payload) validate(eventType EventType) error {
 		}
 		if eventType != EventOutcomeAmbiguous && p.ErrorCode != "" {
 			return fmt.Errorf("event %q must not contain an error code", eventType)
+		}
+	case EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected, EventOperationFailed:
+		if p.CredentialRef != "" {
+			return fmt.Errorf("result event must not contain a credential reference")
+		}
+		if p.Attempt == 0 {
+			return fmt.Errorf("attempt must be greater than zero")
+		}
+		if p.State != "" {
+			return fmt.Errorf("explicit result event %q must not contain a state", eventType)
+		}
+		state, _ := explicitResultState(eventType)
+		if p.Retryable && state != domain.StateFailed && state != domain.StateWaitingExternal {
+			return fmt.Errorf("state %q cannot be retryable", state)
 		}
 	case EventOperationResult, EventReconcileResult:
 		if p.CredentialRef != "" {
@@ -186,6 +215,21 @@ func resultState(state domain.NormalizedState) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func explicitResultState(eventType EventType) (domain.NormalizedState, bool) {
+	switch eventType {
+	case EventOperationWaitingExternal:
+		return domain.StateWaitingExternal, true
+	case EventOperationPublished:
+		return domain.StatePublished, true
+	case EventOperationRejected:
+		return domain.StateRejected, true
+	case EventOperationFailed:
+		return domain.StateFailed, true
+	default:
+		return "", false
 	}
 }
 
