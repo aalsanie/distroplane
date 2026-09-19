@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -204,6 +205,80 @@ func TestExecuteDAGConcurrencyAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestSchedulerHandlesOneThousandOperationDAG(t *testing.T) {
+	const count = 1000
+	specs := make([]operationSpec, count)
+	specs[0] = operationSpec{id: "op-0000"}
+	for i := 1; i < count; i++ {
+		specs[i] = operationSpec{id: fmt.Sprintf("op-%04d", i), dependencies: []string{"op-0000"}}
+	}
+	plan := testPlan(t, specs)
+	events := []journal.Event{{
+		SchemaVersion: journal.SchemaVersion,
+		Sequence:      1,
+		RunID:         runID(),
+		Type:          journal.EventRunStarted,
+		ObservedAt:    time.Unix(1, 0).UTC(),
+		Payload:       journal.Payload{},
+	}}
+	state, err := journal.Reduce(plan, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := make(map[domain.OperationID]domain.Operation, count)
+	for _, operation := range plan.Operations() {
+		operations[operation.ID()] = operation
+	}
+	engine := newExecutor(t, &scriptedDriver{}, Options{MaxConcurrency: 32})
+	candidates := engine.candidates(state, operations, map[operationAttempt]struct{}{}, map[operationAttempt]struct{}{})
+	if len(candidates) != 1 || candidates[0].operation.ID() != "op-0000" {
+		t.Fatalf("initial candidates=%d", len(candidates))
+	}
+
+	events = append(events,
+		journal.Event{SchemaVersion: journal.SchemaVersion, Sequence: 2, RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-0000", TargetID: "target-a", ObservedAt: time.Unix(2, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+		journal.Event{SchemaVersion: journal.SchemaVersion, Sequence: 3, RunID: runID(), Type: journal.EventOperationPublished, OperationID: "op-0000", TargetID: "target-a", ObservedAt: time.Unix(3, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
+	)
+	state, err = journal.Reduce(plan, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates = engine.candidates(state, operations, map[operationAttempt]struct{}{}, map[operationAttempt]struct{}{})
+	if len(candidates) != count-1 {
+		t.Fatalf("released candidates=%d want=%d", len(candidates), count-1)
+	}
+}
+
+func TestExecuteChainFanoutAndFanin(t *testing.T) {
+	plan := testPlan(t, []operationSpec{
+		{id: "root"},
+		{id: "left", dependencies: []string{"root"}},
+		{id: "right", dependencies: []string{"root"}},
+		{id: "join", dependencies: []string{"left", "right"}},
+		{id: "tail", dependencies: []string{"join"}},
+	})
+	driver := &scriptedDriver{}
+	state, err := newExecutor(t, driver, Options{MaxConcurrency: 2}).Execute(context.Background(), plan, runID(), openWriter(t, runID()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Completed {
+		t.Fatalf("state=%+v", state)
+	}
+	driver.mu.Lock()
+	calls := append([]Request(nil), driver.applyCalls...)
+	driver.mu.Unlock()
+	index := make(map[domain.OperationID]int, len(calls))
+	for i, call := range calls {
+		index[call.Operation.ID()] = i
+	}
+	if !(index["root"] < index["left"] && index["root"] < index["right"] &&
+		index["left"] < index["join"] && index["right"] < index["join"] &&
+		index["join"] < index["tail"]) {
+		t.Fatalf("call order=%+v", calls)
+	}
+}
+
 func TestExecuteRetriesOnlyRetryableFailures(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
 	var attempts atomic.Uint32
@@ -233,6 +308,51 @@ func TestExecuteRetriesOnlyRetryableFailures(t *testing.T) {
 	op, _ = state.Operation("op-a")
 	if op.Attempt != 1 || op.Retryable || op.State != domain.StateFailed {
 		t.Fatalf("op=%+v", op)
+	}
+}
+
+func TestExecuteRecordsAttemptReasonsAndResults(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	var calls atomic.Uint32
+	driver := &scriptedDriver{apply: func(context.Context, Request) (Result, error) {
+		if calls.Add(1) == 1 {
+			return Result{}, &DriverError{Code: "TRANSIENT", Retryable: true}
+		}
+		return published(), nil
+	}}
+	writer := openWriter(t, runID())
+	state, err := newExecutor(t, driver, Options{MaxAttempts: 2}).Execute(context.Background(), plan, runID(), writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Completed {
+		t.Fatalf("state=%+v", state)
+	}
+
+	var starts, ends []journal.Event
+	for _, event := range writer.Events() {
+		switch event.Type {
+		case journal.EventAttemptStarted:
+			starts = append(starts, event)
+		case journal.EventOperationFailed, journal.EventOperationPublished:
+			ends = append(ends, event)
+		}
+	}
+	if len(starts) != 2 || len(ends) != 2 {
+		t.Fatalf("starts=%+v ends=%+v", starts, ends)
+	}
+	if starts[0].Payload.AttemptReason != journal.AttemptReasonInitial ||
+		starts[1].Payload.AttemptReason != journal.AttemptReasonRetry {
+		t.Fatalf("starts=%+v", starts)
+	}
+	if ends[0].Payload.ResultCategory != journal.ResultCategoryFailedRetryable ||
+		ends[1].Payload.ResultCategory != journal.ResultCategoryPublished {
+		t.Fatalf("ends=%+v", ends)
+	}
+	for i := range starts {
+		if starts[i].ObservedAt.IsZero() || ends[i].ObservedAt.IsZero() || ends[i].ObservedAt.Before(starts[i].ObservedAt) {
+			t.Fatalf("attempt %d start=%s end=%s", i+1, starts[i].ObservedAt, ends[i].ObservedAt)
+		}
 	}
 }
 
@@ -445,8 +565,9 @@ func TestExecuteLeaseContentionDoesNotStartAttempt(t *testing.T) {
 	if !errors.Is(err, ErrLeaseHeld) || state.Completed {
 		t.Fatalf("state=%+v err=%v", state, err)
 	}
-	if len(writer.Events()) != 1 || writer.Events()[0].Type != journal.EventRunStarted {
-		t.Fatalf("events=%+v", writer.Events())
+	events := writer.Events()
+	if len(events) != 2 || events[0].Type != journal.EventRunStarted || events[1].Type != journal.EventOperationReady {
+		t.Fatalf("events=%+v", events)
 	}
 }
 
@@ -507,6 +628,46 @@ func TestExecuteResumeCompletedRunIsNoop(t *testing.T) {
 	state, err = executor.Execute(context.Background(), plan, runID(), writer)
 	if err != nil || !state.Completed || len(writer.Events()) != count {
 		t.Fatalf("state=%+v err=%v events=%d", state, err, len(writer.Events()))
+	}
+}
+
+func TestExecuteRepeatedConcurrentRuns(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}, {id: "op-b"}})
+	driver := &scriptedDriver{}
+	const runs = 8
+	type result struct {
+		state journal.DerivedState
+		err   error
+	}
+	results := make(chan result, runs)
+	var wg sync.WaitGroup
+	for i := 0; i < runs; i++ {
+		run, err := domain.NewRunID(fmt.Sprintf("run-%d", i+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer, err := journal.OpenWriter(filepath.Join(t.TempDir(), "run.journal"), run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		engine := newExecutor(t, driver, Options{MaxConcurrency: 2})
+		wg.Add(1)
+		go func(run domain.RunID, writer *journal.Writer, engine *Executor) {
+			defer wg.Done()
+			state, executeErr := engine.Execute(context.Background(), plan, run, writer)
+			closeErr := writer.Close()
+			if executeErr == nil {
+				executeErr = closeErr
+			}
+			results <- result{state: state, err: executeErr}
+		}(run, writer, engine)
+	}
+	wg.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil || !result.state.Completed {
+			t.Fatalf("state=%+v err=%v", result.state, result.err)
+		}
 	}
 }
 

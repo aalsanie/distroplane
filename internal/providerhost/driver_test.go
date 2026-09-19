@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/executor"
+	"github.com/aalsanie/distroplane/internal/journal"
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
@@ -278,4 +281,139 @@ func TestStateAndPreviousMapping(t *testing.T) {
 	if mapped := mapError(base); !errors.Is(mapped, base) {
 		t.Fatalf("mapped=%v", mapped)
 	}
+}
+
+func TestExecutorReconcilesForcedProviderCrashAfterDispatch(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "apply-crashed")
+	plan := executorPlan(t, helperConfig{Mode: "process_crash_once", MarkerPath: marker})
+	driver := helperDriver(t, "normal")
+	engine, err := executor.New(driver, executor.Options{
+		MaxAttempts: 3,
+		Backoff:     func(uint32) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := domain.NewRunID("run-crash")
+	writer, err := journal.OpenWriter(filepath.Join(t.TempDir(), "run.journal"), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	state, err := engine.Execute(context.Background(), plan, run, writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := state.Operation("publish")
+	if !ok || !state.Completed || op.State != domain.StatePublished || op.Attempt != 1 || op.Ambiguous || op.ReconcileRequired {
+		t.Fatalf("state=%+v op=%+v", state, op)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("forced-crash marker: %v", err)
+	}
+
+	var attempts, dispatches, ambiguous, reconciles, responses int
+	for _, event := range writer.Events() {
+		switch event.Type {
+		case journal.EventAttemptStarted:
+			attempts++
+		case journal.EventSideEffectDispatched:
+			dispatches++
+		case journal.EventOutcomeAmbiguous:
+			ambiguous++
+		case journal.EventReconcileStarted:
+			reconciles++
+		case journal.EventProviderResponseReceived:
+			responses++
+		}
+	}
+	if attempts != 1 || dispatches != 1 || ambiguous != 1 || reconciles != 1 || responses != 1 {
+		t.Fatalf("attempts=%d dispatches=%d ambiguous=%d reconciles=%d responses=%d events=%+v",
+			attempts, dispatches, ambiguous, reconciles, responses, writer.Events())
+	}
+}
+
+func TestExecutorRetriesStructuredProviderFailure(t *testing.T) {
+	plan := executorPlan(t, helperConfig{Mode: "transient"})
+	driver := helperDriver(t, "normal")
+	engine, err := executor.New(driver, executor.Options{
+		MaxAttempts: 2,
+		Backoff:     func(uint32) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := domain.NewRunID("run-transient")
+	writer, err := journal.OpenWriter(filepath.Join(t.TempDir(), "run.journal"), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	state, err := engine.Execute(context.Background(), plan, run, writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := state.Operation("publish")
+	if !ok || !state.Completed || op.State != domain.StateFailed || op.Attempt != 2 || !op.Retryable {
+		t.Fatalf("state=%+v op=%+v", state, op)
+	}
+	attempts := 0
+	responses := 0
+	for _, event := range writer.Events() {
+		if event.Type == journal.EventAttemptStarted {
+			attempts++
+		}
+		if event.Type == journal.EventProviderResponseReceived {
+			responses++
+		}
+	}
+	if attempts != 2 || responses != 2 {
+		t.Fatalf("attempts=%d responses=%d events=%+v", attempts, responses, writer.Events())
+	}
+}
+
+func executorPlan(t testing.TB, cfg helperConfig) domain.Plan {
+	t.Helper()
+	digest, err := domain.NewSHA256Digest(strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := domain.NewArtifact("app", filepath.Join(t.TempDir(), "app"), digest, 1, "application/octet-stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseID, _ := domain.NewReleaseID("release-crash")
+	release, err := domain.NewRelease(releaseID, []domain.Artifact{artifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider := testProviderRef(t)
+	configuration, _ := domain.NewJSONValue([]byte(`{}`))
+	targetID, _ := domain.NewTargetID("target-a")
+	target, err := domain.NewTarget(targetID, provider, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadBytes, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := domain.NewJSONValue(payloadBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID, _ := domain.NewOperationID("publish")
+	operation, err := domain.NewOperation(operationID, targetID, provider, "publish", nil, true, "crash-key", time.Second, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planID, _ := domain.NewPlanID("plan-crash")
+	plan, err := domain.NewPlan(planID, "1", "1", release, []domain.Target{target}, []domain.Operation{operation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
 }

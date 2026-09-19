@@ -50,6 +50,27 @@ type taskOutcome struct {
 	infrastructureErr error
 }
 
+type failureStage uint8
+
+const (
+	failureBeforeProvider failureStage = iota + 1
+	failureAfterProviderStart
+)
+
+type failureAction uint8
+
+const (
+	failureStop failureAction = iota
+	failureRetryApply
+	failureReconcile
+)
+
+type failureDecision struct {
+	code      string
+	action    failureAction
+	cancelled bool
+}
+
 func New(driver Driver, options Options) (*Executor, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("driver must not be nil")
@@ -157,8 +178,23 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 			return state, err
 		}
 
+		changed, err := expireJournalLeases(runID, writer, state, time.Now().UTC())
+		if err != nil {
+			return state, err
+		}
+		if changed {
+			continue
+		}
+
 		if !state.Cancelled {
-			changed, err := recoverUndispatched(runID, writer, state, operations)
+			changed, err = journalReadyOperations(runID, writer, state)
+			if err != nil {
+				return state, err
+			}
+			if changed {
+				continue
+			}
+			changed, err = recoverUndispatched(runID, writer, state, operations)
 			if err != nil {
 				return state, err
 			}
@@ -188,6 +224,12 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 				}
 				continue
 			}
+			if expiry, ok := nextLeaseExpiry(state); ok {
+				if err := wait(ctx, time.Until(expiry)); err != nil {
+					continue
+				}
+				continue
+			}
 			return state, nil
 		}
 
@@ -212,8 +254,18 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 				return state, err
 			}
 			candidate.lease = lease
-			if err := prepareTask(runID, writer, candidate); err != nil {
+			if expired, ok := lease.PreviousExpired(); ok && candidate.state.LeaseActive {
+				if err := appendLeaseEvent(runID, writer, candidate.operation, journal.EventLeaseExpired, expired); err != nil {
+					_ = lease.Release()
+					return state, err
+				}
+			}
+			if err := appendLeaseEvent(runID, writer, candidate.operation, journal.EventLeaseAcquired, lease.State()); err != nil {
 				_ = lease.Release()
+				return state, err
+			}
+			if err := prepareTask(runID, writer, candidate); err != nil {
+				_ = releaseLease(runID, writer, candidate.operation, lease)
 				return state, err
 			}
 			prepared = append(prepared, candidate)
@@ -271,6 +323,9 @@ func (e *Executor) candidates(state journal.DerivedState, operations map[domain.
 			continue
 		}
 		key := operationAttempt{operationID: operationState.ID, attempt: operationState.Attempt}
+		if operationState.LeaseActive {
+			continue
+		}
 		if operationState.ReconcileRequired {
 			if _, done := reconciled[key]; done {
 				continue
@@ -301,9 +356,13 @@ func prepareTask(runID domain.RunID, writer *journal.Writer, current task) error
 	attempt := current.state.Attempt
 	if current.kind == taskApply {
 		attempt++
+		reason := journal.AttemptReasonInitial
+		if current.state.Attempt != 0 {
+			reason = journal.AttemptReasonRetry
+		}
 		if _, err := writer.Append(journal.Entry{
 			RunID: runID, Type: journal.EventAttemptStarted, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-			Payload: journal.Payload{Attempt: attempt},
+			Payload: journal.Payload{Attempt: attempt, AttemptReason: reason},
 		}); err != nil {
 			return err
 		}
@@ -311,7 +370,7 @@ func prepareTask(runID domain.RunID, writer *journal.Writer, current task) error
 	}
 	if _, err := writer.Append(journal.Entry{
 		RunID: runID, Type: journal.EventReconcileStarted, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
-		Payload: journal.Payload{Attempt: attempt},
+		Payload: journal.Payload{Attempt: attempt, AttemptReason: journal.AttemptReasonReconcile},
 	}); err != nil {
 		return err
 	}
@@ -325,13 +384,23 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	} else {
 		outcome.reconciled = true
 	}
+
+	leaseCtx, stopLease := context.WithCancel(parent)
+	renewDone := make(chan error, 1)
+	go func() {
+		renewDone <- renewLease(leaseCtx, stopLease, runID, writer, current.operation, current.lease)
+	}()
 	defer func() {
-		if err := current.lease.Release(); err != nil && outcome.infrastructureErr == nil {
+		stopLease()
+		if err := <-renewDone; err != nil && outcome.infrastructureErr == nil {
+			outcome.infrastructureErr = err
+		}
+		if err := releaseLease(runID, writer, current.operation, current.lease); err != nil && outcome.infrastructureErr == nil {
 			outcome.infrastructureErr = err
 		}
 	}()
 
-	ctx, cancel := operationContext(parent, current.operation.Timeout())
+	ctx, cancel := operationContext(leaseCtx, current.operation.Timeout())
 	defer cancel()
 	request := Request{
 		PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt,
@@ -368,6 +437,13 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	if release != nil {
 		defer release()
 	}
+	if _, err := writer.Append(journal.Entry{
+		RunID: runID, Type: journal.EventProviderProcessStarted, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
+		Payload: journal.Payload{Attempt: outcome.attempt},
+	}); err != nil {
+		outcome.infrastructureErr = err
+		return outcome
+	}
 	if current.kind == taskApply && current.operation.SideEffecting() {
 		if _, err := writer.Append(journal.Entry{
 			RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
@@ -386,11 +462,29 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			Ambiguous:     current.state.Ambiguous,
 		}
 		result, err := e.driver.Reconcile(callCtx, request)
+		if providerResponseReceived(err) {
+			if _, appendErr := writer.Append(journal.Entry{
+				RunID: runID, Type: journal.EventProviderResponseReceived, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
+				Payload: journal.Payload{Attempt: outcome.attempt},
+			}); appendErr != nil {
+				outcome.infrastructureErr = appendErr
+				return outcome
+			}
+		}
 		outcome.infrastructureErr = persistReconcileOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, result, err)
 		return outcome
 	}
 
 	result, err := e.driver.Apply(callCtx, request)
+	if providerResponseReceived(err) {
+		if _, appendErr := writer.Append(journal.Entry{
+			RunID: runID, Type: journal.EventProviderResponseReceived, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
+			Payload: journal.Payload{Attempt: outcome.attempt},
+		}); appendErr != nil {
+			outcome.infrastructureErr = appendErr
+			return outcome
+		}
+	}
 	deferred, persistErr := persistApplyOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, result, err)
 	outcome.deferReconcile = deferred
 	outcome.infrastructureErr = persistErr
@@ -410,13 +504,12 @@ func recordCredentialResolution(runID domain.RunID, writer *journal.Writer, oper
 }
 
 func persistPreparationFailure(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, callErr error) error {
-	code, retryable, _, cancelled := classifyCallError(parent, callCtx, callErr)
+	decision := decideFailure(failureBeforeProvider, operation.SideEffecting(), parent, callCtx, callErr)
 	state := domain.StateFailed
-	if cancelled {
+	if decision.cancelled {
 		state = domain.StateCancelled
-		retryable = false
 	}
-	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, code, retryable))
+	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, decision.code, decision.action == failureRetryApply))
 	return err
 }
 
@@ -447,33 +540,30 @@ func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer
 		return result.State == domain.StateWaitingExternal, nil
 	}
 
-	code, retryable, ambiguous, cancelled := classifyCallError(parent, callCtx, callErr)
-	if operation.SideEffecting() && ambiguous {
-		_, err := writer.Append(ambiguousEntry(runID, operation, attempt, code))
+	decision := decideFailure(failureAfterProviderStart, operation.SideEffecting(), parent, callCtx, callErr)
+	if decision.action == failureReconcile {
+		_, err := writer.Append(ambiguousEntry(runID, operation, attempt, decision.code))
 		return false, err
 	}
 	state := domain.StateFailed
-	if cancelled {
+	if decision.cancelled {
 		state = domain.StateCancelled
-		retryable = false
 	}
-	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, code, retryable))
+	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, decision.code, decision.action == failureRetryApply))
 	return false, err
 }
 
 func persistReconcileOutcome(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, wasAmbiguous bool, result Result, callErr error) error {
 	if callErr == nil {
 		if err := result.validate(); err != nil {
-			entry := resultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, "DRIVER_CONTRACT_ERROR", false)
-			entry.Type = journal.EventReconcileResult
+			entry := reconcileResultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, "DRIVER_CONTRACT_ERROR", false)
 			_, appendErr := writer.Append(entry)
 			if appendErr != nil {
 				return appendErr
 			}
 			return err
 		}
-		entry := resultEntry(runID, operation, attempt, result.State, result.ProviderState, result.Evidence, "", false)
-		entry.Type = journal.EventReconcileResult
+		entry := reconcileResultEntry(runID, operation, attempt, result.State, result.ProviderState, result.Evidence, "", false)
 		_, err := writer.Append(entry)
 		return err
 	}
@@ -481,10 +571,52 @@ func persistReconcileOutcome(parent, callCtx context.Context, writer *journal.Wr
 	if wasAmbiguous && !retryable {
 		retryable = true
 	}
-	entry := resultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, code, retryable)
-	entry.Type = journal.EventReconcileResult
+	entry := reconcileResultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, code, retryable)
 	_, err := writer.Append(entry)
 	return err
+}
+
+func decideFailure(stage failureStage, sideEffecting bool, parent, callCtx context.Context, callErr error) failureDecision {
+	code, retryable, ambiguous, cancelled := classifyCallError(parent, callCtx, callErr)
+	if cancelled {
+		if stage == failureAfterProviderStart && sideEffecting {
+			return failureDecision{code: code, action: failureReconcile, cancelled: true}
+		}
+		return failureDecision{code: code, action: failureStop, cancelled: true}
+	}
+
+	if stage == failureBeforeProvider {
+		if retryable {
+			return failureDecision{code: code, action: failureRetryApply}
+		}
+		var driverErr *DriverError
+		if errors.As(callErr, &driverErr) && driverErr.valid() {
+			return failureDecision{code: code, action: failureStop}
+		}
+		return failureDecision{code: code, action: failureRetryApply}
+	}
+
+	if sideEffecting && ambiguous {
+		return failureDecision{code: code, action: failureReconcile}
+	}
+	if retryable {
+		return failureDecision{code: code, action: failureRetryApply}
+	}
+	if !sideEffecting {
+		var driverErr *DriverError
+		if !errors.As(callErr, &driverErr) || !driverErr.valid() {
+			return failureDecision{code: code, action: failureRetryApply}
+		}
+	}
+	return failureDecision{code: code, action: failureStop}
+}
+
+func providerResponseReceived(callErr error) bool {
+	if callErr == nil {
+		return true
+	}
+	var driverErr *DriverError
+	return errors.As(callErr, &driverErr) && driverErr.valid()
 }
 
 func classifyCallError(parent, callCtx context.Context, callErr error) (code string, retryable, ambiguous, cancelled bool) {
@@ -505,30 +637,200 @@ func classifyCallError(parent, callCtx context.Context, callErr error) (code str
 }
 
 func resultEntry(runID domain.RunID, operation domain.Operation, attempt uint32, state domain.NormalizedState, providerState string, evidence json.RawMessage, errorCode string, retryable bool) journal.Entry {
+	eventType := journal.EventOperationResult
+	payloadState := state
+	switch state {
+	case domain.StateWaitingExternal:
+		eventType = journal.EventOperationWaitingExternal
+		payloadState = ""
+	case domain.StatePublished:
+		eventType = journal.EventOperationPublished
+		payloadState = ""
+	case domain.StateRejected:
+		eventType = journal.EventOperationRejected
+		payloadState = ""
+	case domain.StateFailed:
+		eventType = journal.EventOperationFailed
+		payloadState = ""
+	}
 	return journal.Entry{
-		RunID: runID, Type: journal.EventOperationResult, OperationID: operation.ID(), TargetID: operation.TargetID(),
-		Payload: journal.Payload{Attempt: attempt, State: state, ProviderState: providerState, Evidence: append(json.RawMessage(nil), evidence...), ErrorCode: errorCode, Retryable: retryable},
+		RunID: runID, Type: eventType, OperationID: operation.ID(), TargetID: operation.TargetID(),
+		Payload: journal.Payload{
+			Attempt: attempt, State: payloadState, ProviderState: providerState,
+			Evidence: append(json.RawMessage(nil), evidence...), ErrorCode: errorCode, Retryable: retryable,
+			ResultCategory: resultCategory(state, retryable),
+		},
+	}
+}
+
+func reconcileResultEntry(runID domain.RunID, operation domain.Operation, attempt uint32, state domain.NormalizedState, providerState string, evidence json.RawMessage, errorCode string, retryable bool) journal.Entry {
+	return journal.Entry{
+		RunID: runID, Type: journal.EventReconcileResult, OperationID: operation.ID(), TargetID: operation.TargetID(),
+		Payload: journal.Payload{
+			Attempt: attempt, State: state, ProviderState: providerState,
+			Evidence: append(json.RawMessage(nil), evidence...), ErrorCode: errorCode, Retryable: retryable,
+			ResultCategory: resultCategory(state, retryable),
+		},
 	}
 }
 
 func ambiguousEntry(runID domain.RunID, operation domain.Operation, attempt uint32, code string) journal.Entry {
 	return journal.Entry{
 		RunID: runID, Type: journal.EventOutcomeAmbiguous, OperationID: operation.ID(), TargetID: operation.TargetID(),
-		Payload: journal.Payload{Attempt: attempt, ErrorCode: code},
+		Payload: journal.Payload{Attempt: attempt, ErrorCode: code, ResultCategory: journal.ResultCategoryAmbiguous},
 	}
+}
+
+func resultCategory(state domain.NormalizedState, retryable bool) string {
+	switch state {
+	case domain.StatePublished:
+		return journal.ResultCategoryPublished
+	case domain.StateWaitingExternal:
+		return journal.ResultCategoryWaitingExternal
+	case domain.StateRejected:
+		return journal.ResultCategoryRejected
+	case domain.StateFailed:
+		if retryable {
+			return journal.ResultCategoryFailedRetryable
+		}
+		return journal.ResultCategoryFailedPermanent
+	case domain.StateCancelled:
+		return journal.ResultCategoryCancelled
+	default:
+		return ""
+	}
+}
+
+func journalReadyOperations(runID domain.RunID, writer *journal.Writer, state journal.DerivedState) (bool, error) {
+	changed := false
+	for _, operation := range state.Operations() {
+		if operation.State != domain.StateReady || operation.ReadyJournaled {
+			continue
+		}
+		if _, err := writer.Append(journal.Entry{
+			RunID: runID, Type: journal.EventOperationReady, OperationID: operation.ID, TargetID: operation.TargetID,
+		}); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+func expireJournalLeases(runID domain.RunID, writer *journal.Writer, state journal.DerivedState, now time.Time) (bool, error) {
+	changed := false
+	for _, operation := range state.Operations() {
+		if !operation.LeaseActive || operation.LeaseExpiresAt.IsZero() || operation.LeaseExpiresAt.After(now) {
+			continue
+		}
+		lease := LeaseState{
+			ID: operation.LeaseID, Owner: operation.LeaseOwner,
+			AcquiredAt: operation.LeaseAcquiredAt, ExpiresAt: operation.LeaseExpiresAt,
+		}
+		if err := appendLeaseStateEvent(runID, writer, operation.ID, operation.TargetID, journal.EventLeaseExpired, lease); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+func nextLeaseExpiry(state journal.DerivedState) (time.Time, bool) {
+	var next time.Time
+	for _, operation := range state.Operations() {
+		if !operation.LeaseActive || operation.LeaseExpiresAt.IsZero() {
+			continue
+		}
+		if next.IsZero() || operation.LeaseExpiresAt.Before(next) {
+			next = operation.LeaseExpiresAt
+		}
+	}
+	return next, !next.IsZero()
+}
+
+func appendLeaseEvent(runID domain.RunID, writer *journal.Writer, operation domain.Operation, eventType journal.EventType, lease LeaseState) error {
+	return appendLeaseStateEvent(runID, writer, operation.ID(), operation.TargetID(), eventType, lease)
+}
+
+func appendLeaseStateEvent(runID domain.RunID, writer *journal.Writer, operationID domain.OperationID, targetID domain.TargetID, eventType journal.EventType, lease LeaseState) error {
+	_, err := writer.Append(journal.Entry{
+		RunID: runID, Type: eventType, OperationID: operationID, TargetID: targetID,
+		Payload: journal.Payload{Lease: &journal.LeasePayload{
+			ID: lease.ID, Owner: lease.Owner, AcquiredAt: lease.AcquiredAt, ExpiresAt: lease.ExpiresAt,
+		}},
+	})
+	return err
+}
+
+func renewLease(ctx context.Context, cancel context.CancelFunc, runID domain.RunID, writer *journal.Writer, operation domain.Operation, lease Lease) error {
+	for {
+		state := lease.State()
+		remaining := time.Until(state.ExpiresAt)
+		if remaining <= 0 {
+			cancel()
+			return ErrLeaseExpired
+		}
+		delay := remaining / 2
+		if delay <= 0 {
+			delay = remaining
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil
+		case <-timer.C:
+		}
+
+		renewed, err := lease.Renew(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			cancel()
+			return err
+		}
+		if err := appendLeaseEvent(runID, writer, operation, journal.EventLeaseRenewed, renewed); err != nil {
+			cancel()
+			return err
+		}
+	}
+}
+
+func releaseLease(runID domain.RunID, writer *journal.Writer, operation domain.Operation, lease Lease) error {
+	state := lease.State()
+	if err := lease.Release(); err != nil {
+		if errors.Is(err, ErrLeaseExpired) {
+			if appendErr := appendLeaseEvent(runID, writer, operation, journal.EventLeaseExpired, state); appendErr != nil {
+				return appendErr
+			}
+		}
+		return err
+	}
+	return appendLeaseEvent(runID, writer, operation, journal.EventLeaseReleased, state)
 }
 
 func recoverUndispatched(runID domain.RunID, writer *journal.Writer, state journal.DerivedState, operations map[domain.OperationID]domain.Operation) (bool, error) {
 	changed := false
 	for _, operationState := range state.Operations() {
-		if operationState.State != domain.StateRunning || operationState.ReconcileRequired {
+		if operationState.State != domain.StateRunning || operationState.ReconcileRequired || operationState.LeaseActive {
 			continue
 		}
 		operation, ok := operations[operationState.ID]
 		if !ok {
 			continue
 		}
-		if _, err := writer.Append(resultEntry(runID, operation, operationState.Attempt, domain.StateFailed, "", nil, "INTERRUPTED_BEFORE_DISPATCH", true)); err != nil {
+		code := "INTERRUPTED_BEFORE_PROVIDER"
+		if operationState.ProviderStarted {
+			if operation.SideEffecting() {
+				code = "INTERRUPTED_BEFORE_DISPATCH"
+			} else {
+				code = "PROVIDER_INTERRUPTED"
+			}
+		}
+		if _, err := writer.Append(resultEntry(runID, operation, operationState.Attempt, domain.StateFailed, "", nil, code, true)); err != nil {
 			return false, err
 		}
 		changed = true
@@ -586,7 +888,7 @@ func hasTerminalUnpublishedDependency(operation domain.Operation, states map[dom
 
 func executorQuiescent(state journal.DerivedState, maxAttempts uint32) bool {
 	for _, operation := range state.Operations() {
-		if operation.ReconcileRequired {
+		if operation.ReconcileRequired || operation.LeaseActive {
 			return false
 		}
 		switch operation.State {

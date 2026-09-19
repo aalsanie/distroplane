@@ -25,6 +25,21 @@ type fixedLease struct {
 	err error
 }
 
+func (l fixedLease) State() LeaseState {
+	return LeaseState{
+		ID: "fixed-lease", Owner: "fixed-worker",
+		AcquiredAt: time.Unix(1, 0).UTC(), ExpiresAt: time.Unix(4102444800, 0).UTC(),
+	}
+}
+
+func (l fixedLease) PreviousExpired() (LeaseState, bool) {
+	return LeaseState{}, false
+}
+
+func (l fixedLease) Renew(context.Context) (LeaseState, error) {
+	return l.State(), nil
+}
+
 func (l fixedLease) Release() error {
 	return l.err
 }
@@ -104,6 +119,42 @@ func TestClassifyCallError(t *testing.T) {
 			code, retryable, ambiguous, wasCancelled := classifyCallError(tc.parent, tc.callCtx, tc.err)
 			if code != tc.code || retryable != tc.retryable || ambiguous != tc.ambiguous || wasCancelled != tc.cancelled {
 				t.Fatalf("got=(%q,%v,%v,%v)", code, retryable, ambiguous, wasCancelled)
+			}
+		})
+	}
+}
+
+func TestFailureDecisionTable(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	cases := []struct {
+		name          string
+		stage         failureStage
+		sideEffecting bool
+		parent        context.Context
+		callCtx       context.Context
+		err           error
+		code          string
+		action        failureAction
+		cancelled     bool
+	}{
+		{"pre-provider infrastructure", failureBeforeProvider, true, context.Background(), context.Background(), errors.New("spawn failed"), "DRIVER_ERROR", failureRetryApply, false},
+		{"pre-provider transient", failureBeforeProvider, true, context.Background(), context.Background(), &DriverError{Code: "TRANSIENT", Retryable: true}, "TRANSIENT", failureRetryApply, false},
+		{"pre-provider permanent", failureBeforeProvider, true, context.Background(), context.Background(), &DriverError{Code: "PERMANENT"}, "PERMANENT", failureStop, false},
+		{"non-side process crash", failureAfterProviderStart, false, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureRetryApply, false},
+		{"side process crash", failureAfterProviderStart, true, context.Background(), context.Background(), errors.New("process crashed"), "DRIVER_ERROR", failureReconcile, false},
+		{"side transient", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "TRANSIENT", Retryable: true}, "TRANSIENT", failureRetryApply, false},
+		{"side permanent", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "PERMANENT"}, "PERMANENT", failureStop, false},
+		{"side ambiguous", failureAfterProviderStart, true, context.Background(), context.Background(), &DriverError{Code: "AMBIGUOUS", Ambiguous: true}, "AMBIGUOUS", failureReconcile, false},
+		{"side timeout", failureAfterProviderStart, true, context.Background(), context.Background(), context.DeadlineExceeded, "TIMEOUT", failureReconcile, false},
+		{"cancel before provider", failureBeforeProvider, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureStop, true},
+		{"cancel after dispatch", failureAfterProviderStart, true, cancelled, cancelled, context.Canceled, "CANCELLED", failureReconcile, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := decideFailure(tc.stage, tc.sideEffecting, tc.parent, tc.callCtx, tc.err)
+			if got.code != tc.code || got.action != tc.action || got.cancelled != tc.cancelled {
+				t.Fatalf("decision=%+v want code=%q action=%v cancelled=%v", got, tc.code, tc.action, tc.cancelled)
 			}
 		})
 	}
@@ -285,7 +336,8 @@ func TestHelpersAndValidationBranches(t *testing.T) {
 		t.Fatal("driver fallback text changed")
 	}
 
-	leases := &MemoryLeases{}
+	leases := NewMemoryLeases()
+	leases.held = nil
 	lease, err := leases.Acquire(context.Background(), "key")
 	if err != nil {
 		t.Fatal(err)

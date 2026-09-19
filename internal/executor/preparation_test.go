@@ -94,6 +94,37 @@ func TestPreparationFailureDoesNotDispatch(t *testing.T) {
 	}
 }
 
+func TestCancellationBeforeDispatchStopsNewSideEffects(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	entered := make(chan struct{})
+	driver := &preparationDriver{}
+	driver.prepare = func(ctx context.Context, _ Request, _ DriverOperation) (Preparation, error) {
+		close(entered)
+		<-ctx.Done()
+		return Preparation{}, ctx.Err()
+	}
+	writer := openWriter(t, runID())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var state journal.DerivedState
+	var executeErr error
+	go func() {
+		state, executeErr = newExecutor(t, driver, Options{MaxAttempts: 1}).Execute(ctx, plan, runID(), writer)
+		close(done)
+	}()
+	<-entered
+	cancel()
+	<-done
+	if !errors.Is(executeErr, context.Canceled) || !state.Cancelled {
+		t.Fatalf("state=%+v err=%v", state, executeErr)
+	}
+	for _, event := range writer.Events() {
+		if event.Type == journal.EventSideEffectDispatched {
+			t.Fatalf("side effect dispatched after cancellation: %+v", event)
+		}
+	}
+}
+
 func TestPreparationContextCancellationIsNotAmbiguous(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	driver := &preparationDriver{}
@@ -135,12 +166,43 @@ func TestExecuteRecoversUndispatchedAttempt(t *testing.T) {
 	}
 	seenRecovery := false
 	for _, event := range writer.Events() {
-		if event.Type == journal.EventOperationResult && event.Payload.ErrorCode == "INTERRUPTED_BEFORE_DISPATCH" {
+		if event.Type == journal.EventOperationFailed && event.Payload.ErrorCode == "INTERRUPTED_BEFORE_PROVIDER" {
 			seenRecovery = true
 		}
 	}
 	if !seenRecovery {
 		t.Fatal("undispatched attempt was not recovered")
+	}
+}
+
+func TestExecuteRecoversProviderStartBeforeDispatch(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	writer := openWriter(t, runID())
+	for _, entry := range []journal.Entry{
+		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
+		{RunID: runID(), Type: journal.EventProviderProcessStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
+	} {
+		if _, err := writer.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := newExecutor(t, &scriptedDriver{}, Options{MaxAttempts: 2}).Execute(context.Background(), plan, runID(), writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, _ := state.Operation("op-a")
+	if !state.Completed || op.State != domain.StatePublished || op.Attempt != 2 {
+		t.Fatalf("state=%+v op=%+v", state, op)
+	}
+	seenRecovery := false
+	for _, event := range writer.Events() {
+		if event.Type == journal.EventOperationFailed && event.Payload.ErrorCode == "INTERRUPTED_BEFORE_DISPATCH" {
+			seenRecovery = true
+		}
+	}
+	if !seenRecovery {
+		t.Fatal("provider-started attempt was not recovered safely")
 	}
 }
 

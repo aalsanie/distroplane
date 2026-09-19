@@ -105,4 +105,12 @@ func mustFrame(t testing.TB, e Event) []byte {
 	return frame
 }
 
+func leasePayload(id, owner string, acquiredAt, expiresAt int64) *LeasePayload {
+	return &LeasePayload{
+		ID: id, Owner: owner,
+		AcquiredAt: time.Unix(acquiredAt, 0).UTC(),
+		ExpiresAt:  time.Unix(expiresAt, 0).UTC(),
+	}
+}
+
 func evidence(value string) json.RawMessage { return json.RawMessage(value) }
