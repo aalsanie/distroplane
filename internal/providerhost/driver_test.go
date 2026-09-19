@@ -425,7 +425,7 @@ func TestDriverRejectsReplacedProviderExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	copyPath := filepath.Join(t.TempDir(), "provider-copy")
+	copyPath := filepath.Join(t.TempDir(), "provider-copy"+filepath.Ext(source))
 	if err := os.WriteFile(copyPath, data, 0o700); err != nil {
 		t.Fatal(err)
 	}
