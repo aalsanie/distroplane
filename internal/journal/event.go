@@ -82,12 +82,12 @@ type Payload struct {
 	AttemptReason  string                 `json:"attemptReason,omitempty"`
 	ResultCategory string                 `json:"resultCategory,omitempty"`
 	CredentialRef  domain.CredentialRef   `json:"credentialRef,omitempty"`
-	State         domain.NormalizedState `json:"state,omitempty"`
-	ProviderState string                 `json:"providerState,omitempty"`
-	Evidence      json.RawMessage        `json:"evidence,omitempty"`
-	ErrorCode     string                 `json:"errorCode,omitempty"`
-	Retryable     bool                   `json:"retryable,omitempty"`
-	Lease         *LeasePayload           `json:"lease,omitempty"`
+	State          domain.NormalizedState `json:"state,omitempty"`
+	ProviderState  string                 `json:"providerState,omitempty"`
+	Evidence       json.RawMessage        `json:"evidence,omitempty"`
+	ErrorCode      string                 `json:"errorCode,omitempty"`
+	Retryable      bool                   `json:"retryable,omitempty"`
+	Lease          *LeasePayload          `json:"lease,omitempty"`
 }
 
 type Entry struct {
