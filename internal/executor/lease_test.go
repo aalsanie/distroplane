@@ -10,6 +10,10 @@ import (
 	"github.com/aalsanie/distroplane/internal/journal"
 )
 
+func leaseRequest(key string) LeaseRequest {
+	return LeaseRequest{Key: key, OperationID: "op-a"}
+}
+
 func TestMemoryLeasesAcquireRenewRelease(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	next := 0
@@ -18,18 +22,18 @@ func TestMemoryLeasesAcquireRenewRelease(t *testing.T) {
 		return "lease-" + string(rune('0'+next)), nil
 	})
 
-	lease, err := leases.Acquire(context.Background(), "key")
+	lease, err := leases.Acquire(context.Background(), leaseRequest("key"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := lease.State()
-	if state.ID != "lease-1" || state.Owner != "worker-a" || !state.AcquiredAt.Equal(now) || !state.ExpiresAt.Equal(now.Add(10*time.Second)) {
+	if state.ID != "lease-1" || state.Owner != "worker-a" || state.OperationID != "op-a" || !state.AcquiredAt.Equal(now) || !state.ExpiresAt.Equal(now.Add(10*time.Second)) {
 		t.Fatalf("state=%+v", state)
 	}
 	if _, ok := lease.PreviousExpired(); ok {
 		t.Fatal("new lease reported an expired predecessor")
 	}
-	if _, err := leases.Acquire(context.Background(), "key"); !errors.Is(err, ErrLeaseHeld) {
+	if _, err := leases.Acquire(context.Background(), leaseRequest("key")); !errors.Is(err, ErrLeaseHeld) {
 		t.Fatalf("err=%v", err)
 	}
 
@@ -51,7 +55,7 @@ func TestMemoryLeasesAcquireRenewRelease(t *testing.T) {
 	if err := lease.Release(); err != nil {
 		t.Fatal(err)
 	}
-	replacement, err := leases.Acquire(context.Background(), "key")
+	replacement, err := leases.Acquire(context.Background(), leaseRequest("key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +77,14 @@ func TestMemoryLeasesExpiryAllowsReclaim(t *testing.T) {
 		return id, nil
 	})
 
-	first, err := leases.Acquire(context.Background(), "key")
+	first, err := leases.Acquire(context.Background(), leaseRequest("key"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstState := first.State()
 	now = firstState.ExpiresAt
 
-	second, err := leases.Acquire(context.Background(), "key")
+	second, err := leases.Acquire(context.Background(), leaseRequest("key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +111,7 @@ func TestMemoryLeasesRenewAfterDeadlineExpiresLease(t *testing.T) {
 	leases := newMemoryLeases("worker-a", time.Second, func() time.Time { return now }, func() (string, error) {
 		return "lease-a", nil
 	})
-	lease, err := leases.Acquire(context.Background(), "key")
+	lease, err := leases.Acquire(context.Background(), leaseRequest("key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,27 +119,30 @@ func TestMemoryLeasesRenewAfterDeadlineExpiresLease(t *testing.T) {
 	if state, err := lease.Renew(context.Background()); !errors.Is(err, ErrLeaseExpired) || state.ID != "lease-a" {
 		t.Fatalf("state=%+v err=%v", state, err)
 	}
-	if _, err := leases.Acquire(context.Background(), "key"); err != nil {
+	if _, err := leases.Acquire(context.Background(), leaseRequest("key")); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestMemoryLeasesValidation(t *testing.T) {
 	leases := NewMemoryLeases()
-	if _, err := leases.Acquire(nil, "key"); err == nil {
+	if _, err := leases.Acquire(nil, leaseRequest("key")); err == nil {
 		t.Fatal("nil context accepted")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := leases.Acquire(ctx, "key"); !errors.Is(err, context.Canceled) {
+	if _, err := leases.Acquire(ctx, leaseRequest("key")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := leases.Acquire(context.Background(), ""); err == nil {
+	if _, err := leases.Acquire(context.Background(), leaseRequest("")); err == nil {
 		t.Fatal("empty key accepted")
 	}
 	var nilManager *MemoryLeases
-	if _, err := nilManager.Acquire(context.Background(), "key"); err == nil {
+	if _, err := nilManager.Acquire(context.Background(), leaseRequest("key")); err == nil {
 		t.Fatal("nil manager accepted")
+	}
+	if _, err := leases.Acquire(context.Background(), LeaseRequest{Key: "key"}); err == nil {
+		t.Fatal("invalid operation ID accepted")
 	}
 
 	badManagers := []*MemoryLeases{
@@ -145,20 +152,20 @@ func TestMemoryLeasesValidation(t *testing.T) {
 		newMemoryLeases("worker", time.Second, time.Now, nil),
 	}
 	for i, manager := range badManagers {
-		if _, err := manager.Acquire(context.Background(), "key"); err == nil {
+		if _, err := manager.Acquire(context.Background(), leaseRequest("key")); err == nil {
 			t.Fatalf("bad manager %d accepted", i)
 		}
 	}
 	failingID := newMemoryLeases("worker", time.Second, time.Now, func() (string, error) {
 		return "", errors.New("id failed")
 	})
-	if _, err := failingID.Acquire(context.Background(), "key"); err == nil {
+	if _, err := failingID.Acquire(context.Background(), leaseRequest("key")); err == nil {
 		t.Fatal("lease ID failure ignored")
 	}
 	invalidID := newMemoryLeases("worker", time.Second, time.Now, func() (string, error) {
 		return " bad", nil
 	})
-	if _, err := invalidID.Acquire(context.Background(), "key"); err == nil {
+	if _, err := invalidID.Acquire(context.Background(), leaseRequest("key")); err == nil {
 		t.Fatal("invalid lease ID accepted")
 	}
 
