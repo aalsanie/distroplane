@@ -303,53 +303,23 @@ jobs:
       contents: read
       id-token: write
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.27.1'
-          cache: false
-      - name: Build valid smoke fixture
-        id: fixture
+      - name: Verify absent OIDC request environment
         shell: pwsh
-        run: ./action/smoke-fixture.ps1 -Root oidc-env-smoke
-      - name: Require cleared OIDC environment
-        id: oidc
-        continue-on-error: true
-        shell: pwsh
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ''
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
-          DISTROPLANE_ACTION_REF: ''
-          DISTROPLANE_ACTION_REPOSITORY: aalsanie/distroplane
-          DISTROPLANE_ATTESTATIONS: ''
-          DISTROPLANE_BINARY: ${{ steps.fixture.outputs.cli }}
-          DISTROPLANE_COMMAND: plan
-          DISTROPLANE_CONCURRENCY: '0'
-          DISTROPLANE_CONFIG: ${{ steps.fixture.outputs.config }}
-          DISTROPLANE_CREDENTIAL_MAPPINGS: ''
-          DISTROPLANE_EVIDENCE_PATH: ''
-          DISTROPLANE_INSTALL_PROVIDERS: 'true'
-          DISTROPLANE_JOURNAL: .distroplane/run.journal
-          DISTROPLANE_OIDC: required
-          DISTROPLANE_PLAN: ''
-          DISTROPLANE_RUN_ID: ''
-          DISTROPLANE_STATE_DIR: oidc-env-state
-          DISTROPLANE_UPLOAD_EVIDENCE: 'false'
-          DISTROPLANE_VERSION: ''
-        run: '& "$env:GITHUB_WORKSPACE/action/run.ps1"'
-      - name: Verify absent OIDC environment failure
-        shell: pwsh
-        env:
-          ACTION_OUTCOME: ${{ steps.oidc.outcome }}
         run: |
-          if ($env:ACTION_OUTCOME -ne 'failure') {
-            throw 'OIDC requirement unexpectedly succeeded without the native request environment'
+          . ./action/oidc.ps1
+          try {
+            Test-DistroplaneOIDC -Mode required -RequestUrl '' -RequestToken '' | Out-Null
+            throw 'OIDC validation unexpectedly accepted an absent request environment'
+          } catch {
+            if ($_.Exception.Message -notmatch 'OIDC is required but unavailable') {
+              throw
+            }
           }
 
   oidc-denied:

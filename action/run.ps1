@@ -38,6 +38,7 @@ function Resolve-LocalPath {
 }
 
 . (Join-Path $PSScriptRoot 'install.ps1')
+. (Join-Path $PSScriptRoot 'oidc.ps1')
 
 function Resolve-DistroplaneBinary {
     $local = $env:DISTROPLANE_BINARY.Trim()
@@ -107,16 +108,8 @@ Set-Location -LiteralPath $env:GITHUB_WORKSPACE
 
 $binary = Resolve-DistroplaneBinary
 
-$oidcAvailable = [bool]($env:ACTIONS_ID_TOKEN_REQUEST_URL -and $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN)
+$oidcAvailable = Test-DistroplaneOIDC -Mode $env:DISTROPLANE_OIDC -RequestUrl $env:ACTIONS_ID_TOKEN_REQUEST_URL -RequestToken $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
 Set-ActionOutput -Name 'oidc-available' -Value $oidcAvailable.ToString().ToLowerInvariant()
-
-$oidcMode = $env:DISTROPLANE_OIDC.Trim().ToLowerInvariant()
-if ($oidcMode -notin @('none', 'required')) {
-    throw "oidc must be 'none' or 'required'."
-}
-if ($oidcMode -eq 'required' -and -not $oidcAvailable) {
-    throw "OIDC is required but unavailable. Grant the job 'permissions: id-token: write' and ensure the runner supports GitHub OIDC."
-}
 
 $command = $env:DISTROPLANE_COMMAND.Trim().ToLowerInvariant()
 if ($command -notin @('plan', 'apply', 'reconcile')) {
