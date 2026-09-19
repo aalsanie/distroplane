@@ -4,6 +4,7 @@ package providerhost
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"syscall"
 )
