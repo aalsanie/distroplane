@@ -17,13 +17,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: plan
-        uses: aalsanie/distroplane@v0.5.0
+        uses: aalsanie/distroplane@v0.9.0-rc.1
         with:
           command: plan
           config: distroplane.json
 
       - id: apply
-        uses: aalsanie/distroplane@v0.5.0
+        uses: aalsanie/distroplane@v0.9.0-rc.1
         with:
           command: apply
           config: distroplane.json
@@ -53,11 +53,11 @@ Distroplane exit code `4` is a normal asynchronous state. The Action reports `pe
 
 ## Compatibility
 
-The beta integration has an explicit compatibility contract:
+The pre-1.0 integration has an explicit compatibility contract:
 
 | Action major | Distroplane CLI | Provider protocol | Support |
 | --- | --- | --- | --- |
-| `v0` | `0.5.x` beta line | `1` candidate | Supported beta integration |
+| `v0` | `0.9.x` release-candidate line | `1` candidate | Supported pre-1.0 integration |
 
 The Action resolves the exact CLI version from a versioned Action ref by default. When the Action is pinned by immutable commit, pass `version` explicitly. Cross-major Action/CLI compatibility is not promised; protocol major mismatches remain rejected by Distroplane before provider side effects.
 
@@ -79,7 +79,7 @@ Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile
 
 ```yaml
 - id: apply
-  uses: aalsanie/distroplane@v0.5.0
+  uses: aalsanie/distroplane@v0.9.0-rc.1
   with:
     command: apply
     config: distroplane.json
@@ -97,7 +97,7 @@ Optional `attestations` are newline-delimited `NAME=URI` references and are pass
 Credentials remain environment variables resolved by Distroplane. The Action accepts only reference-to-environment mappings, never secret values:
 
 ```yaml
-- uses: aalsanie/distroplane@v0.5.0
+- uses: aalsanie/distroplane@v0.9.0-rc.1
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
@@ -123,11 +123,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: plan
-        uses: aalsanie/distroplane@v0.5.0
+        uses: aalsanie/distroplane@v0.9.0-rc.1
         with:
           command: plan
           config: distroplane.npm.json
-      - uses: aalsanie/distroplane@v0.5.0
+      - uses: aalsanie/distroplane@v0.9.0-rc.1
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
@@ -146,11 +146,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: plan
-        uses: aalsanie/distroplane@v0.5.0
+        uses: aalsanie/distroplane@v0.9.0-rc.1
         with:
           command: plan
           config: distroplane.vendor.json
-      - uses: aalsanie/distroplane@v0.5.0
+      - uses: aalsanie/distroplane@v0.9.0-rc.1
         env:
           VENDOR_TOKEN: ${{ secrets.VENDOR_TOKEN }}
         with:
@@ -177,7 +177,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: aalsanie/distroplane@v0.5.0
+      - uses: aalsanie/distroplane@v0.9.0-rc.1
         with:
           command: apply
           oidc: required
@@ -232,10 +232,10 @@ apply:
       shell: bash
       run: echo "path=$(find .distroplane/plan -type f -name '*.json' -print -quit)" >> "$GITHUB_OUTPUT"
     - id: apply
-      uses: aalsanie/distroplane@v0.5.0
+      uses: aalsanie/distroplane@v0.9.0-rc.1
       with:
         command: apply
-        version: 0.5.0
+        version: 0.9.0-rc.1
         config: distroplane.json
         plan: ${{ steps.plan-file.outputs.path }}
         journal: .distroplane/run.journal
