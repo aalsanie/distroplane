@@ -320,7 +320,7 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 					break
 				}
 			}
-			lease, err := e.leases.Acquire(ctx, leaseKey(plan.ID(), candidate.operation.ID()))
+			lease, err := e.leases.Acquire(ctx, LeaseRequest{Key: leaseKey(plan.ID(), candidate.operation.ID()), OperationID: candidate.operation.ID()})
 			if err != nil {
 				if errors.Is(err, ErrLeaseHeld) {
 					leaseBlocked++
