@@ -223,7 +223,7 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
-	driver, err := executionDriver(loaded, persisted.Plan(), credentialMap)
+	driver, err := executionDriverWithDigests(loaded, persisted.Plan(), persisted.ProviderDigests(), credentialMap)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "provider_binding_failed", err)
 	}
@@ -304,6 +304,10 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 }
 
 func executionDriver(loaded config.Loaded, plan domain.Plan, mappings credentialFlags) (*providerhost.Driver, error) {
+	return executionDriverWithDigests(loaded, plan, nil, mappings)
+}
+
+func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, providerDigests map[domain.ProviderRef]domain.Digest, mappings credentialFlags) (*providerhost.Driver, error) {
 	targetConfig := make(map[string]config.Target, len(loaded.Config.Targets))
 	for _, target := range loaded.Config.Targets {
 		targetConfig[target.ID] = target
@@ -338,7 +342,7 @@ func executionDriver(loaded config.Loaded, plan domain.Plan, mappings credential
 	})
 	bindings := make([]providerhost.Binding, 0, len(providers))
 	for _, provider := range providers {
-		bindings = append(bindings, providerhost.Binding{Provider: provider, Executable: bindingByProvider[provider]})
+		bindings = append(bindings, providerhost.Binding{Provider: provider, Executable: bindingByProvider[provider], Digest: providerDigests[provider]})
 	}
 	client, err := providerhost.New(providerhost.Options{})
 	if err != nil {
