@@ -1,21 +1,9 @@
-# Security Policy
+# Security policy
 
-## Supported versions
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/aalsanie/distroplane/security/advisories/new). If that channel is unavailable, open an issue asking for a private contact without including exploit details, credentials, or sensitive logs.
 
-Distroplane is pre-1.0 and does not yet publish a long-term support matrix. Security fixes are applied to the latest development line. A formal supported-version policy will be published before v1.0.
+Keep vulnerability details private while the maintainer investigates and coordinates a fix and disclosure.
 
-## Reporting a vulnerability
+Distroplane is pre-1.0. Security fixes target the latest development line; older release candidates have no maintenance commitment.
 
-Prefer GitHub private vulnerability reporting for this repository when available. Do not disclose exploitable details in a public issue.
-
-If private vulnerability reporting is unavailable, open a minimal public issue asking the maintainer for a private reporting channel without including exploit details, secrets, proof-of-concept payloads, or sensitive environment information.
-
-## Security principles
-
-Distroplane is designed around least privilege:
-
-- provider implementations execute out of process;
-- credentials are scoped to the provider that requires them;
-- secrets must never be persisted in plans or journals;
-- side effects must be idempotency-aware;
-- ambiguous publication outcomes must be reconciled rather than blindly retried.
+See the [security model](docs/security-model.md) for provider trust, credential handling, verification, and accepted risks.

@@ -1,54 +1,100 @@
 # Distroplane
 
-Distroplane is a lightweight release distribution control plane for deterministic, isolated, verifiable publishing across package ecosystems.
+Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps, and WinGet. Review what will be published before applying it, resume interrupted runs, and export one record of each target's known state. Use the same CLI locally or through GitHub Actions; no Distroplane service is required.
 
-## Status
+## What it does
 
-Distroplane is pre-1.0. The current release-candidate line includes deterministic planning, crash-safe execution and reconciliation, evidence export, npm/SDKMAN/Homebrew/WinGet providers, and the GitHub Action integration.
+- Saves a deterministic plan bound to artifact hashes and provider binaries.
+- Publishes through separate provider executables with scoped credentials.
+- Records execution so pending reviews and uncertain outcomes can be reconciled later.
+- Exports JSON evidence for published, pending, rejected, and failed targets.
 
-## Design principles
+## GitHub Actions quick start
 
-- small, provider-neutral core
-- out-of-process providers
-- standard-library-first Go implementation
-- deterministic plans and digest-based artifact identity
-- append-only execution history
-- idempotency-aware execution and reconciliation
-- least-privilege credential isolation
-- local-first operation with no required hosted service
+Once your release artifact and `distroplane.json` are ready, publishing is a plan/apply flow:
 
-## Development
+```yaml
+name: Publish package
+on: workflow_dispatch
+permissions:
+  contents: read
 
-Distroplane targets Go 1.27.1.
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        uses: aalsanie/distroplane@v0.9.0-rc.1
+        with:
+          command: plan
+      - uses: aalsanie/distroplane@v0.9.0-rc.1
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        with:
+          command: apply
+          plan: ${{ steps.plan.outputs.plan-path }}
+          credential-mappings: npm-publish=NPM_TOKEN
+          upload-evidence: 'true'
+```
+
+Planning needs no publication credentials. Apply receives only the credential mappings declared by the plan. The Action installs and checksum-verifies the matching CLI and official providers automatically. [Action details](docs/github-actions.md) cover artifact preparation, approvals, plan handoff, OIDC, and reconciliation.
+
+## Configuration
+
+Save this as `distroplane.json` and point it at your packed tarball. The npm provider requires `packagePath` to be absolute at runtime; the package name and version come from `package/package.json` inside the tarball.
+
+```json
+{
+  "schemaVersion": "1",
+  "release": {
+    "id": "my-package-1.2.3",
+    "artifacts": [{"name": "package", "source": "package.tgz"}]
+  },
+  "targets": [{
+    "id": "npm",
+    "provider": {"name": "npm"},
+    "configuration": {
+      "artifact": "package",
+      "packagePath": "/absolute/path/to/package.tgz",
+      "registry": "https://registry.npmjs.org/",
+      "authentication": {"mode": "token", "credential": "npm-publish"}
+    }
+  }]
+}
+```
+
+Credentials are named references, never token values. See [configuration](docs/configuration.md) for paths, provider selection, and validation.
+
+## CLI
+
+[Install the CLI and the providers you need](docs/release-verification.md), then use the path printed by `plan` wherever `PLAN.json` appears below. Supply `NPM_TOKEN` through your shell or CI secret store.
 
 ```sh
-go test ./...
-go test -race ./...
-./scripts/check-coverage.sh
-./scripts/check-dependencies.sh
-./scripts/check-architecture.sh
+distroplane plan --config distroplane.json
+distroplane apply --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
+distroplane status --plan PLAN.json --journal run.journal
+distroplane reconcile --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
+distroplane evidence --plan PLAN.json --journal run.journal --output evidence.json
 ```
 
-Build release binaries with:
+Run `reconcile` when a target is pending or its outcome is uncertain. Preserve the plan and journal between runs. The [CLI guide](docs/cli.md) explains exit codes, recovery, and automation.
 
-```sh
-./scripts/build.sh
-```
+## Providers
 
-On Windows PowerShell:
+| Provider | Current publication flow |
+| --- | --- |
+| [npm](providers/npm/README.md) | Packed npm tarball to an npm registry; token or supplied OIDC token |
+| [SDKMAN](providers/sdkman/README.md) | Candidate/version registration through the vendor API |
+| [Homebrew](providers/homebrew/README.md) | Formula or cask in a custom tap, by direct push or GitHub pull request |
+| [WinGet](providers/winget/README.md) | Installer manifests submitted through a GitHub pull request |
 
-```powershell
-./scripts/build.ps1
-```
+## Documentation
 
-## GitHub Actions
+[GitHub Actions](docs/github-actions.md) · [CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Installation and releases](docs/release-verification.md) · [Architecture and protocol](docs/architecture.md) · [Security model](docs/security-model.md) · [Contributing](CONTRIBUTING.md)
 
-The repository includes a provider-neutral composite Action for `plan`, `apply`, and `reconcile`. It resolves checksum-verified release binaries, exposes normalized JSON outputs, supports native GitHub OIDC permission checks, and can upload release evidence artifacts.
+## Status and license
 
-See [docs/github-actions.md](docs/github-actions.md) for usage and CI security guidance.
-
-Release safety and verification are documented in [docs/security-model.md](docs/security-model.md), [docs/reliability-validation.md](docs/reliability-validation.md), and [docs/release-verification.md](docs/release-verification.md).
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+Current release: **0.9.0-rc.1**, a pre-1.0 release candidate. npm and SDKMAN are usable in this release; Homebrew and WinGet have a known Git discovery issue that will be fixed in a follow-up release. [Apache-2.0](LICENSE).

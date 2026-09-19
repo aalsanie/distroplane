@@ -1,251 +1,161 @@
-# GitHub Actions integration
+# GitHub Actions
 
-Distroplane ships a composite GitHub Action at the repository root. The Action is a thin wrapper around the released CLI: provider planning, publication, reconciliation, credential handling, and evidence semantics remain in Distroplane and its out-of-process providers.
+Start with the [README quick start](../README.md#github-actions-quick-start). The Action runs `plan`, `apply`, or `reconcile`; artifacts must already exist and configuration must name their actual paths.
 
-## Basic workflow
+## Plan and apply
 
-A workflow can plan and apply without embedding provider-specific publication commands:
-
-```yaml
-permissions:
-  contents: read
-
-jobs:
-  distribute:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - id: plan
-        uses: aalsanie/distroplane@v0.9.0-rc.1
-        with:
-          command: plan
-          config: distroplane.json
-
-      - id: apply
-        uses: aalsanie/distroplane@v0.9.0-rc.1
-        with:
-          command: apply
-          config: distroplane.json
-          plan: ${{ steps.plan.outputs.plan-path }}
-          journal: .distroplane/run.journal
-          upload-evidence: 'true'
-```
-
-Use a released tag or an immutable commit for the Action itself. When the Action is invoked from a `v...` tag, that tag is also used to resolve release binaries. When the Action is pinned by commit, pass `version` explicitly.
-
-The installer downloads `SHA256SUMS`, the matching CLI binary, and by default every provider binary listed for the same release/OS/architecture. Every downloaded executable is SHA-256 verified before execution. Versioned release assets are installed under canonical executable names (`distroplane` and `distroplane-provider-<name>`) and added to `PATH`, so provider discovery works without provider-specific installation commands in workflow YAML.
-
-The `binary` input bypasses release installation and is intended for repository development and smoke tests.
-
-## Commands and outputs
-
-The Action supports `plan`, `apply`, and `reconcile`. The optional `concurrency` input is forwarded to apply/reconcile and defaults to the executor's normal bounded-concurrency behavior. Set `upload-plan: 'true'` when the immutable plan should be handed to another job as a GitHub artifact. The Action always invokes the CLI in JSON mode and exposes:
-
-- `plan-id`, `plan-path`, and uploaded plan artifact metadata when requested;
-- `run-id`, `completed`, and `pending`;
-- the native Distroplane `exit-code`;
-- `result-json` for the complete normalized result;
-- evidence path/digest and GitHub artifact metadata when evidence is requested.
-
-Distroplane exit code `4` is a normal asynchronous state. The Action reports `pending=true` and succeeds so a later workflow or scheduled job can reconcile it. Rejected, failed, invalid, and operational outcomes still fail the Action after evidence upload has had a chance to run.
-
-
-## Compatibility
-
-The pre-1.0 integration has an explicit compatibility contract:
-
-| Action major | Distroplane CLI | Provider protocol | Support |
-| --- | --- | --- | --- |
-| `v0` | `0.9.x` release-candidate line | `1` candidate | Supported pre-1.0 integration |
-
-The Action resolves the exact CLI version from a versioned Action ref by default. When the Action is pinned by immutable commit, pass `version` explicitly. Cross-major Action/CLI compatibility is not promised; protocol major mismatches remain rejected by Distroplane before provider side effects.
-
-GitHub Actions is optional. The same `plan`, `apply`, `status`, and `reconcile` CLI workflow remains available locally and in other CI systems.
-
-For the same configuration outside GitHub Actions:
-
-```sh
-distroplane plan --config distroplane.json --state-dir .distroplane
-distroplane apply --config distroplane.json --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
-distroplane status --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
-distroplane reconcile --config distroplane.json --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal
-distroplane evidence --plan .distroplane/plans/<plan>.json --journal .distroplane/run.journal --output .distroplane/evidence.json
-```
-
-## Evidence artifacts
-
-Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile`. With upload enabled, the Action exports the normalized evidence bundle and uploads it with the pinned GitHub artifact action.
+These steps follow your artifact build and configuration setup:
 
 ```yaml
-- id: apply
+- id: plan
   uses: aalsanie/distroplane@v0.9.0-rc.1
   with:
-    command: apply
+    command: plan
     config: distroplane.json
-    plan: ${{ steps.plan.outputs.plan-path }}
-    journal: .distroplane/run.journal
-    evidence-path: .distroplane/evidence.json
-    upload-evidence: 'true'
-    evidence-artifact-name: release-evidence
-```
 
-Optional `attestations` are newline-delimited `NAME=URI` references and are passed to `distroplane evidence`. Distroplane does not implement a parallel signing system; CI-native attestation/signing can use the exported evidence digest and artifact.
-
-## Credentials
-
-Credentials remain environment variables resolved by Distroplane. The Action accepts only reference-to-environment mappings, never secret values:
-
-```yaml
-- uses: aalsanie/distroplane@v0.9.0-rc.1
+- id: apply
+  uses: aalsanie/distroplane@v0.9.0-rc.1
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
     command: apply
     config: distroplane.json
     plan: ${{ steps.plan.outputs.plan-path }}
-    journal: .distroplane/run.journal
-    credential-mappings: |
-      npm-publish=NPM_TOKEN
+    journal: run.journal
+    credential-mappings: npm-publish=NPM_TOKEN
+    upload-evidence: 'true'
 ```
 
-Prefer GitHub environments for targets with different trust boundaries. Put each credential boundary in its own job/environment and give that job only the secrets and permissions it needs. Start with `permissions: contents: read`; add `id-token: write` only to jobs whose provider requires OIDC. Distroplane still supports local multi-target execution; job isolation is a CI security recommendation, not a core semantic requirement.
+The credential reference must match your provider configuration. `plan` does not need publication secrets. `apply` and `reconcile` resolve the plan's declared references from the environment; `credential-mappings` accepts one `REF=ENV` mapping per line, never a secret value.
 
-When credentials must be isolated, use target-scoped Distroplane configuration/plan pairs in separate jobs rather than giving one job every provider secret. For example:
+Use separate configuration/plan pairs and jobs when providers need different secrets or approvals. Give each job only its required credentials. There is no Action input that selects a subset of targets from a plan.
+
+## Release installation and pinning
+
+Every invocation installs the selected release unless `binary` is supplied. The installer downloads `SHA256SUMS`, the CLI, and all checksum-listed provider executables for the runner's OS/architecture. It verifies SHA-256 before executing each download, installs canonical names such as `distroplane-provider-npm`, and adds their directory to `PATH` for the current and later steps.
+
+- At `aalsanie/distroplane@v0.9.0-rc.1`, omitting `version` selects release `v0.9.0-rc.1`.
+- When pinning the Action to a commit, explicitly set `version: 0.9.0-rc.1`. A commit or branch is not a binary release version; the installer does not resolve it to a release.
+- `version` accepts an exact release version with or without leading `v`. There is no `latest` lookup or version-range resolution.
 
 ```yaml
-jobs:
-  npm:
-    environment: npm-production
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: plan
-        uses: aalsanie/distroplane@v0.9.0-rc.1
-        with:
-          command: plan
-          config: distroplane.npm.json
-      - uses: aalsanie/distroplane@v0.9.0-rc.1
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        with:
-          command: apply
-          config: distroplane.npm.json
-          plan: ${{ steps.plan.outputs.plan-path }}
-          journal: .distroplane/npm.journal
-          credential-mappings: npm-publish=NPM_TOKEN
-
-  vendor:
-    environment: vendor-production
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: plan
-        uses: aalsanie/distroplane@v0.9.0-rc.1
-        with:
-          command: plan
-          config: distroplane.vendor.json
-      - uses: aalsanie/distroplane@v0.9.0-rc.1
-        env:
-          VENDOR_TOKEN: ${{ secrets.VENDOR_TOKEN }}
-        with:
-          command: apply
-          oidc: required
-          config: distroplane.vendor.json
-          plan: ${{ steps.plan.outputs.plan-path }}
-          journal: .distroplane/vendor.journal
-          credential-mappings: vendor-publish=VENDOR_TOKEN
+- uses: aalsanie/distroplane@d309048ea96601523e4759b127355b239235e4af
+  with:
+    version: 0.9.0-rc.1
+    command: plan
 ```
 
-A single multi-target plan remains supported when the workflow intentionally accepts a shared credential boundary.
+A commit pin fixes the Action code. A release tag selects separately downloaded binaries; checksum verification still trusts that release's checksum file. The installer does not verify signatures or attestations. See [release verification](release-verification.md).
 
-## OIDC
+Linux, macOS, and Windows runners with x64 or ARM64 are accepted. The composite Action requires PowerShell 7 (`pwsh`), provided on standard GitHub-hosted runners. Self-hosted runners must provide it and any provider prerequisites, such as Git.
 
-OIDC remains a GitHub workflow primitive. The Action does not mint, persist, or proxy OIDC tokens. Set `oidc: required` when a provider/job expects GitHub OIDC; the Action then fails early unless GitHub exposed its native OIDC request environment.
+## Reviewed plan handoff
+
+To put approval between planning and publishing, use a plan job without publication secrets and an apply job attached to a protected environment with required reviewers.
+
+In the plan job, enable `upload-plan: 'true'` on the plan step. For the npm quick start, also preserve the configuration and tarball:
 
 ```yaml
-jobs:
-  publish:
-    environment: production
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: aalsanie/distroplane@v0.9.0-rc.1
-        with:
-          command: apply
-          oidc: required
-          config: distroplane.json
-          plan: .distroplane/plan.json
-          journal: .distroplane/run.journal
+- uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+  with:
+    name: release-inputs
+    path: |
+      distroplane.json
+      *.tgz
+    if-no-files-found: error
 ```
 
-The Action smoke workflow includes both the denied case (no `id-token: write`) and the granted case.
-
-
-## Release-candidate, approval, and asynchronous reconciliation
-
-A release-candidate workflow can trigger on candidate tags, for example:
-
-```yaml
-on:
-  push:
-    tags:
-      - 'v*-rc*'
-```
-
-A production workflow can keep build, approval, execution, and reconciliation as separate boundaries without putting provider publication commands in YAML:
-
-1. Build the release candidate and preserve the exact artifacts.
-2. Run `plan` with `upload-plan: 'true'`; hand the immutable plan and release artifacts to the next job.
-3. Put the apply job behind a protected GitHub environment with required reviewers. That environment is the manual approval boundary.
-4. Run `apply`. Exit code `4` is exposed as `pending=true` and does not fail the Action.
-5. Preserve the plan, journal, and immutable release artifacts for a later scheduled or manually dispatched reconciliation job.
-6. Run `reconcile` and upload the resulting evidence bundle.
-
-The approval job should use only `contents: read` unless a target needs more. Add `id-token: write` only to a job whose provider actually consumes GitHub OIDC. Third-party workflow actions should be pinned by immutable commit; the repository smoke workflow demonstrates this for checkout, artifact upload/download, and setup actions.
-
-A protected apply job can therefore look like:
+The apply job restores both artifacts. This job assumes the plan job is named `plan`, used the default `distroplane-plan` artifact name, and packed its tarball at the workspace root as in the README:
 
 ```yaml
 apply:
   needs: plan
-  environment: distribution-production # configure required reviewers in GitHub
+  environment: npm-production
   permissions:
     contents: read
   runs-on: ubuntu-latest
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        persist-credentials: false
+        name: release-inputs
+        path: .
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: distroplane-plan
-        path: .distroplane/plan
-    - id: plan-file
-      shell: bash
-      run: echo "path=$(find .distroplane/plan -type f -name '*.json' -print -quit)" >> "$GITHUB_OUTPUT"
+        path: reviewed-plan
+    - id: reviewed
+      shell: pwsh
+      run: |
+        $plans = @(Get-ChildItem reviewed-plan -File -Filter '*.json')
+        if ($plans.Count -ne 1) { throw 'Expected one reviewed plan' }
+        "path=$($plans[0].FullName)" >> $env:GITHUB_OUTPUT
     - id: apply
       uses: aalsanie/distroplane@v0.9.0-rc.1
+      env:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       with:
         command: apply
-        version: 0.9.0-rc.1
-        config: distroplane.json
-        plan: ${{ steps.plan-file.outputs.path }}
-        journal: .distroplane/run.journal
+        plan: ${{ steps.reviewed.outputs.path }}
+        journal: run.journal
+        credential-mappings: npm-publish=NPM_TOKEN
         upload-evidence: 'true'
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: always()
+      with:
+        name: distribution-journal
+        path: run.journal
+        if-no-files-found: warn
 ```
 
-If `steps.apply.outputs.pending == 'true'`, persist the journal and exact release artifacts and invoke `command: reconcile` in a later workflow run. The smoke workflow exercises a pending apply followed by reconciliation and evidence export.
+Keep both jobs on the same OS/architecture and workspace path. Plans contain absolute artifact paths and provider digests; npm also embeds the tarball path in its planned action. Restore the same bytes at the same paths and install the same provider release. Rebuilding an artifact or regenerating the plan after approval changes what was reviewed.
 
-## Plan and artifact handoff
+For custom providers, preserve their exact binaries too. Built-in plan upload includes only the plan. Evidence upload includes only the evidence bundle: neither feature preserves the journal or release artifacts.
 
-When planning and applying in separate jobs, set `upload-plan: 'true'` and restore that Action-produced plan artifact together with the exact release artifacts before apply. The repository smoke workflow exercises this handoff on Linux, macOS, and Windows, then separately downloads the evidence artifact produced by the Action.
+## Waiting and reconciliation
 
-A provider-specific publish command should not appear in workflow YAML. Provider configuration belongs in Distroplane configuration; provider implementations remain isolated executables speaking the protocol.
+A CLI exit code of `4` makes the Action succeed with `pending=true`. This means work remains; it is not confirmation that everything was published. Other nonzero codes fail the Action after optional evidence export/upload. For mixed outcomes, inspect `result-json` as well as `pending`.
+
+Save the plan, inputs, and journal before the runner disappears. Restore them in a later job or workflow, then run:
+
+```yaml
+- id: reconcile
+  uses: aalsanie/distroplane@v0.9.0-rc.1
+  env:
+    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+  with:
+    command: reconcile
+    plan: reviewed-plan/PLAN.json # the original saved plan file
+    journal: run.journal
+    credential-mappings: npm-publish=NPM_TOKEN
+    upload-evidence: 'true'
+    evidence-artifact-name: reconciled-evidence
+```
+
+Use the credentials required by your actual target. Reconciliation observes pending/ambiguous work; it does not publish new content or periodically recheck completed targets. Schedule later runs yourself. See the [CLI recovery guidance](cli.md#preserve-and-recover-a-run) before retrying an interrupted run.
+
+## OIDC
+
+`oidc: required` checks that GitHub supplied both `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`. It fails before invoking the CLI if either is missing. Grant `permissions: id-token: write` to that job.
+
+This is a permission-environment check, not authentication. The Action does not request a JWT, choose an audience, or forward GitHub's request credentials to providers. For npm trusted publishing, your workflow must obtain an ID token and map it to the provider's configured reference. The [npm guide](../providers/npm/README.md#trusted-publishing) shows that step. `oidc: required` by itself does not enable trusted publishing.
+
+## Inputs and outputs
+
+| Input | Default / purpose |
+| --- | --- |
+| `command` | Required: `plan`, `apply`, or `reconcile` |
+| `config`, `state-dir` | `distroplane.json`, `.distroplane` |
+| `plan`, `journal` | Plan required for execution; journal defaults to `.distroplane/run.journal` |
+| `concurrency` | `0` selects the executor default of four |
+| `run-id` | Optional ID for apply; must match an existing journal |
+| `upload-plan`, `plan-artifact-name` | `false`, `distroplane-plan` |
+| `evidence-path` | Optional output path after apply/reconcile |
+| `upload-evidence`, `evidence-artifact-name` | `false`, `distroplane-evidence`; enabling upload also exports evidence |
+| `attestations` | Newline-separated `NAME=URI` links attached to evidence |
+| `repository` | `aalsanie/distroplane`; release asset source |
+| `install-providers` | `true`; disable only when supplying providers yourself |
+| `binary` | Local CLI path; skips all release installation and checksum checks |
+
+Outputs include `plan-id`, `plan-path`, `run-id`, `completed`, `pending`, `exit-code`, `result-json`, `oidc-available`, and evidence path/digest. Upload steps also expose `plan-artifact-*` and `evidence-artifact-*` IDs, URLs, and digests. A run can be complete with failures: check `exit-code` and per-target state.
+
+Use distinct artifact names for multiple uploads in one workflow run. `attestations` only adds references; the Action does not create or verify attestations.

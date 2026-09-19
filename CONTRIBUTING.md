@@ -1,6 +1,6 @@
 # Contributing to Distroplane
 
-Distroplane is developed with a small-core, protocol-first architecture. Contributions must preserve the provider-neutral boundaries and dependency discipline.
+Distroplane keeps package-specific behavior in separate provider executables. Keep the core provider-neutral and prefer the Go standard library. See [architecture and protocol](docs/architecture.md) for the current boundaries.
 
 ## Development requirements
 
@@ -21,6 +21,8 @@ Run the repository checks before opening a pull request:
 go vet ./...
 go test -race ./...
 ```
+
+See [building from source](docs/release-verification.md#build-from-source) for CLI/provider binaries. CI also exercises the Action, native OS builds, parser fuzzing, and benchmarks; the workflow files contain the exact commands.
 
 ## Developer Certificate of Origin
 
