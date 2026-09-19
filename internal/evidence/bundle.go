@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,6 +28,7 @@ var (
 
 type Bundle struct {
 	SchemaVersion   string                 `json:"schemaVersion"`
+	ObservedAt      time.Time              `json:"observedAt"`
 	PlanID          string                 `json:"planId"`
 	ProtocolVersion string                 `json:"protocolVersion"`
 	Run             RunRecord              `json:"run"`
@@ -37,9 +39,12 @@ type Bundle struct {
 }
 
 type RunRecord struct {
-	ID        string `json:"id"`
-	Completed bool   `json:"completed"`
-	Cancelled bool   `json:"cancelled"`
+	ID          string     `json:"id"`
+	StartedAt   time.Time  `json:"startedAt"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	CancelledAt *time.Time `json:"cancelledAt,omitempty"`
+	Completed   bool       `json:"completed"`
+	Cancelled   bool       `json:"cancelled"`
 }
 
 type ReleaseRecord struct {
@@ -70,6 +75,7 @@ type ProviderRecord struct {
 
 type TargetRecord struct {
 	ID                 string            `json:"id"`
+	ObservedAt         time.Time         `json:"observedAt"`
 	Provider           ProviderRecord    `json:"provider"`
 	State              string            `json:"state"`
 	ReconcileRequired  bool              `json:"reconcileRequired,omitempty"`
@@ -80,6 +86,7 @@ type TargetRecord struct {
 
 type OperationRecord struct {
 	ID                string          `json:"id"`
+	ObservedAt        time.Time       `json:"observedAt"`
 	Kind              string          `json:"kind"`
 	State             string          `json:"state"`
 	Attempt           uint32          `json:"attempt,omitempty"`
@@ -117,6 +124,10 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 	state, err := journal.Reduce(plan, read.Events)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("reduce journal: %w", err)
+	}
+	observations := deriveObservations(read.Events)
+	if observations.startedAt.IsZero() || observations.observedAt.IsZero() {
+		return Bundle{}, fmt.Errorf("journal observation metadata is incomplete")
 	}
 	normalizedAttestations, err := normalizeAttestations(attestations)
 	if err != nil {
@@ -162,8 +173,15 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 				set[reference] = struct{}{}
 			}
 		}
+		observedAt := observations.operations[operationState.ID]
+		if operationState.State == domain.StateCancelled && observations.cancelledAt != nil && observations.cancelledAt.After(observedAt) {
+			observedAt = *observations.cancelledAt
+		}
+		if observedAt.IsZero() {
+			observedAt = observations.startedAt
+		}
 		operationsByTarget[operationState.TargetID] = append(operationsByTarget[operationState.TargetID], OperationRecord{
-			ID: string(operationState.ID), Kind: operation.Kind(), State: string(operationState.State), Attempt: operationState.Attempt,
+			ID: string(operationState.ID), ObservedAt: observedAt, Kind: operation.Kind(), State: string(operationState.State), Attempt: operationState.Attempt,
 			ReconcileRequired: operationState.ReconcileRequired, Ambiguous: operationState.Ambiguous, Retryable: operationState.Retryable,
 			ProviderState: operationState.ProviderState, Evidence: normalizedEvidence, ErrorCode: operationState.ErrorCode,
 		})
@@ -190,9 +208,16 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 		if operations == nil {
 			operations = []OperationRecord{}
 		}
+		observedAt := observations.startedAt
+		for _, operation := range operations {
+			if operation.ObservedAt.After(observedAt) {
+				observedAt = operation.ObservedAt
+			}
+		}
 		targets = append(targets, TargetRecord{
-			ID:       string(targetState.ID),
-			Provider: ProviderRecord{Name: string(provider.Name()), Version: string(provider.Version())},
+			ID:         string(targetState.ID),
+			ObservedAt: observedAt,
+			Provider:   ProviderRecord{Name: string(provider.Name()), Version: string(provider.Version())},
 			State:    string(targetState.State), ReconcileRequired: targetState.ReconcileRequired, Ambiguous: targetState.Ambiguous,
 			ExternalReferences: references, Operations: operations,
 		})
@@ -202,9 +227,14 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 	digest := sha256.Sum256(journalBytes[:read.ValidBytes])
 	return Bundle{
 		SchemaVersion:   SchemaVersion,
+		ObservedAt:      observations.observedAt,
 		PlanID:          string(plan.ID()),
 		ProtocolVersion: plan.ProtocolVersion(),
-		Run:             RunRecord{ID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled},
+		Run: RunRecord{
+			ID: string(state.RunID), StartedAt: observations.startedAt,
+			CompletedAt: observations.completedAt, CancelledAt: observations.cancelledAt,
+			Completed: state.Completed, Cancelled: state.Cancelled,
+		},
 		Release:         ReleaseRecord{ID: string(release.ID()), Artifacts: artifacts},
 		Journal: JournalRecord{
 			Reference: reference, Digest: "sha256:" + hex.EncodeToString(digest[:]), Bytes: read.ValidBytes,
@@ -213,6 +243,60 @@ func Build(plan domain.Plan, journalBytes []byte, reference string, attestations
 		Targets:      targets,
 		Attestations: normalizedAttestations,
 	}, nil
+}
+
+
+
+type observationMetadata struct {
+	observedAt  time.Time
+	startedAt   time.Time
+	completedAt *time.Time
+	cancelledAt *time.Time
+	operations  map[domain.OperationID]time.Time
+}
+
+func deriveObservations(events []journal.Event) observationMetadata {
+	result := observationMetadata{operations: make(map[domain.OperationID]time.Time)}
+	for _, event := range events {
+		result.observedAt = event.ObservedAt
+		switch event.Type {
+		case journal.EventRunStarted:
+			result.startedAt = event.ObservedAt
+		case journal.EventRunCompleted:
+			result.completedAt = timePointer(event.ObservedAt)
+		case journal.EventRunCancelled:
+			result.cancelledAt = timePointer(event.ObservedAt)
+		default:
+			if operationObservationEvent(event.Type) {
+				result.operations[event.OperationID] = event.ObservedAt
+			}
+		}
+	}
+	return result
+}
+
+func operationObservationEvent(eventType journal.EventType) bool {
+	switch eventType {
+	case journal.EventOperationReady,
+		journal.EventAttemptStarted,
+		journal.EventSideEffectDispatched,
+		journal.EventOperationWaitingExternal,
+		journal.EventOperationPublished,
+		journal.EventOperationRejected,
+		journal.EventOperationFailed,
+		journal.EventOperationResult,
+		journal.EventOperationCancelled,
+		journal.EventOutcomeAmbiguous,
+		journal.EventReconcileResult:
+		return true
+	default:
+		return false
+	}
+}
+
+func timePointer(value time.Time) *time.Time {
+	copy := value
+	return &copy
 }
 
 func Marshal(bundle Bundle) ([]byte, error) {
