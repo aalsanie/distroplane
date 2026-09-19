@@ -7,6 +7,90 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 )
 
+
+func TestReduceRequiredLifecycleEvents(t *testing.T) {
+	plan := testPlan(t)
+	events := []Event{
+		runStarted(1),
+		event(2, EventOperationReady, "op-a", "target-a", Payload{}),
+		event(3, EventLeaseAcquired, "op-a", "target-a", Payload{}),
+		attemptStarted(4, "op-a", "target-a", 1),
+		event(5, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}),
+		dispatched(6, "op-a", "target-a", 1),
+		event(7, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1}),
+		event(8, EventOperationPublished, "op-a", "target-a", Payload{Attempt: 1, ProviderState: "published", Evidence: evidence(`{"ref":"a"}`)}),
+		event(9, EventOperationReady, "op-b", "target-a", Payload{}),
+		event(10, EventLeaseAcquired, "op-b", "target-a", Payload{}),
+		event(11, EventLeaseExpired, "op-b", "target-a", Payload{}),
+		event(12, EventOperationCancelled, "op-b", "target-a", Payload{ErrorCode: "DEPENDENCY_TERMINAL"}),
+		event(13, EventOperationReady, "op-c", "target-b", Payload{}),
+		event(14, EventLeaseAcquired, "op-c", "target-b", Payload{}),
+		attemptStarted(15, "op-c", "target-b", 1),
+		event(16, EventProviderProcessStarted, "op-c", "target-b", Payload{Attempt: 1}),
+		dispatched(17, "op-c", "target-b", 1),
+		event(18, EventProviderResponseReceived, "op-c", "target-b", Payload{Attempt: 1}),
+		event(19, EventOperationWaitingExternal, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "review", Evidence: evidence(`{"ref":"c"}`)}),
+	}
+	state, err := Reduce(plan, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opA, _ := state.Operation(opID("op-a"))
+	if opA.State != domain.StatePublished || opA.LeaseActive || opA.ReconcileRequired {
+		t.Fatalf("op-a=%+v", opA)
+	}
+	opB, _ := state.Operation(opID("op-b"))
+	if opB.State != domain.StateCancelled || opB.LeaseActive {
+		t.Fatalf("op-b=%+v", opB)
+	}
+	opC, _ := state.Operation(opID("op-c"))
+	if opC.State != domain.StateWaitingExternal || opC.LeaseActive || !opC.ReconcileRequired {
+		t.Fatalf("op-c=%+v", opC)
+	}
+}
+
+func TestReduceExplicitOperationResults(t *testing.T) {
+	plan := testPlan(t)
+	cases := []struct {
+		name      string
+		eventType EventType
+		want      domain.NormalizedState
+		dispatch  bool
+		retryable bool
+	}{
+		{"waiting", EventOperationWaitingExternal, domain.StateWaitingExternal, true, true},
+		{"published", EventOperationPublished, domain.StatePublished, true, false},
+		{"rejected", EventOperationRejected, domain.StateRejected, true, false},
+		{"failed", EventOperationFailed, domain.StateFailed, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := []Event{
+				runStarted(1),
+				attemptStarted(2, "op-c", "target-b", 1),
+				event(3, EventProviderProcessStarted, "op-c", "target-b", Payload{Attempt: 1}),
+			}
+			seq := uint64(4)
+			if tc.dispatch {
+				events = append(events, dispatched(seq, "op-c", "target-b", 1))
+				seq++
+			}
+			events = append(events,
+				event(seq, EventProviderResponseReceived, "op-c", "target-b", Payload{Attempt: 1}),
+				event(seq+1, tc.eventType, "op-c", "target-b", Payload{Attempt: 1, Retryable: tc.retryable}),
+			)
+			state, err := Reduce(plan, events)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, _ := state.Operation(opID("op-c"))
+			if op.State != tc.want || op.Retryable != tc.retryable || op.LeaseActive {
+				t.Fatalf("op=%+v", op)
+			}
+		})
+	}
+}
+
 func TestReduceLifecycleAndTargetAggregation(t *testing.T) {
 	plan := testPlan(t)
 	events := []Event{
@@ -226,6 +310,12 @@ func TestReduceRejectsInvalidTransitions(t *testing.T) {
 	cases := map[string][]Event{
 		"event before run":               {attemptStarted(1, "op-a", "target-a", 1)},
 		"duplicate run":                  {runStarted(1), runStarted(2)},
+		"duplicate ready":                {runStarted(1), event(2, EventOperationReady, "op-a", "target-a", Payload{}), event(3, EventOperationReady, "op-a", "target-a", Payload{})},
+		"lease before ready":             {runStarted(1), event(2, EventLeaseAcquired, "op-b", "target-a", Payload{})},
+		"duplicate lease":                {runStarted(1), event(2, EventLeaseAcquired, "op-a", "target-a", Payload{}), event(3, EventLeaseAcquired, "op-a", "target-a", Payload{})},
+		"lease expiry without acquire":   {runStarted(1), event(2, EventLeaseExpired, "op-a", "target-a", Payload{})},
+		"provider start without attempt": {runStarted(1), event(2, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
+		"provider response without start": {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1})},
 		"duplicate sequence":             {runStarted(1), attemptStarted(1, "op-a", "target-a", 1)},
 		"sequence gap":                   {runStarted(1), attemptStarted(3, "op-a", "target-a", 1)},
 		"multiple runs":                  {runStarted(1), otherRun},
@@ -235,8 +325,11 @@ func TestReduceRejectsInvalidTransitions(t *testing.T) {
 		"attempt gap":                    {runStarted(1), attemptStarted(2, "op-a", "target-a", 2)},
 		"dispatch non side effect":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), dispatched(6, "op-b", "target-a", 1)},
 		"dispatch without attempt":       {runStarted(1), dispatched(2, "op-a", "target-a", 1)},
+		"duplicate provider start":       {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1})},
+		"duplicate provider response":    {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 1}), event(4, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1}), event(5, EventProviderResponseReceived, "op-a", "target-a", Payload{Attempt: 1})},
 		"duplicate dispatch":             {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), dispatched(4, "op-a", "target-a", 1)},
 		"side result before dispatch":    {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), result(3, "op-a", "target-a", 1, domain.StatePublished)},
+		"explicit result before dispatch": {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), event(3, EventOperationPublished, "op-a", "target-a", Payload{Attempt: 1})},
 		"result wrong attempt":           {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 2, domain.StatePublished)},
 		"retry while ambiguous":          {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), attemptStarted(4, "op-a", "target-a", 2)},
 		"ambiguous non side effect":      {runStarted(1), attemptStarted(2, "op-a", "target-a", 1), dispatched(3, "op-a", "target-a", 1), result(4, "op-a", "target-a", 1, domain.StatePublished), attemptStarted(5, "op-b", "target-a", 1), event(6, EventOutcomeAmbiguous, "op-b", "target-a", Payload{Attempt: 1})},
