@@ -171,7 +171,6 @@ func TestValidateTextBoundaries(t *testing.T) {
 	}
 }
 
-
 func TestLeasePayloadValidationBranches(t *testing.T) {
 	now := time.Unix(10, 0).UTC()
 	cases := []struct {
