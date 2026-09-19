@@ -223,7 +223,6 @@ func TestAttemptReasonAndResultCategoryValidation(t *testing.T) {
 	}
 }
 
-
 func TestCloneEventCopiesLeaseMetadata(t *testing.T) {
 	original := event(1, EventLeaseAcquired, "op-a", "target-a", Payload{
 		Lease: leasePayload("lease-a", "worker-a", 1, 10),
