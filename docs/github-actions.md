@@ -65,7 +65,7 @@ GitHub Actions is optional. The same `plan`, `apply`, `status`, and `reconcile` 
 
 ## Evidence artifacts
 
-Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile`. With upload enabled, the Action exports the P13 evidence bundle and uploads it with the pinned GitHub artifact action.
+Set either `evidence-path` or `upload-evidence: 'true'` on `apply` or `reconcile`. With upload enabled, the Action exports the normalized evidence bundle and uploads it with the pinned GitHub artifact action.
 
 ```yaml
 - id: apply
@@ -180,6 +180,15 @@ The Action smoke workflow includes both the denied case (no `id-token: write`) a
 
 
 ## Release-candidate, approval, and asynchronous reconciliation
+
+A release-candidate workflow can trigger on candidate tags, for example:
+
+```yaml
+on:
+  push:
+    tags:
+      - 'v*-rc*'
+```
 
 A production workflow can keep build, approval, execution, and reconciliation as separate boundaries without putting provider publication commands in YAML:
 
