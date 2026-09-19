@@ -723,7 +723,6 @@ func TestMemoryLeaseAdditionalBranches(t *testing.T) {
 	}
 }
 
-
 func TestRecoveryAndQuiescenceHelperBranches(t *testing.T) {
 	t.Run("ready journaling", func(t *testing.T) {
 		plan := testPlan(t, []operationSpec{{id: "op-a"}})
