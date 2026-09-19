@@ -28,10 +28,15 @@ func (*Driver) ReportsExecutionBoundaries() bool {
 	return true
 }
 
+type providerBinding struct {
+	executable string
+	digest     domain.Digest
+}
+
 type Driver struct {
 	client   *Client
 	resolver credentials.Resolver
-	bindings map[domain.ProviderRef]string
+	bindings map[domain.ProviderRef]providerBinding
 }
 
 type preparedInvocationKey struct{}
@@ -63,7 +68,7 @@ func newDriver(client *Client, resolver credentials.Resolver, bindings []Binding
 	if client == nil {
 		return nil, fmt.Errorf("provider client must not be nil")
 	}
-	resolved := make(map[domain.ProviderRef]string, len(bindings))
+	resolved := make(map[domain.ProviderRef]providerBinding, len(bindings))
 	for _, binding := range bindings {
 		if !binding.Provider.Valid() {
 			return nil, fmt.Errorf("provider binding is invalid")
@@ -84,7 +89,7 @@ func newDriver(client *Client, resolver credentials.Resolver, bindings []Binding
 		if _, exists := resolved[binding.Provider]; exists {
 			return nil, fmt.Errorf("duplicate provider binding %q@%q", binding.Provider.Name(), binding.Provider.Version())
 		}
-		resolved[binding.Provider] = executable
+		resolved[binding.Provider] = providerBinding{executable: executable, digest: binding.Digest}
 	}
 	return &Driver{client: client, resolver: resolver, bindings: resolved}, nil
 }
@@ -97,11 +102,14 @@ func (d *Driver) Prepare(ctx context.Context, request executor.Request, operatio
 	if err != nil {
 		return executor.Preparation{}, err
 	}
-	executable, err := d.resolve(request.Operation.Provider())
+	binding, err := d.resolve(request.Operation.Provider())
 	if err != nil {
 		return executor.Preparation{}, err
 	}
-	if err := d.verify(ctx, executable, request.Operation.Provider(), capability); err != nil {
+	if err := verifyProviderExecutable(binding, request.Operation.Provider()); err != nil {
+		return executor.Preparation{}, err
+	}
+	if err := d.verify(ctx, binding.executable, request.Operation.Provider(), capability); err != nil {
 		return executor.Preparation{}, err
 	}
 
@@ -190,11 +198,14 @@ func (d *Driver) Apply(ctx context.Context, request executor.Request) (executor.
 	if err != nil {
 		return executor.Result{}, err
 	}
-	executable, err := d.resolve(request.Operation.Provider())
+	binding, err := d.resolve(request.Operation.Provider())
 	if err != nil {
 		return executor.Result{}, err
 	}
-	response, err := d.client.applyWithOptions(ctx, executable, protocol.ApplyRequest{
+	if err := verifyProviderExecutable(binding, request.Operation.Provider()); err != nil {
+		return executor.Result{}, err
+	}
+	response, err := d.client.applyWithOptions(ctx, binding.executable, protocol.ApplyRequest{
 		PlanID:          string(request.PlanID),
 		TargetID:        string(request.Operation.TargetID()),
 		OperationID:     string(request.Operation.ID()),
@@ -220,8 +231,11 @@ func (d *Driver) Reconcile(ctx context.Context, request executor.Request) (execu
 	if err != nil {
 		return executor.Result{}, err
 	}
-	executable, err := d.resolve(request.Operation.Provider())
+	binding, err := d.resolve(request.Operation.Provider())
 	if err != nil {
+		return executor.Result{}, err
+	}
+	if err := verifyProviderExecutable(binding, request.Operation.Provider()); err != nil {
 		return executor.Result{}, err
 	}
 	protocolRequest := protocol.ReconcileRequest{
@@ -233,7 +247,7 @@ func (d *Driver) Reconcile(ctx context.Context, request executor.Request) (execu
 		ProviderPayload: append(json.RawMessage(nil), request.Operation.ProviderPayload().Bytes()...),
 		Previous:        mapPrevious(request.Previous),
 	}
-	response, err := d.client.reconcileWithOptions(ctx, executable, protocolRequest, options)
+	response, err := d.client.reconcileWithOptions(ctx, binding.executable, protocolRequest, options)
 	if err != nil {
 		return executor.Result{}, mapError(err)
 	}
@@ -372,12 +386,29 @@ func (d *Driver) validateRequest(ctx context.Context, request executor.Request) 
 	return nil
 }
 
-func (d *Driver) resolve(provider domain.ProviderRef) (string, error) {
-	executable, ok := d.bindings[provider]
+func (d *Driver) resolve(provider domain.ProviderRef) (providerBinding, error) {
+	binding, ok := d.bindings[provider]
 	if !ok {
-		return "", fmt.Errorf("provider %q@%q is not bound", provider.Name(), provider.Version())
+		return providerBinding{}, fmt.Errorf("provider %q@%q is not bound", provider.Name(), provider.Version())
 	}
-	return executable, nil
+	return binding, nil
+}
+
+func verifyProviderExecutable(binding providerBinding, provider domain.ProviderRef) error {
+	if !binding.digest.Valid() {
+		return nil
+	}
+	actual, _, err := (planner.FileHasher{}).Hash(binding.executable)
+	if err != nil {
+		return fmt.Errorf("hash provider %q@%q executable: %w", provider.Name(), provider.Version(), err)
+	}
+	if actual != binding.digest {
+		return &executor.DriverError{
+			Code:    "PROVIDER_EXECUTABLE_CHANGED",
+			Message: fmt.Sprintf("provider %q@%q executable digest does not match plan", provider.Name(), provider.Version()),
+		}
+	}
+	return nil
 }
 
 func (d *Driver) verify(ctx context.Context, executable string, provider domain.ProviderRef, capability protocol.Capability) error {
