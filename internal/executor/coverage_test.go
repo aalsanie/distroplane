@@ -578,3 +578,148 @@ func TestLeaseExpirySchedulingHelpers(t *testing.T) {
 		t.Fatalf("unexpected expiry=%v ok=%v", expiry, ok)
 	}
 }
+
+
+func TestExecutionObserverWriterFailures(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	operation := plan.Operations()[0]
+	writer := openWriter(t, runID())
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	start := &journalExecutionObserver{runID: runID(), writer: writer, operation: operation, attempt: 1}
+	if err := start.ProviderProcessStarted(); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("start err=%v", err)
+	}
+	dispatch := &journalExecutionObserver{runID: runID(), writer: writer, operation: operation, attempt: 1, started: true}
+	if err := dispatch.SideEffectDispatched(); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("dispatch err=%v", err)
+	}
+	response := &journalExecutionObserver{runID: runID(), writer: writer, operation: operation, attempt: 1, started: true}
+	if err := response.ProviderResponseReceived(); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("response err=%v", err)
+	}
+}
+
+func TestResultEntryAndCategoryBranches(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	operation := plan.Operations()[0]
+	cases := []struct {
+		state     domain.NormalizedState
+		retryable bool
+		eventType journal.EventType
+		category  string
+	}{
+		{domain.StatePublished, false, journal.EventOperationPublished, journal.ResultCategoryPublished},
+		{domain.StateWaitingExternal, false, journal.EventOperationWaitingExternal, journal.ResultCategoryWaitingExternal},
+		{domain.StateRejected, false, journal.EventOperationRejected, journal.ResultCategoryRejected},
+		{domain.StateFailed, true, journal.EventOperationFailed, journal.ResultCategoryFailedRetryable},
+		{domain.StateFailed, false, journal.EventOperationFailed, journal.ResultCategoryFailedPermanent},
+		{domain.StateCancelled, false, journal.EventOperationResult, journal.ResultCategoryCancelled},
+	}
+	for _, tc := range cases {
+		entry := resultEntry(runID(), operation, 1, tc.state, "provider", json.RawMessage(`{"ok":true}`), "", tc.retryable)
+		if entry.Type != tc.eventType || entry.Payload.ResultCategory != tc.category {
+			t.Fatalf("state=%s entry=%+v", tc.state, entry)
+		}
+		if tc.eventType != journal.EventOperationResult && entry.Payload.State != "" {
+			t.Fatalf("state=%s explicit event retained state=%s", tc.state, entry.Payload.State)
+		}
+	}
+	if got := resultCategory(domain.StateRunning, false); got != "" {
+		t.Fatalf("unexpected result category=%q", got)
+	}
+
+	reconcile := reconcileResultEntry(runID(), operation, 1, domain.StatePublished, "published", json.RawMessage(`{"ok":true}`), "", false)
+	if reconcile.Type != journal.EventReconcileResult || reconcile.Payload.ResultCategory != journal.ResultCategoryPublished {
+		t.Fatalf("reconcile=%+v", reconcile)
+	}
+	ambiguous := ambiguousEntry(runID(), operation, 1, "UNKNOWN")
+	if ambiguous.Type != journal.EventOutcomeAmbiguous || ambiguous.Payload.ResultCategory != journal.ResultCategoryAmbiguous {
+		t.Fatalf("ambiguous=%+v", ambiguous)
+	}
+}
+
+func TestOperationContextBranches(t *testing.T) {
+	ctx, cancel := operationContext(context.Background(), time.Millisecond)
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("timeout context has no deadline")
+	}
+	cancel()
+
+	ctx, cancel = operationContext(context.Background(), 0)
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("zero-timeout context unexpectedly has a deadline")
+	}
+	cancel()
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("context err=%v", ctx.Err())
+	}
+}
+
+func TestRenewLeaseErrorAndJournalFailure(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a"}})
+	operation := plan.Operations()[0]
+	now := time.Now().UTC()
+	state := LeaseState{
+		ID: "lease-a", Owner: "worker-a", OperationID: operation.ID(),
+		AcquiredAt: now, ExpiresAt: now.Add(20 * time.Millisecond),
+	}
+
+	want := errors.New("renew failed")
+	failing := &coverageLease{state: state, renewErr: want}
+	cancelCalled := false
+	if err := renewLease(context.Background(), func() { cancelCalled = true }, runID(), openWriter(t, runID()), operation, failing); !errors.Is(err, want) {
+		t.Fatalf("renew err=%v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("renewal failure did not cancel task")
+	}
+
+	writer := openWriter(t, runID())
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	renewed := state
+	renewed.ExpiresAt = now.Add(time.Second)
+	journalFail := &coverageLease{state: state, renewState: renewed}
+	cancelCalled = false
+	if err := renewLease(context.Background(), func() { cancelCalled = true }, runID(), writer, operation, journalFail); !errors.Is(err, journal.ErrWriterClosed) {
+		t.Fatalf("journal renewal err=%v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("journal renewal failure did not cancel task")
+	}
+}
+
+func TestMemoryLeaseAdditionalBranches(t *testing.T) {
+	if id, err := randomLeaseID(); err != nil || len(id) != 32 {
+		t.Fatalf("id=%q err=%v", id, err)
+	}
+
+	zeroClock := newMemoryLeases("worker-a", time.Second, func() time.Time { return time.Time{} }, func() (string, error) {
+		return "lease-a", nil
+	})
+	if _, err := zeroClock.Acquire(context.Background(), LeaseRequest{Key: "key", OperationID: "op-a"}); err == nil {
+		t.Fatal("zero lease clock accepted")
+	}
+
+	now := time.Now().UTC()
+	leases := newMemoryLeases("worker-a", time.Second, func() time.Time { return now }, func() (string, error) {
+		return "lease-a", nil
+	})
+	lease, err := leases.Acquire(context.Background(), LeaseRequest{Key: "key", OperationID: "op-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatalf("second release err=%v", err)
+	}
+	if _, err := lease.Renew(context.Background()); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("renew after release err=%v", err)
+	}
+}
