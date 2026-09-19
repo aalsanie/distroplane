@@ -1,29 +1,28 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   actions: read
   contents: write
 
 concurrency:
-  group: release-${{ github.event.workflow_run.head_branch }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish release
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout tested revision
+      - name: Checkout tagged revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.ref }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -33,85 +32,61 @@ jobs:
           go-version: '1.27.1'
           cache: false
 
-      - name: Resolve release version
+      - name: Validate release identity
         id: version
         shell: bash
         run: |
           set -euo pipefail
           version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
             echo "invalid VERSION: $version" >&2
             exit 1
           fi
-          previous="$(git show HEAD^:VERSION 2>/dev/null | tr -d '\r\n' || true)"
-          publish=true
-          if [[ "$previous" == "$version" ]]; then
-            publish=false
+          if [[ "${GITHUB_REF_NAME}" != "$tag" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match VERSION $version" >&2
+            exit 1
           fi
+          commit="$(git rev-parse HEAD)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
-      - name: Require Action smoke
-        if: ${{ steps.version.outputs.publish == 'true' }}
+      - name: Require tested main revision
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ steps.version.outputs.commit }}
         run: |
           set -euo pipefail
-          for attempt in {1..60}; do
-            response="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/action-smoke.yml/runs?event=push&head_sha=$SHA&per_page=1")"
-            status="$(jq -r '.workflow_runs[0].status // "missing"' <<<"$response")"
-            conclusion="$(jq -r '.workflow_runs[0].conclusion // ""' <<<"$response")"
-            if [[ "$status" == "completed" ]]; then
-              if [[ "$conclusion" != "success" ]]; then
-                echo "GitHub Action smoke concluded $conclusion" >&2
-                exit 1
-              fi
-              exit 0
+          require_success() {
+            workflow="$1"
+            label="$2"
+            response="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=push&branch=main&head_sha=$SHA&per_page=10")"
+            count="$(jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length' <<<"$response")"
+            if [[ "$count" -lt 1 ]]; then
+              echo "$label has no successful main run for $SHA" >&2
+              exit 1
             fi
-            sleep 10
-          done
-          echo "GitHub Action smoke did not complete successfully" >&2
-          exit 1
+          }
+          require_success "ci.yml" "CI"
+          require_success "action-smoke.yml" "GitHub Action smoke"
 
       - name: Build release assets
-        if: ${{ steps.version.outputs.publish == 'true' }}
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          COMMIT: ${{ github.event.workflow_run.head_sha }}
+          COMMIT: ${{ steps.version.outputs.commit }}
         run: |
           set -euo pipefail
           export COMMIT="${COMMIT:0:12}"
-          export BUILD_DATE="$(git show -s --format=%cI "${{ github.event.workflow_run.head_sha }}")"
+          export BUILD_DATE="$(git show -s --format=%cI HEAD)"
           ./scripts/build.sh
           (cd dist && sha256sum -c SHA256SUMS)
           test -f dist/RELEASE-METADATA.json
           "./dist/distroplane_${VERSION}_linux_amd64" version --json | grep -F "\"version\":\"${VERSION}\"" >/dev/null
 
-      - name: Create tag
-        if: ${{ steps.version.outputs.publish == 'true' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
-            if [[ "$existing" != "$SHA" ]]; then
-              echo "tag $TAG already points to $existing" >&2
-              exit 1
-            fi
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
-          fi
-
       - name: Publish GitHub release
-        if: ${{ steps.version.outputs.publish == 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,8 +95,8 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG already exists"
-            exit 0
+            echo "release $TAG already exists" >&2
+            exit 1
           fi
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then
