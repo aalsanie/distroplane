@@ -13,6 +13,7 @@ type OperationState struct {
 	TargetID          domain.TargetID
 	State             domain.NormalizedState
 	Attempt           uint32
+	LeaseActive       bool
 	ReconcileRequired bool
 	Ambiguous         bool
 	Retryable         bool
@@ -67,10 +68,13 @@ func (d DerivedState) Target(id domain.TargetID) (TargetState, bool) {
 
 type mutableOperation struct {
 	OperationState
-	dependencies  []domain.OperationID
-	sideEffecting bool
-	dispatched    bool
-	reconciling   bool
+	dependencies      []domain.OperationID
+	sideEffecting     bool
+	readyJournaled    bool
+	dispatched        bool
+	reconciling       bool
+	providerStarted   bool
+	providerResponded bool
 }
 
 func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
@@ -117,7 +121,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 		if completed {
 			return DerivedState{}, fmt.Errorf("event %q follows terminal run event", event.Type)
 		}
-		if cancelled && event.Type != EventReconcileStarted && event.Type != EventCredentialResolved && event.Type != EventReconcileResult {
+		if cancelled && !allowedAfterRunCancellation(event.Type) {
 			return DerivedState{}, fmt.Errorf("event %q is not allowed after run cancellation", event.Type)
 		}
 		switch event.Type {
@@ -135,6 +139,39 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 		case EventRunCancelled:
 			cancelled = true
 			cancelRemaining(operations)
+		case EventOperationReady:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if operation.State != domain.StateReady {
+				return DerivedState{}, fmt.Errorf("operation %q is not ready", operation.ID)
+			}
+			if operation.readyJournaled {
+				return DerivedState{}, fmt.Errorf("operation %q readiness already recorded", operation.ID)
+			}
+			operation.readyJournaled = true
+		case EventLeaseAcquired:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if operation.LeaseActive {
+				return DerivedState{}, fmt.Errorf("operation %q lease already acquired", operation.ID)
+			}
+			if operation.State != domain.StateReady && !(operation.State == domain.StateFailed && operation.Retryable) && !operation.ReconcileRequired {
+				return DerivedState{}, fmt.Errorf("operation %q cannot acquire lease from state %q", operation.ID, operation.State)
+			}
+			operation.LeaseActive = true
+		case EventLeaseExpired:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if !operation.LeaseActive {
+				return DerivedState{}, fmt.Errorf("operation %q has no active lease", operation.ID)
+			}
+			operation.LeaseActive = false
 		case EventOperationCancelled:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -144,6 +181,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				return DerivedState{}, fmt.Errorf("operation %q cannot be cancelled from state %q", operation.ID, operation.State)
 			}
 			operation.State = domain.StateCancelled
+			operation.LeaseActive = false
 			operation.Retryable = false
 			operation.ErrorCode = event.Payload.ErrorCode
 			refreshReady(operations)
@@ -168,6 +206,8 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.Attempt = event.Payload.Attempt
 			operation.dispatched = false
 			operation.reconciling = false
+			operation.providerStarted = false
+			operation.providerResponded = false
 			operation.ReconcileRequired = false
 			operation.Ambiguous = false
 			operation.Retryable = false
@@ -188,6 +228,19 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if operation.State != domain.StateRunning || operation.dispatched {
 				return DerivedState{}, fmt.Errorf("operation %q cannot resolve credentials in state %q", operation.ID, operation.State)
 			}
+		case EventProviderProcessStarted:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if event.Payload.Attempt != operation.Attempt || (operation.State != domain.StateRunning && !operation.reconciling) {
+				return DerivedState{}, fmt.Errorf("operation %q has no matching provider attempt", operation.ID)
+			}
+			if operation.providerStarted {
+				return DerivedState{}, fmt.Errorf("operation %q provider process already started", operation.ID)
+			}
+			operation.providerStarted = true
+			operation.providerResponded = false
 		case EventSideEffectDispatched:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -205,6 +258,18 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.dispatched = true
 			operation.ReconcileRequired = true
 			operation.Ambiguous = true
+		case EventProviderResponseReceived:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if event.Payload.Attempt != operation.Attempt || !operation.providerStarted {
+				return DerivedState{}, fmt.Errorf("operation %q has no matching provider process", operation.ID)
+			}
+			if operation.providerResponded {
+				return DerivedState{}, fmt.Errorf("operation %q provider response already recorded", operation.ID)
+			}
+			operation.providerResponded = true
 		case EventOutcomeAmbiguous:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -217,6 +282,29 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.Ambiguous = true
 			operation.Retryable = false
 			operation.ErrorCode = event.Payload.ErrorCode
+		case EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected, EventOperationFailed:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			payload := event.Payload
+			payload.State, _ = explicitResultState(event.Type)
+			if operation.reconciling {
+				if !operation.ReconcileRequired || payload.Attempt != operation.Attempt {
+					return DerivedState{}, fmt.Errorf("operation %q has no matching reconciliation", operation.ID)
+				}
+				applyResult(operation, payload, true)
+				refreshReady(operations)
+				break
+			}
+			if operation.State != domain.StateRunning || payload.Attempt != operation.Attempt {
+				return DerivedState{}, fmt.Errorf("operation %q has no matching running attempt", operation.ID)
+			}
+			if operation.sideEffecting && !operation.dispatched && payload.State != domain.StateFailed {
+				return DerivedState{}, fmt.Errorf("operation %q result recorded before side-effect dispatch", operation.ID)
+			}
+			applyResult(operation, payload, false)
+			refreshReady(operations)
 		case EventOperationResult:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -242,6 +330,8 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				return DerivedState{}, fmt.Errorf("operation %q reconciliation already started", operation.ID)
 			}
 			operation.reconciling = true
+			operation.providerStarted = false
+			operation.providerResponded = false
 		case EventReconcileResult:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -281,14 +371,28 @@ func eventOperation(event Event, operations map[domain.OperationID]*mutableOpera
 func applyResult(operation *mutableOperation, payload Payload, preserveAmbiguous bool) {
 	wasAmbiguous := operation.Ambiguous
 	operation.State = payload.State
+	operation.LeaseActive = false
 	operation.ProviderState = payload.ProviderState
 	operation.Evidence = append(json.RawMessage(nil), payload.Evidence...)
 	operation.ErrorCode = payload.ErrorCode
 	operation.Retryable = payload.Retryable
 	operation.dispatched = false
 	operation.reconciling = false
+	operation.providerStarted = false
+	operation.providerResponded = false
 	operation.ReconcileRequired = payload.State == domain.StateWaitingExternal
 	operation.Ambiguous = preserveAmbiguous && wasAmbiguous && operation.ReconcileRequired
+}
+
+func allowedAfterRunCancellation(eventType EventType) bool {
+	switch eventType {
+	case EventLeaseAcquired, EventLeaseExpired, EventCredentialResolved, EventProviderProcessStarted,
+		EventProviderResponseReceived, EventOperationWaitingExternal, EventOperationPublished,
+		EventOperationRejected, EventOperationFailed, EventReconcileStarted, EventReconcileResult:
+		return true
+	default:
+		return false
+	}
 }
 
 func dependenciesPublished(operation *mutableOperation, operations map[domain.OperationID]*mutableOperation) bool {
@@ -331,6 +435,7 @@ func cancelRemaining(operations map[domain.OperationID]*mutableOperation) {
 		switch operation.State {
 		case domain.StatePlanned, domain.StateReady, domain.StateRunning, domain.StateFailed:
 			operation.State = domain.StateCancelled
+			operation.LeaseActive = false
 			operation.Retryable = false
 			operation.ErrorCode = "RUN_CANCELLED"
 		}

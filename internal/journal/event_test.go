@@ -18,8 +18,17 @@ func TestEntryValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"run started", Entry{RunID: runID(), Type: EventRunStarted}, false},
+		{"operation ready", Entry{RunID: runID(), Type: EventOperationReady, OperationID: validOp, TargetID: validTarget}, false},
+		{"lease acquired", Entry{RunID: runID(), Type: EventLeaseAcquired, OperationID: validOp, TargetID: validTarget}, false},
+		{"lease expired", Entry{RunID: runID(), Type: EventLeaseExpired, OperationID: validOp, TargetID: validTarget}, false},
 		{"attempt started", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, false},
+		{"provider process started", Entry{RunID: runID(), Type: EventProviderProcessStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, false},
 		{"dispatched", Entry{RunID: runID(), Type: EventSideEffectDispatched, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, false},
+		{"provider response received", Entry{RunID: runID(), Type: EventProviderResponseReceived, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, false},
+		{"waiting external", Entry{RunID: runID(), Type: EventOperationWaitingExternal, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ProviderState: "pending"}}, false},
+		{"published", Entry{RunID: runID(), Type: EventOperationPublished, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ProviderState: "published", Evidence: evidence(`{"ref":"x"}`)}}, false},
+		{"rejected", Entry{RunID: runID(), Type: EventOperationRejected, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ErrorCode: "REJECTED"}}, false},
+		{"failed", Entry{RunID: runID(), Type: EventOperationFailed, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ErrorCode: "TRANSIENT", Retryable: true}}, false},
 		{"ambiguous", Entry{RunID: runID(), Type: EventOutcomeAmbiguous, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ErrorCode: "AMBIGUOUS_OUTCOME"}}, false},
 		{"result", Entry{RunID: runID(), Type: EventOperationResult, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StatePublished, ProviderState: "published", Evidence: evidence(`{"ref":"x"}`)}}, false},
 		{"reconcile started", Entry{RunID: runID(), Type: EventReconcileStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, false},
@@ -30,6 +39,12 @@ func TestEntryValidation(t *testing.T) {
 		{"missing operation", Entry{RunID: runID(), Type: EventAttemptStarted, TargetID: validTarget, Payload: Payload{Attempt: 1}}, true},
 		{"missing target", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, Payload: Payload{Attempt: 1}}, true},
 		{"missing attempt", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget}, true},
+		{"ready payload", Entry{RunID: runID(), Type: EventOperationReady, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1}}, true},
+		{"provider response missing attempt", Entry{RunID: runID(), Type: EventProviderResponseReceived, OperationID: validOp, TargetID: validTarget}, true},
+		{"explicit result carries state", Entry{RunID: runID(), Type: EventOperationPublished, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StatePublished}}, true},
+		{"explicit result credential", Entry{RunID: runID(), Type: EventOperationFailed, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, CredentialRef: domain.CredentialRef("credential-a")}}, true},
+		{"explicit result missing attempt", Entry{RunID: runID(), Type: EventOperationFailed, OperationID: validOp, TargetID: validTarget}, true},
+		{"retryable published", Entry{RunID: runID(), Type: EventOperationPublished, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, Retryable: true}}, true},
 		{"unsupported attempt payload", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StateFailed}}, true},
 		{"error code on start", Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, ErrorCode: "X"}}, true},
 		{"invalid result state", Entry{RunID: runID(), Type: EventOperationResult, OperationID: validOp, TargetID: validTarget, Payload: Payload{Attempt: 1, State: domain.StateRunning}}, true},
@@ -44,6 +59,24 @@ func TestEntryValidation(t *testing.T) {
 				t.Fatalf("err=%v wantErr=%v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestExplicitResultStates(t *testing.T) {
+	cases := map[EventType]domain.NormalizedState{
+		EventOperationWaitingExternal: domain.StateWaitingExternal,
+		EventOperationPublished:       domain.StatePublished,
+		EventOperationRejected:        domain.StateRejected,
+		EventOperationFailed:          domain.StateFailed,
+	}
+	for eventType, want := range cases {
+		got, ok := explicitResultState(eventType)
+		if !ok || got != want {
+			t.Fatalf("event=%s state=%s ok=%v want=%s", eventType, got, ok, want)
+		}
+	}
+	if state, ok := explicitResultState(EventRunStarted); ok || state != "" {
+		t.Fatalf("unexpected explicit state=%s ok=%v", state, ok)
 	}
 }
 
