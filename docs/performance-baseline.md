@@ -1,6 +1,6 @@
 # Performance baseline
 
-This document records a reference performance snapshot for the 0.9.0 release-candidate line. It is not an SLA and does not define pass/fail latency targets. Future measurements should be compared on equivalent hardware and toolchains, with regressions investigated rather than hidden behind fixed thresholds.
+Reference measurements for the 0.9.0 release-candidate line. These are comparison points for equivalent hardware/toolchains, not pass/fail latency targets.
 
 ## Environment
 
@@ -27,12 +27,14 @@ Hosted-runner hardware can vary between runs, so these numbers are a measured re
 | Scheduler 1,000 operations | 746.924 µs/op | 1,570,184 B/op | 16 allocs/op |
 | Scheduler 10,000 operations | 7.764 ms/op | 22,320,600 B/op | 25 allocs/op |
 | Execute 1,000 operations resource sample | 32.087 s/op | peak heap 11,054,080 B; peak 67 goroutines; 190,034,248 B/op | 645,114 allocs/op |
-| Journal append | 10.814 µs/op | 1,890 B/op | 8 allocs/op |
+| Journal append, in-memory file stub | 10.814 µs/op | 1,890 B/op | 8 allocs/op |
 | Journal read 100,000 events | 234.818 ms/op | 89.24 MB/s; 287,926,362 B/op | 1,233,448 allocs/op |
 | Journal reduce 100,000 events | 10.511 ms/op | 3,984 B/op | 20 allocs/op |
 | Provider process startup | 1.397 ms/op | 111,580 B/op | 200 allocs/op |
 
 ## Interpretation
+
+The planning fixture uses a fake provider and hasher and returns no operations. It measures target normalization and plan construction, excluding real hashing, subprocesses, and operation-DAG construction. The journal append fixture uses no-op writes and syncs, so its number is CPU/allocation overhead, not durable disk throughput. The recorded numbers above are unchanged; these limits describe what their fixtures measure.
 
 Planning scales approximately with target count in this snapshot, and the 10,000-operation scheduler remains within a low-millisecond range on the recorded runner. Journal state reduction is inexpensive relative to decoding a 100,000-event journal; journal decoding is the dominant replay allocation cost in this measurement.
 

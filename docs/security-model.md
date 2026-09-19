@@ -1,49 +1,47 @@
 # Security model
 
-Distroplane coordinates release publication across external package and distribution systems. It deliberately keeps the core provider-neutral and runs providers as separate operating-system processes. This document describes the security boundary that model creates, the controls implemented by the repository, and the risks that remain.
+Distroplane trusts the invoking OS account, the local filesystem, the selected provider executables, and the configured publication destinations. Separate provider processes limit accidental credential exposure; they are not a filesystem or network sandbox.
 
-## Assets
+## Provider execution and credentials
 
-The security-sensitive assets are release artifacts, immutable plans, journal history, provider executables, provider credentials, evidence bundles, repository credentials used by Git-backed providers, and the external package or distribution accounts that providers can modify.
+Planning records each provider's reported name/version, capabilities, and executable SHA-256. Apply and reconcile require those digests and verify the selected executable before use. The host checks the required protocol and capability through `describe`, then rechecks the executable digest before dispatch. A malicious provider can still lie about its identity or results.
 
-## Trust boundaries
+Providers receive a limited environment and only the credentials requested by their planned target requirements. Ambient variables are not inherited wholesale, including unrelated provider secrets and GitHub's OIDC request credentials. External tools required by a provider remain part of the trusted local execution environment.
 
-The Distroplane core is trusted to validate configuration, bind artifacts and providers to immutable plan identity, sequence side effects, persist execution history, and redact credentials. Provider executables are separately versioned programs and are trusted only for the targets for which they are explicitly configured. External registries, package services, Git hosts, and review systems are remote authorities whose responses can fail, be delayed, or be compromised.
+Credentials are supplied by reference-to-environment mappings, resolved just before execution, and delivered under the environment names declared by the provider. Resolution events record reference metadata, not values. The host redacts exact resolved values from returned errors, diagnostics, provider state, and evidence. Credential buffers are cleared where practical; this is not a guarantee against memory inspection or copies held by the runtime.
 
-The local operating-system account and filesystem are part of the trusted computing base. Distroplane reduces exposure within that boundary, but it is not an operating-system sandbox.
+A provider given a credential can misuse it. It can also read files accessible to the same OS account. Redaction cannot prevent deliberate encoding/exfiltration or recognize every secret a user puts into opaque configuration. Keep tokens out of configuration, URLs, plan annotations, and attestation references. Use separate CI jobs/environments for distinct trust boundaries.
 
-## Threats and controls
+## Plans and artifacts
 
-| Threat | Control | Residual risk |
-| --- | --- | --- |
-| Provider executable replaced after planning | New plans include the SHA-256 digest of each provider executable in plan identity. Apply and reconcile verify the digest before provider use and recheck it before each invocation. | A same-user attacker that can replace an executable in the very small interval between the final digest check and OS process creation is inside the local host trust boundary. |
-| Malicious provider executable | Providers run out of process with a minimal environment. Only declared credential material is injected. Provider stdout/stderr are bounded and protocol validated. | A provider explicitly given a credential can misuse or exfiltrate that credential. Distroplane does not sandbox provider filesystem or network access. |
-| Compromised external registry or API | Side-effecting operations use stable idempotency keys where supported. Unknown post-dispatch outcomes become ambiguous and are reconciled before another publication attempt. Evidence records observed external state. | The external authority can lie about its own state or later mutate it. Evidence proves what Distroplane observed, not the integrity of a compromised remote service. |
-| Artifact substitution | Plans bind artifact SHA-256 and size. Apply verifies the artifact again before execution. Providers that consume local artifact bytes validate the planned digest and size again. | A hostile local account with write access can race filesystem changes; local host integrity remains required. |
-| Secret leakage | Credentials are resolved per declared requirement, unrelated ambient environment variables are not inherited by providers, secret material is redacted from provider errors/evidence, and in-memory material is cleared on release where practical. | Operating-system administrators, debuggers, crash tooling, or a provider intentionally given a credential can observe it. |
-| Shell or command injection | Provider processes and Git commands are started with argument arrays rather than shell command strings. Identifiers, paths, URLs, and environment entries are validated. | External tools such as Git remain part of the trusted local toolchain. |
-| Path traversal | Repository-relative provider paths are normalized and reject escapes. State files use caller-selected roots and deterministic internal names. | The configured state root itself is trusted input and can intentionally point anywhere the invoking account can write. |
-| Symlink substitution | Git-backed providers reject unsafe repository path traversal and symlink cases before modifying managed files. Artifact hashing requires a regular file. | General filesystem aliasing outside provider-managed repository paths is governed by local host permissions. |
-| Plan tampering | Plan identity is derived from semantic content, including artifact and provider digests. Loading recomputes identity and rejects mismatches or malformed content. | Anyone able to replace both the plan and the caller's intended configuration can change intent; deployment systems should preserve immutable plan artifacts. |
-| Journal tampering or corruption | Journal records are framed, checksummed, sequenced, append-only, fsynced, and replay-validated. Truncated final records recover only to the last durable frame; corruption inside the durable prefix is rejected. | Distroplane does not cryptographically sign local journals. Protect journal storage with normal CI/workstation access controls. |
-| Evidence tampering | Evidence is deterministically derived from the immutable plan and validated journal. Secret-bearing fields are rejected. | Exported evidence files are not signed by the core. Release systems can add external attestations or artifact signatures. |
-| Untrusted pull-request execution | Repository workflows use read-only contents permissions by default, disable persisted checkout credentials, and grant OIDC/write permissions only to jobs that need them. | Maintainers must continue reviewing workflow changes before merging and must not expose production secrets to untrusted pull-request code. |
+Plan loading recomputes semantic identity and rejects a mismatched plan ID. Artifact SHA-256 and size bind local release bytes to that intent; apply rechecks them before execution. npm also verifies the tarball inside the provider. Providers that publish download URLs use the local artifact hash as metadata; the core does not download those URLs to verify the hosted bytes.
 
-## Side-effect safety
+Plans are content-addressed, not signed. An attacker who can replace both a plan and its expected identity can supply different intent. Protect the reviewed plan and configuration in your approval system. Core artifact source paths are excluded from semantic identity, so a plan hash alone does not authenticate every stored path. Paths within opaque provider payloads may be included.
 
-A side-effecting operation has explicit durable boundaries for provider start, dispatch, provider response, and result. A failure before dispatch can be retried when classified retryable. Once dispatch is durable, an unknown outcome is not retried as a fresh publication. It is recorded as ambiguous and reconciliation is required.
+Executable and artifact hashing does not eliminate a same-user race between verification and use. Provider digests identify exact bytes; they do not establish publisher trust or replace release verification. Plans without executable digests can be inspected, but the CLI rejects them for execution.
 
-Cancellation follows the same rule. Provider process trees are terminated on supported release platforms, but a cancellation after dispatch is still treated as an uncertain external outcome until reconciliation proves state.
+## Journal and external outcomes
 
-## Accepted risks
+Journal events are sequenced, framed, checksummed, and replay-validated. Each successful append synchronizes the file. Writers hold an OS lock; Unix additionally synchronizes the containing directory when required. Directory synchronization is skipped on Windows, so power-loss behavior also depends on that filesystem and OS.
 
-Distroplane intentionally accepts the following risks:
+An incomplete last frame recovers to the valid prefix. Corruption in a complete frame is rejected. These checks detect damage; they are not cryptographic authentication against an attacker who can rewrite the file and its checksums. Protect the journal and exported evidence with normal storage access controls.
 
-- providers are trusted executable code and are not sandboxed;
-- the local operating-system account, kernel, filesystem, installed Git client, and CA trust store are trusted;
-- remote services remain authoritative for their own eventual state;
-- journals and evidence are checksummed/validated but are not internally signed;
-- core release provenance is supplied by the release platform rather than a custom signing service;
-- compatibility with pre-release plans that do not contain provider digests is for inspection only; production execution should use a newly generated digest-bound plan.
+The executor records dispatch before releasing the request to the provider. An unknown outcome after dispatch becomes ambiguous and requires reconciliation. A timeout or process cancellation cannot undo an external request that was already accepted. There is no general exactly-once publication or rollback guarantee.
 
-Security reports should follow [SECURITY.md](../SECURITY.md).
+Provider results are claims about the remote system. npm upload acceptance, SDKMAN vendor acceptance, and WinGet repository state do not prove the same thing. See the [provider guides](../README.md#providers) for current limitations. Evidence records those results; export does not query the service again or sign the bundle.
+
+## Action installation and OIDC
+
+The Action downloads an exact release's CLI and provider binaries over HTTPS and verifies each against that release's `SHA256SUMS` before executing it. The manifest is fetched from the same GitHub release and is unsigned. The installer does not verify release attestations. `binary` bypasses downloading and checksum checks.
+
+Pin the Action to a commit and set an explicit binary `version` when you need stable Action code. The release assets remain a separate trust input. [Release verification](release-verification.md) describes the files and source metadata.
+
+`oidc: required` only checks that GitHub exposed its token-request URL and credential. It does not request, validate, or persist an ID token. The npm provider can exchange a separately supplied ID token with npm; see [trusted publishing](../providers/npm/README.md#trusted-publishing). Account trust configuration, audience selection, and short-lived token acquisition remain workflow responsibilities.
+
+## Operational limits
+
+Provider requests, stdout, and stderr are bounded; operations have deadlines and cancellation handling. The host invokes executables directly without shell command interpolation. External tools such as Git still interpret their own arguments and configuration, so only use trusted provider settings and repository URLs.
+
+These controls do not isolate hostile code on a shared runner. Do not execute an untrusted pull request's providers or configuration in a job containing publication credentials. Prefer protected environments and short-lived credentials where the destination supports them.
+
+Report vulnerabilities through [SECURITY.md](../SECURITY.md).

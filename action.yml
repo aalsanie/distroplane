@@ -1,5 +1,5 @@
 name: Distroplane
-description: 'Plan, apply, reconcile, and export release-distribution evidence with the Distroplane CLI.'
+description: 'Plan and publish releases to npm, SDKMAN, Homebrew, and WinGet; reconcile pending work and export evidence.'
 author: Distroplane
 
 inputs:
@@ -7,7 +7,7 @@ inputs:
     description: 'Distroplane command to run: plan, apply, or reconcile.'
     required: true
   version:
-    description: 'Released Distroplane version. Leading v is optional. When omitted, a v-prefixed action ref is used.'
+    description: 'Exact released Distroplane version, with optional leading v. Set explicitly when pinning the Action to a commit.'
     required: false
     default: ''
   repository:
@@ -59,7 +59,7 @@ inputs:
     required: false
     default: ''
   oidc:
-    description: 'Set to required to fail unless the workflow grants permissions.id-token=write.'
+    description: 'Set to required to check GitHub OIDC request environment availability. Does not acquire or forward an ID token.'
     required: false
     default: none
   evidence-path:
