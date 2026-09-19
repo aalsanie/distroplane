@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 )
@@ -167,5 +168,58 @@ func TestValidateTextBoundaries(t *testing.T) {
 	}
 	if err := validateText("value", strings.Repeat("x", 256), false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+
+func TestLeasePayloadValidationBranches(t *testing.T) {
+	now := time.Unix(10, 0).UTC()
+	cases := []struct {
+		name  string
+		lease LeasePayload
+	}{
+		{"missing id", LeasePayload{Owner: "worker-a", AcquiredAt: now, ExpiresAt: now.Add(time.Second)}},
+		{"missing owner", LeasePayload{ID: "lease-a", AcquiredAt: now, ExpiresAt: now.Add(time.Second)}},
+		{"missing acquired", LeasePayload{ID: "lease-a", Owner: "worker-a", ExpiresAt: now.Add(time.Second)}},
+		{"missing expiry", LeasePayload{ID: "lease-a", Owner: "worker-a", AcquiredAt: now}},
+		{"expiry before acquisition", LeasePayload{ID: "lease-a", Owner: "worker-a", AcquiredAt: now, ExpiresAt: now.Add(-time.Second)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.lease.validate(); err == nil {
+				t.Fatalf("lease=%+v accepted", tc.lease)
+			}
+		})
+	}
+	if err := (LeasePayload{ID: "lease-a", Owner: "worker-a", AcquiredAt: now, ExpiresAt: now.Add(time.Second)}).validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAttemptReasonAndResultCategoryValidation(t *testing.T) {
+	for _, value := range []string{AttemptReasonInitial, AttemptReasonRetry, AttemptReasonReconcile} {
+		if !validAttemptReason(value) {
+			t.Fatalf("attempt reason %q rejected", value)
+		}
+	}
+	if validAttemptReason("UNKNOWN") {
+		t.Fatal("unknown attempt reason accepted")
+	}
+
+	for _, value := range []string{
+		ResultCategoryPublished,
+		ResultCategoryWaitingExternal,
+		ResultCategoryRejected,
+		ResultCategoryFailedRetryable,
+		ResultCategoryFailedPermanent,
+		ResultCategoryCancelled,
+		ResultCategoryAmbiguous,
+	} {
+		if !validResultCategory(value) {
+			t.Fatalf("result category %q rejected", value)
+		}
+	}
+	if validResultCategory("UNKNOWN") {
+		t.Fatal("unknown result category accepted")
 	}
 }
