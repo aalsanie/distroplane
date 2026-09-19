@@ -52,10 +52,10 @@ type validateOutput struct {
 
 type planOutput struct {
 	OutputSchemaVersion string `json:"outputSchemaVersion"`
-	PlanID               string `json:"planId"`
-	Path                 string `json:"path"`
-	Targets              int    `json:"targets"`
-	Operations           int    `json:"operations"`
+	PlanID              string `json:"planId"`
+	Path                string `json:"path"`
+	Targets             int    `json:"targets"`
+	Operations          int    `json:"operations"`
 }
 
 type targetStateOutput struct {
@@ -79,7 +79,7 @@ type operationStateOutput struct {
 }
 
 type stateOutput struct {
-	OutputSchemaVersion   string                 `json:"outputSchemaVersion"`
+	OutputSchemaVersion  string                 `json:"outputSchemaVersion"`
 	PlanID               string                 `json:"planId"`
 	RunID                string                 `json:"runId"`
 	Completed            bool                   `json:"completed"`
@@ -164,10 +164,10 @@ func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	output := planOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		PlanID:               string(plan.ID()),
-		Path:                 path,
-		Targets:              len(plan.Plan().Targets()),
-		Operations:           len(plan.Plan().Operations()),
+		PlanID:              string(plan.ID()),
+		Path:                path,
+		Targets:             len(plan.Plan().Targets()),
+		Operations:          len(plan.Plan().Operations()),
 	}
 	if jsonMode {
 		return writeJSON(stdout, output)
