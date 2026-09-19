@@ -144,6 +144,20 @@ func (p DistributionPlan) ProviderDigests() map[domain.ProviderRef]domain.Digest
 	return result
 }
 
+func (p DistributionPlan) VerifyProviderDigests() error {
+	if !p.plan.ID().Valid() {
+		return fmt.Errorf("plan is invalid")
+	}
+	digests := p.ProviderDigests()
+	for _, target := range p.plan.Targets() {
+		digest, ok := digests[target.Provider()]
+		if !ok || !digest.Valid() {
+			return fmt.Errorf("provider %q@%q is not bound to an executable digest; create a new plan", target.Provider().Name(), target.Provider().Version())
+		}
+	}
+	return nil
+}
+
 func (p DistributionPlan) Bytes() ([]byte, error) {
 	return json.Marshal(p.document)
 }
