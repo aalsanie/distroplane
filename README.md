@@ -1,5 +1,11 @@
 # Distroplane
 
+[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml)
+[![GitHub Action smoke](https://github.com/aalsanie/distroplane/actions/workflows/action-smoke.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/action-smoke.yml)
+[![Release](https://img.shields.io/github/v/release/aalsanie/distroplane?include_prereleases&sort=semver)](https://github.com/aalsanie/distroplane/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/aalsanie/distroplane)](https://github.com/aalsanie/distroplane/blob/main/go.mod)
+[![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
+
 Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps, and WinGet. Review what will be published before applying it, resume interrupted runs, and export one record of each target's known state. Use the same CLI locally or through GitHub Actions; no service is required.
 
 ## What it does
