@@ -45,7 +45,7 @@ Each invocation handles one UTF-8 JSON request on stdin and one response on stdo
 | `apply` | Execute a planned action with an idempotency key and explicit attempt |
 | `reconcile` | Observe existing external state using saved intent and prior evidence; no new release publication |
 
-The host bounds protocol output and diagnostics, applies deadlines, checks identity/version/capabilities, and constructs a limited environment. Credentials are resolved just before execution and delivered only for the invoked provider's declared requirements. See the [security model](security-model.md) for the trust boundary.
+The host bounds protocol output and diagnostics, applies deadlines, and checks identity/version/capabilities. Credential resolution supplies the invoked provider's declared requirements, but discovery/planning and execution identity checks currently inherit the parent environment on Linux/macOS. See the [security model](security-model.md#provider-execution-and-credentials) for this isolation limitation and per-provider job guidance.
 
 Protocol v1 is still marked **candidate** in the [compatibility manifest](../protocol/schema/v1/compatibility.json). Unknown protocol fields are ignored; unknown operations/capabilities and unsupported versions are rejected. This differs from configuration and saved-plan parsing, which reject unknown core fields.
 
