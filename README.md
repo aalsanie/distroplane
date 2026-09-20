@@ -5,7 +5,7 @@ Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps,
 ## What it does
 
 - Saves a deterministic plan bound to artifact hashes and provider binaries.
-- Publishes through separate provider executables with scoped credentials.
+- Publishes through separate provider executables using named credential references.
 - Records execution so pending reviews and uncertain outcomes can be reconciled later.
 - Exports JSON evidence for published, pending, rejected, and failed targets.
 
@@ -40,7 +40,7 @@ jobs:
           upload-evidence: 'true'
 ```
 
-Planning needs no publication credentials. Apply receives only the credential mappings declared by the plan. The Action installs and checksum-verifies the matching CLI and official providers automatically. [Action details](docs/github-actions.md) cover artifact preparation, approvals, plan handoff, OIDC, and reconciliation.
+Planning needs no publication credentials. Apply uses credential mappings declared by the plan. Keep unrelated secrets out of the invoking job: a current [environment-isolation limitation](docs/security-model.md#provider-execution-and-credentials) affects Linux and macOS. The Action installs and checksum-verifies the matching CLI and official providers automatically. [Action details](docs/github-actions.md) cover artifact preparation, approvals, plan handoff, OIDC, and reconciliation.
 
 ## Configuration
 

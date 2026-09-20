@@ -47,4 +47,4 @@ Accepted architectures are `x86`, `x64`, `arm`, `arm64`, and `neutral`. Accepted
 
 A new submission returns `WAITING_EXTERNAL` with pull-request evidence. Reconciliation distinguishes validation pending, review pending, validation failure, closed requests, and merged requests. Failed validation or closure yields `REJECTED`; a merged request yields `PUBLISHED`. There is no client-index availability check.
 
-`PUBLISHED` reflects repository state observed by Distroplane; it does not prove WinGet client-index availability. Destination validation remains authoritative.
+`PUBLISHED` is not reliable proof of upstream publication in this release: matching files on the writable repository's base branch (including a fork), or a merged pull request, can produce it without verifying the planned manifests in `pullRequest.repository`. Before treating the release as published, compare all three planned manifest files with that destination's base branch. Pull-request status or a synchronized fork alone is insufficient. WinGet client-index availability is not checked.

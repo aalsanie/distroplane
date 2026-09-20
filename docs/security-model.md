@@ -6,7 +6,9 @@ Distroplane trusts the invoking OS account, the local filesystem, the selected p
 
 Planning records each provider's reported name/version, capabilities, and executable SHA-256. Apply and reconcile require those digests and verify the selected executable before use. The host checks the required protocol and capability through `describe`, then rechecks the executable digest before dispatch. A malicious provider can still lie about its identity or results.
 
-Providers receive a limited environment and only the credentials requested by their planned target requirements. Ambient variables are not inherited wholesale, including unrelated provider secrets and GitHub's OIDC request credentials. External tools required by a provider remain part of the trusted local execution environment.
+`0.9.0-rc.1` and current source have a known environment-isolation defect on Linux and macOS: provider discovery and planning inherit the invoking process's environment. Identity checks during apply and reconcile do so too. This can expose unrelated provider secrets and GitHub's OIDC request credentials, even though the credential resolver supplies only declared requirements.
+
+Keep secrets out of planning jobs. Run each provider's apply/reconcile in a separate job or process environment containing only that provider's credentials, and grant `id-token: write` only where needed. Credential mappings alone do not prevent this exposure. External tools required by a provider remain part of the trusted local execution environment.
 
 Credentials are supplied by reference-to-environment mappings, resolved just before execution, and delivered under the environment names declared by the provider. Resolution events record reference metadata, not values. The host redacts exact resolved values from returned errors, diagnostics, provider state, and evidence. Credential buffers are cleared where practical; this is not a guarantee against memory inspection or copies held by the runtime.
 

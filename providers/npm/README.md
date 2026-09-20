@@ -54,7 +54,7 @@ For GitHub Actions, grant the job `permissions: id-token: write` and request a t
     oidc: required
 ```
 
-The token audience is `npm:registry.npmjs.org`. See [npm's trusted publisher setup](https://docs.npmjs.com/trusted-publishers/) for account and workflow requirements. Obtain a fresh ID token for later reconciliation. The provider receives it as `DISTROPLANE_NPM_ID_TOKEN`; GitHub's token-request credentials are not forwarded.
+The token audience is `npm:registry.npmjs.org`. See [npm's trusted publisher setup](https://docs.npmjs.com/trusted-publishers/) for account and workflow requirements. Obtain a fresh ID token for later reconciliation. The provider receives it as `DISTROPLANE_NPM_ID_TOKEN`. A current [environment-isolation limitation](../../docs/security-model.md#provider-execution-and-credentials) can also expose GitHub's token-request credentials during provider discovery on Linux/macOS; use a dedicated npm publication job with only the required secrets and permissions.
 
 ## Results and limits
 
