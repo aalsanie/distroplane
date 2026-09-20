@@ -1,6 +1,6 @@
 # Distroplane
 
-Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps, and WinGet. Review what will be published before applying it, resume interrupted runs, and export one record of each target's known state. Use the same CLI locally or through GitHub Actions; no Distroplane service is required.
+Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps, and WinGet. Review what will be published before applying it, resume interrupted runs, and export one record of each target's known state. Use the same CLI locally or through GitHub Actions; no service is required.
 
 ## What it does
 
@@ -9,7 +9,7 @@ Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps,
 - Records execution so pending reviews and uncertain outcomes can be reconciled later.
 - Exports JSON evidence for published, pending, rejected, and failed targets.
 
-## GitHub Actions quick start
+## GitHub Actions
 
 Once your release artifact and `distroplane.json` are ready, publishing is a plan/apply flow:
 
