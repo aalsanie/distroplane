@@ -29,7 +29,7 @@ Use `"provider": {"name": "homebrew"}` in the [shared configuration](../../docs/
 
 Git 2 or later must be installed on the executor's `PATH`. Map `tap-publish` to a token with write access to the tap; the provider receives `DISTROPLANE_HOMEBREW_TOKEN` and uses an HTTPS authorization header. Do not embed credentials in the repository URL. Git's global/system configuration and interactive credential prompts are disabled.
 
-`0.9.0-rc.1` has a known Git discovery issue affecting this provider. Use a later release once the provider-host fix is available.
+`0.9.0-rc.1` has a known Git discovery issue affecting this provider. Use `0.9.0-rc.2` or later.
 
 ## Pull requests and casks
 
