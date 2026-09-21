@@ -72,7 +72,7 @@ jobs:
           require_success "ci.yml" "CI"
           require_success "action-smoke.yml" "GitHub Action smoke"
 
-      - name: Build release assets
+      - name: Build and verify release assets
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -84,7 +84,15 @@ jobs:
           ./scripts/build.sh
           (cd dist && sha256sum -c SHA256SUMS)
           test -f dist/RELEASE-METADATA.json
-          "./dist/distroplane_${VERSION}_linux_amd64" version --json | grep -F "\"version\":\"${VERSION}\"" >/dev/null
+          grep -Fq "\"version\":\"${VERSION}\"" dist/RELEASE-METADATA.json
+          grep -Fq "\"commit\":\"${COMMIT}\"" dist/RELEASE-METADATA.json
+          identity="$("./dist/distroplane_${VERSION}_linux_amd64" version --json)"
+          grep -Fq "\"version\":\"${VERSION}\"" <<<"$identity"
+          grep -Fq "\"commit\":\"${COMMIT}\"" <<<"$identity"
+          DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
+          DISTROPLANE_RELEASE_SMOKE_VERSION="$VERSION" \
+          DISTROPLANE_RELEASE_SMOKE_COMMIT="$COMMIT" \
+            go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI$' -count=1
 
       - name: Publish GitHub release
         shell: bash
