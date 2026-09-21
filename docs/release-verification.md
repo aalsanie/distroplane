@@ -1,6 +1,6 @@
 # Installation and release verification
 
-The [current release candidate](https://github.com/aalsanie/distroplane/releases/tag/v0.9.0-rc.1) is `0.9.0-rc.1`. GitHub Actions users can use [the composite Action](github-actions.md), which installs the matching CLI and official providers automatically.
+The [current release candidate](https://github.com/aalsanie/distroplane/releases/tag/v0.9.0-rc.2) is `0.9.0-rc.2`. GitHub Actions users can use [the composite Action](github-actions.md), which installs the matching CLI and official providers automatically.
 
 ## Release assets
 
@@ -12,7 +12,7 @@ Every release includes separate executables for the CLI and the `npm`, `sdkman`,
 | macOS | amd64, arm64 | `_darwin_<arch>` |
 | Windows | amd64, arm64 | `_windows_<arch>.exe` |
 
-For example: `distroplane_0.9.0-rc.1_linux_amd64` and `distroplane-provider-npm_0.9.0-rc.1_linux_amd64`. Release assets also include `SHA256SUMS` and `RELEASE-METADATA.json`. There are no installation archives or package-manager installers in this release.
+For example: `distroplane_0.9.0-rc.2_linux_amd64` and `distroplane-provider-npm_0.9.0-rc.2_linux_amd64`. Release assets also include `SHA256SUMS` and `RELEASE-METADATA.json`. There are no installation archives or package-manager installers in this release.
 
 `SHA256SUMS` covers every executable. `RELEASE-METADATA.json` records version, source commit, build date, Go version, and CGO setting. The checksum file and metadata are unsigned; the workflow does not currently publish cryptographic attestations. Checksums detect bytes that differ from the release manifest, and still require trust in the GitHub release source.
 
@@ -22,7 +22,7 @@ This installs the CLI and npm provider into a local `bin` directory. Run it in a
 
 ```sh
 set -eu
-version=0.9.0-rc.1
+version=0.9.0-rc.2
 platform=linux_amd64
 base="https://github.com/aalsanie/distroplane/releases/download/v$version"
 curl --fail --location --remote-name "$base/SHA256SUMS"
@@ -51,7 +51,7 @@ Run in a new download directory. Use `windows_arm64` for ARM64:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$version = '0.9.0-rc.1'
+$version = '0.9.0-rc.2'
 $platform = 'windows_amd64'
 $base = "https://github.com/aalsanie/distroplane/releases/download/v$version"
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
@@ -81,8 +81,6 @@ go build -trimpath -o bin/ ./cmd/...
 ```
 
 This builds the CLI, official providers, and development fake provider into `bin`. Add that directory to `PATH`. An ordinary build reports `0.0.0-dev`; it does not automatically use `VERSION` or match the released binary's digest. Plan and execute using the same provider builds.
-
-`0.9.0-rc.1` has a known Git discovery issue affecting the Homebrew and WinGet providers. Use npm or SDKMAN with this release, or use a later release once the provider-host fix is available.
 
 Maintainers can build the full release layout with `scripts/build.sh` or `scripts/build.ps1`. Set `VERSION`, `COMMIT`, and `BUILD_DATE` explicitly using the release metadata when rebuilding. These scripts replace their output directory; use a dedicated disposable directory. Their default version is `0.0.0-dev`, not the contents of `VERSION`.
 
