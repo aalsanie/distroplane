@@ -420,7 +420,7 @@ func TestValidationAndReviewStates(t *testing.T) {
 	}
 }
 
-func TestMergedOrPublishedRequiresReconciliation(t *testing.T) {
+func TestMergedPullRequestWaitsForDestinationContent(t *testing.T) {
 	repo := newRepo(t)
 	fixture, server := newAPIServer(t, "normal")
 	defer server.Close()
@@ -435,14 +435,27 @@ func TestMergedOrPublishedRequiresReconciliation(t *testing.T) {
 	fixture.checks = "passed"
 	fixture.mu.Unlock()
 	reconciled, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
-	if providerErr != nil || reconciled.Result.State != protocol.ResultPublished || reconciled.Result.ProviderState != "merged" {
+	if providerErr != nil || reconciled.Result.State != protocol.ResultWaitingExternal || reconciled.Result.ProviderState != "merged-awaiting-destination" {
 		t.Fatalf("merged=%+v err=%v", reconciled, providerErr)
 	}
 
 	repo.promote(t, payload.UpdateBranch, payload.Branch)
 	reconciled, providerErr = provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil || reconciled.Result.State != protocol.ResultWaitingExternal || reconciled.Result.ProviderState != "merged-awaiting-destination" {
+		t.Fatalf("fork base incorrectly established publication: %+v err=%v", reconciled, providerErr)
+	}
+
+	fixture.publishDestination(payload.Files)
+	reconciled, providerErr = provider.Reconcile(context.Background(), reconcileRequest(payload))
 	if providerErr != nil || reconciled.Result.State != protocol.ResultPublished || reconciled.Result.ProviderState != "published" {
 		t.Fatalf("published=%+v err=%v", reconciled, providerErr)
+	}
+	var got evidence
+	if err := json.Unmarshal(reconciled.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DestinationCommit != strings.Repeat("d", 40) {
+		t.Fatalf("evidence=%+v", got)
 	}
 }
 
@@ -486,7 +499,7 @@ func TestAmbiguousSubmissionReconcilesWithoutDuplicatePR(t *testing.T) {
 	}
 }
 
-func TestBranchConflictAndAlreadyPublished(t *testing.T) {
+func TestForkBaseDoesNotEstablishPublication(t *testing.T) {
 	repo := newRepo(t)
 	_, server := newAPIServer(t, "normal")
 	defer server.Close()
@@ -504,15 +517,9 @@ func TestBranchConflictAndAlreadyPublished(t *testing.T) {
 	}
 	repo.promote(t, first.UpdateBranch, first.Branch)
 	response, providerErr = provider.Apply(context.Background(), applyRequest(first))
-	if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "already-published" {
-		t.Fatalf("published=%+v err=%v", response, providerErr)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "submitted" {
+		t.Fatalf("fork base incorrectly established publication: %+v err=%v", response, providerErr)
 	}
-}
-
-type lostPushRunner struct {
-	delegate GitRunner
-	mu       sync.Mutex
-	lost     bool
 }
 
 func (r *lostPushRunner) Run(ctx context.Context, dir string, env []string, args ...string) (gitOutput, error) {
@@ -533,7 +540,7 @@ func (r *lostPushRunner) Run(ctx context.Context, dir string, env []string, args
 
 func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	repo := newRepo(t)
-	_, server := newAPIServer(t, "normal")
+	fixture, server := newAPIServer(t, "normal")
 	defer server.Close()
 	provider := authenticatedProvider(server.Client())
 	provider.Git = &lostPushRunner{delegate: execGitRunner{}}
@@ -541,6 +548,12 @@ func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
 	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal {
 		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("pull request submissions=%d", posts)
 	}
 }
 
