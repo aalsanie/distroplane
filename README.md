@@ -33,10 +33,10 @@ jobs:
         with:
           persist-credentials: false
       - id: plan
-        uses: aalsanie/distroplane@v0.9.0-rc.1
+        uses: aalsanie/distroplane@v0.9.0-rc.2
         with:
           command: plan
-      - uses: aalsanie/distroplane@v0.9.0-rc.1
+      - uses: aalsanie/distroplane@v0.9.0-rc.2
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
@@ -46,7 +46,7 @@ jobs:
           upload-evidence: 'true'
 ```
 
-Planning needs no publication credentials. Apply uses credential mappings declared by the plan. Keep unrelated secrets out of the invoking job: a current [environment-isolation limitation](docs/security-model.md#provider-execution-and-credentials) affects Linux and macOS. The Action installs and checksum-verifies the matching CLI and official providers automatically. [Action details](docs/github-actions.md) cover artifact preparation, approvals, plan handoff, OIDC, and reconciliation.
+Planning needs no publication credentials. Apply uses credential mappings declared by the plan. Provider processes receive a minimal tool/runtime environment plus only the declared credential mappings; unrelated parent environment values are not inherited. The Action installs and checksum-verifies the matching CLI and official providers automatically. [Action details](docs/github-actions.md) cover artifact preparation, approvals, plan handoff, OIDC, and reconciliation.
 
 ## Configuration
 
@@ -103,4 +103,4 @@ Run `reconcile` when a target is pending or its outcome is uncertain. Preserve t
 
 ## Status and license
 
-Current release: **0.9.0-rc.1**, a pre-1.0 release candidate. npm and SDKMAN are usable in this release; Homebrew and WinGet have a known Git discovery issue that will be fixed in a follow-up release. [Apache-2.0](LICENSE).
+Current release: **0.9.0-rc.2**, a pre-1.0 release candidate. [Apache-2.0](LICENSE).
