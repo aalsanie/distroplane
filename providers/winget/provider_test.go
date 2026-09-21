@@ -565,6 +565,79 @@ func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	}
 }
 
+func TestApplyUsesDestinationContentBeforeSubmissionState(t *testing.T) {
+	t.Run("exact", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+
+		response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "already-published" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+		fixture.mu.Lock()
+		posts := fixture.postCount
+		fixture.mu.Unlock()
+		if posts != 0 {
+			t.Fatalf("pull request submissions=%d", posts)
+		}
+	})
+
+	t.Run("conflict", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		fixture.destinationFiles[payload.Files[1].Path] = "different\n"
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultRejected || response.Result.ProviderState != "destination-conflict" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+		fixture.mu.Lock()
+		posts := fixture.postCount
+		fixture.mu.Unlock()
+		if posts != 0 {
+			t.Fatalf("pull request submissions=%d", posts)
+		}
+	})
+}
+
+func TestPriorPullRequestEvidenceMustMatchPlannedSubmission(t *testing.T) {
+	repo := newRepo(t)
+	_, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+
+	if _, ok := priorPullRequestNumber(payload, nil); ok {
+		t.Fatal("nil prior evidence accepted")
+	}
+	if _, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: json.RawMessage(`{`)}); ok {
+		t.Fatal("malformed prior evidence accepted")
+	}
+	prior := evidence{
+		Repository: payload.PullRequest.Repository, BaseBranch: payload.Branch, UpdateBranch: payload.UpdateBranch,
+		ManifestTreeSHA: payload.TreeSHA256, PullRequestNumber: 42,
+	}
+	raw, _ := json.Marshal(prior)
+	if number, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: raw}); !ok || number != 42 {
+		t.Fatalf("number=%d ok=%v", number, ok)
+	}
+	prior.ManifestTreeSHA = strings.Repeat("f", 64)
+	raw, _ = json.Marshal(prior)
+	if _, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: raw}); ok {
+		t.Fatal("mismatched prior evidence accepted")
+	}
+}
+
 func TestDestinationContentUsesOneResolvedCommit(t *testing.T) {
 	repo := newRepo(t)
 	fixture, server := newAPIServer(t, "normal")
