@@ -557,6 +557,153 @@ func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	}
 }
 
+func TestDestinationContentUsesOneResolvedCommit(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	fixture.publishDestination(payload.Files)
+	fixture.mu.Lock()
+	resolved := fixture.destinationCommit
+	fixture.moveDestinationTo = strings.Repeat("e", 40)
+	fixture.mu.Unlock()
+
+	response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "published" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	refs := append([]string(nil), fixture.contentRefs...)
+	current := fixture.destinationCommit
+	fixture.mu.Unlock()
+	if current == resolved || len(refs) != len(payload.Files) {
+		t.Fatalf("resolved=%q current=%q refs=%v", resolved, current, refs)
+	}
+	for _, ref := range refs {
+		if ref != resolved {
+			t.Fatalf("destination manifest read from moving ref %q, want %q", ref, resolved)
+		}
+	}
+	var got evidence
+	if err := json.Unmarshal(response.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DestinationCommit != resolved {
+		t.Fatalf("evidence=%+v", got)
+	}
+}
+
+func TestDestinationMissingAndConflictAreNotPublished(t *testing.T) {
+	t.Run("partial missing", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		delete(fixture.destinationFiles, payload.Files[0].Path)
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "absent" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+	})
+
+	t.Run("conflict", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		fixture.destinationFiles[payload.Files[0].Path] = payload.Files[0].Content + "# conflict\n"
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultRejected || response.Result.ProviderState != "destination-conflict" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+	})
+}
+
+func TestPreviousPullRequestEvidenceRecoversAfterSourceBranchDeletion(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	applied, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+	if providerErr != nil || applied.Result.State != protocol.ResultWaitingExternal {
+		t.Fatalf("apply=%+v err=%v", applied, providerErr)
+	}
+
+	runExternalGit(t, "", "--git-dir", repo.remote, "update-ref", "-d", "refs/heads/"+payload.UpdateBranch)
+	fixture.mu.Lock()
+	fixture.state = "merged"
+	fixture.checks = "passed"
+	fixture.hidePullList = true
+	fixture.mu.Unlock()
+
+	request := reconcileRequest(payload)
+	request.Previous = &applied.Result
+	response, providerErr := provider.Reconcile(context.Background(), request)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "merged-awaiting-destination" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	var got evidence
+	if err := json.Unmarshal(response.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.PullRequestNumber != fixture.number || got.PullRequestState != "merged" {
+		t.Fatalf("evidence=%+v", got)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("pull request submissions=%d", posts)
+	}
+}
+
+func TestDestinationObservationErrorsPreserveCategories(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		commitStatus  int
+		contentStatus int
+		malformed     bool
+		want          protocol.ErrorCode
+	}{
+		{name: "authentication", commitStatus: http.StatusUnauthorized, want: protocol.ErrorAuthentication},
+		{name: "authorization", commitStatus: http.StatusForbidden, want: protocol.ErrorAuthorization},
+		{name: "rate limit", commitStatus: http.StatusTooManyRequests, want: protocol.ErrorTransientExternal},
+		{name: "malformed commit", malformed: true, want: protocol.ErrorPermanentExternal},
+		{name: "content rate limit", contentStatus: http.StatusTooManyRequests, want: protocol.ErrorTransientExternal},
+		{name: "content server error", contentStatus: http.StatusInternalServerError, want: protocol.ErrorTransientExternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newRepo(t)
+			fixture, server := newAPIServer(t, "normal")
+			defer server.Close()
+			provider := authenticatedProvider(server.Client())
+			_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+			fixture.mu.Lock()
+			fixture.destinationCommitStatus = tc.commitStatus
+			fixture.destinationContentStatus = tc.contentStatus
+			fixture.destinationMalformed = tc.malformed
+			fixture.mu.Unlock()
+
+			_, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+			if providerErr == nil || providerErr.Code != tc.want {
+				t.Fatalf("err=%+v want=%s", providerErr, tc.want)
+			}
+		})
+	}
+}
+
 func TestMissingCredentialFailsExecution(t *testing.T) {
 	repo := newRepo(t)
 	_, server := newAPIServer(t, "normal")
