@@ -785,6 +785,50 @@ func TestDestinationObservationErrorsPreserveCategories(t *testing.T) {
 	}
 }
 
+func TestDestinationObservationRejectsOversizedManifest(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	fixture.publishDestination(payload.Files)
+	fixture.mu.Lock()
+	fixture.destinationFiles[payload.Files[0].Path] = strings.Repeat("x", maxDestinationManifestBytes+1)
+	fixture.mu.Unlock()
+
+	_, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr == nil || providerErr.Code != protocol.ErrorPermanentExternal {
+		t.Fatalf("err=%+v", providerErr)
+	}
+}
+
+func TestStalePriorPullRequestEvidenceFallsBackReadOnly(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	prior := evidence{
+		Repository: payload.PullRequest.Repository, BaseBranch: payload.Branch, UpdateBranch: payload.UpdateBranch,
+		ManifestTreeSHA: payload.TreeSHA256, PullRequestNumber: fixture.number,
+	}
+	raw, _ := json.Marshal(prior)
+	request := reconcileRequest(payload)
+	request.Previous = &protocol.DistributionResult{
+		State: protocol.ResultWaitingExternal, ProviderState: "submitted", Evidence: raw,
+	}
+	response, providerErr := provider.Reconcile(context.Background(), request)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "absent" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("reconcile submitted %d pull requests", posts)
+	}
+}
+
 func TestMissingCredentialFailsExecution(t *testing.T) {
 	repo := newRepo(t)
 	_, server := newAPIServer(t, "normal")
