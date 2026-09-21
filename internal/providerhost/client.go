@@ -230,7 +230,8 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	if options.environment != nil {
 		environment = options.environment
 	}
-	command.Env = append([]string(nil), environment...)
+	command.Env = make([]string, len(environment))
+	copy(command.Env, environment)
 	command.WaitDelay = c.waitDelay
 	redactions := newRedactor(options.redactions)
 
@@ -347,25 +348,27 @@ func (c *Client) processEnvironment(extra []string) ([]string, error) {
 	return mergeEnvironment(c.environment, extra)
 }
 
-func mergeEnvironment(base, extra []string) ([]string, error) {
-	environment := make(map[string]string, len(base)+len(extra))
-	for _, value := range base {
-		key, item, ok := strings.Cut(value, "=")
-		if !ok || key == "" {
-			return nil, fmt.Errorf("invalid provider environment entry")
-		}
-		environment[key] = item
+type environmentValue struct {
+	key   string
+	value string
+}
+
+func canonicalEnvironmentKey(key string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(key)
 	}
-	for _, value := range extra {
-		key, item, ok := strings.Cut(value, "=")
-		if !ok || key == "" || strings.ContainsRune(key, '\x00') || strings.ContainsRune(item, '\x00') {
-			return nil, fmt.Errorf("invalid provider environment entry")
-		}
-		if _, exists := environment[key]; exists {
-			return nil, fmt.Errorf("provider environment entry %q is already defined", key)
-		}
-		environment[key] = item
+	return key
+}
+
+func parseEnvironmentEntry(value string) (environmentValue, string, error) {
+	key, item, ok := strings.Cut(value, "=")
+	if !ok || key == "" || strings.ContainsRune(key, '\x00') || strings.ContainsRune(item, '\x00') {
+		return environmentValue{}, "", fmt.Errorf("invalid provider environment entry")
 	}
+	return environmentValue{key: key, value: item}, canonicalEnvironmentKey(key), nil
+}
+
+func environmentList(environment map[string]environmentValue) []string {
 	keys := make([]string, 0, len(environment))
 	for key := range environment {
 		keys = append(keys, key)
@@ -373,37 +376,71 @@ func mergeEnvironment(base, extra []string) ([]string, error) {
 	sort.Strings(keys)
 	result := make([]string, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, key+"="+environment[key])
+		entry := environment[key]
+		result = append(result, entry.key+"="+entry.value)
 	}
-	return result, nil
+	return result
+}
+
+func mergeEnvironment(base, extra []string) ([]string, error) {
+	environment := make(map[string]environmentValue, len(base)+len(extra))
+	for _, value := range base {
+		entry, canonical, err := parseEnvironmentEntry(value)
+		if err != nil {
+			return nil, err
+		}
+		if prior, exists := environment[canonical]; exists {
+			return nil, fmt.Errorf("provider environment entry %q duplicates %q", entry.key, prior.key)
+		}
+		environment[canonical] = entry
+	}
+
+	extraNames := make(map[string]string, len(extra))
+	for _, value := range extra {
+		entry, canonical, err := parseEnvironmentEntry(value)
+		if err != nil {
+			return nil, err
+		}
+		if prior, exists := extraNames[canonical]; exists {
+			return nil, fmt.Errorf("provider environment entry %q duplicates %q", entry.key, prior)
+		}
+		if prior, exists := environment[canonical]; exists {
+			return nil, fmt.Errorf("provider environment entry %q conflicts with %q", entry.key, prior.key)
+		}
+		extraNames[canonical] = entry.key
+		environment[canonical] = entry
+	}
+	return environmentList(environment), nil
 }
 
 func normalizeEnvironment(values []string) ([]string, error) {
-	environment := map[string]string{}
+	environment := make(map[string]environmentValue)
+	baseline := []string{"PATH", "TMPDIR", "TMP", "TEMP"}
 	if runtime.GOOS == "windows" {
-		for _, key := range []string{"SYSTEMROOT", "WINDIR"} {
-			if value := os.Getenv(key); value != "" {
-				environment[key] = value
+		baseline = append(baseline, "SYSTEMROOT", "WINDIR", "PATHEXT")
+	}
+	for _, key := range baseline {
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			canonical := canonicalEnvironmentKey(key)
+			if _, exists := environment[canonical]; !exists {
+				environment[canonical] = environmentValue{key: key, value: value}
 			}
 		}
 	}
+
+	explicitNames := make(map[string]string, len(values))
 	for _, value := range values {
-		key, item, ok := strings.Cut(value, "=")
-		if !ok || key == "" || strings.ContainsRune(key, '\x00') || strings.ContainsRune(item, '\x00') {
-			return nil, fmt.Errorf("invalid provider environment entry")
+		entry, canonical, err := parseEnvironmentEntry(value)
+		if err != nil {
+			return nil, err
 		}
-		environment[key] = item
+		if prior, exists := explicitNames[canonical]; exists {
+			return nil, fmt.Errorf("provider environment entry %q duplicates %q", entry.key, prior)
+		}
+		explicitNames[canonical] = entry.key
+		environment[canonical] = entry
 	}
-	keys := make([]string, 0, len(environment))
-	for key := range environment {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	result := make([]string, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, key+"="+environment[key])
-	}
-	return result, nil
+	return environmentList(environment), nil
 }
 
 type limitedWriter struct {

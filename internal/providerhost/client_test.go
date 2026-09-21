@@ -5,20 +5,28 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/executor"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
 const helperEnabledEnv = "DISTROPLANE_PROVIDERHOST_HELPER"
 const helperModeEnv = "DISTROPLANE_PROVIDERHOST_MODE"
+
+var helperModeFlag = flag.String("providerhost-helper-mode", "", "provider host test helper mode")
+var toolHelperFlag = flag.Bool("providerhost-tool-helper", false, "provider host external tool fixture")
 
 type helperHandler struct{}
 
@@ -143,10 +151,13 @@ func (helperHandler) Reconcile(_ context.Context, request protocol.ReconcileRequ
 }
 
 func TestProviderProcessHelper(t *testing.T) {
-	if os.Getenv(helperEnabledEnv) != "1" {
+	mode := os.Getenv(helperModeEnv)
+	if *helperModeFlag != "" {
+		mode = *helperModeFlag
+	}
+	if os.Getenv(helperEnabledEnv) != "1" && mode == "" {
 		return
 	}
-	mode := os.Getenv(helperModeEnv)
 	code := 0
 	switch mode {
 	case "empty":
@@ -185,17 +196,50 @@ func TestProviderProcessHelper(t *testing.T) {
 				}
 			}
 		}
-	case "envcheck":
-		if os.Getenv("SHOULD_NOT_LEAK") != "" {
-			_, _ = os.Stderr.WriteString("environment leaked")
-			code = 72
+	case "toolcheck":
+		command := exec.Command("distroplane-test-tool", "-test.run=^TestProviderToolHelper$", "-providerhost-tool-helper=true")
+		if output, err := command.CombinedOutput(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "provider tool environment: %v: %s", err, output)
+			code = 73
 		} else {
+			code = serveHelper(os.Stdin, os.Stdout)
+		}
+	case "envcheck":
+		for _, name := range []string{
+			"SHOULD_NOT_LEAK",
+			"ACTIONS_ID_TOKEN_REQUEST_URL",
+			"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+			"COMSPEC",
+			"SSL_CERT_FILE",
+			"SSL_CERT_DIR",
+			"HOME",
+			"USERPROFILE",
+			"HTTP_PROXY",
+			"HTTPS_PROXY",
+			"GIT_CONFIG_COUNT",
+		} {
+			if os.Getenv(name) != "" {
+				_, _ = fmt.Fprintf(os.Stderr, "environment leaked: %s", name)
+				code = 72
+				break
+			}
+		}
+		if code == 0 {
 			code = serveHelper(os.Stdin, os.Stdout)
 		}
 	default:
 		code = serveHelper(os.Stdin, os.Stdout)
 	}
 	os.Exit(code)
+}
+
+func TestProviderToolHelper(t *testing.T) {
+	if !*toolHelperFlag {
+		return
+	}
+	if err := os.WriteFile(filepath.Join(os.TempDir(), "distroplane-providerhost-tool-marker"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func serveHelper(input *os.File, output interface{ Write([]byte) (int, error) }) int {
@@ -225,6 +269,22 @@ func helperClient(t testing.TB, mode string, mutate func(*Options)) *Client {
 		Args:        []string{"-test.run=^TestProviderProcessHelper$"},
 		Environment: []string{helperEnabledEnv + "=1", helperModeEnv + "=" + mode},
 		WaitDelay:   time.Second,
+	}
+	if mutate != nil {
+		mutate(&options)
+	}
+	client, err := New(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+func argumentHelperClient(t testing.TB, mode string, mutate func(*Options)) *Client {
+	t.Helper()
+	options := Options{
+		Args:      []string{"-test.run=^TestProviderProcessHelper$", "-providerhost-helper-mode=" + mode},
+		WaitDelay: time.Second,
 	}
 	if mutate != nil {
 		mutate(&options)
@@ -307,6 +367,114 @@ func TestClientDoesNotInheritEnvironment(t *testing.T) {
 	client := helperClient(t, "envcheck", nil)
 	if _, err := client.Describe(context.Background(), helperEndpoint(t)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDefaultClientEnvironmentIsIsolatedAcrossOperations(t *testing.T) {
+	for _, name := range []string{
+		"SHOULD_NOT_LEAK",
+		"ACTIONS_ID_TOKEN_REQUEST_URL",
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+		"COMSPEC",
+		"SSL_CERT_FILE",
+		"SSL_CERT_DIR",
+		"HOME",
+		"USERPROFILE",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"GIT_CONFIG_COUNT",
+	} {
+		t.Setenv(name, "providerhost-secret-canary")
+	}
+
+	client := argumentHelperClient(t, "envcheck", nil)
+	if _, err := client.Describe(context.Background(), helperEndpoint(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Plan(context.Background(), helperEndpoint(t), planRequest("")); err != nil {
+		t.Fatal(err)
+	}
+
+	driver, err := NewDriver(client, []Binding{{Provider: testProviderRef(t), Executable: helperExecutable(t)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyRequest := testExecutorRequest(t, "", true, nil)
+	if _, err := driver.Apply(context.Background(), applyRequest); err != nil {
+		t.Fatal(err)
+	}
+	reconcileRequest := testExecutorRequest(t, "", true, &executor.Previous{
+		State:         domain.StateWaitingExternal,
+		ProviderState: "pending",
+		Evidence:      json.RawMessage(`{"provider":"helper"}`),
+	})
+	if _, err := driver.Reconcile(context.Background(), reconcileRequest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExplicitEmptyEnvironmentDoesNotFallBackToParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows provider invocations retain required system variables")
+	}
+	t.Setenv("SHOULD_NOT_LEAK", "secret")
+	client := argumentHelperClient(t, "envcheck", nil)
+	var result protocol.DescribeResponse
+	if err := client.callWithOptions(
+		context.Background(),
+		helperExecutable(t),
+		protocol.OperationDescribe,
+		protocol.DescribeRequest{},
+		&result,
+		callOptions{environment: []string{}},
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClientPreservesToolAndTemporaryWorkspaceEnvironment(t *testing.T) {
+	toolPath := copyHelperExecutable(t, "distroplane-test-tool")
+	workspace := t.TempDir()
+	t.Setenv("PATH", filepath.Dir(toolPath))
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, workspace)
+	}
+	marker := filepath.Join(workspace, "distroplane-providerhost-tool-marker")
+	_ = os.Remove(marker)
+
+	client := argumentHelperClient(t, "toolcheck", nil)
+	if _, err := client.Describe(context.Background(), helperEndpoint(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("external tool did not use provider temporary workspace: %v", err)
+	}
+}
+
+func TestEnvironmentNormalizationOverridesBaselineAndRejectsDuplicates(t *testing.T) {
+	t.Setenv("PATH", "baseline-path")
+	environment, err := normalizeEnvironment([]string{"PATH=explicit-path", "DISTROPLANE_TEST=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, value := range environment {
+		entry, canonical, err := parseEnvironmentEntry(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values[canonical] = entry.value
+	}
+	if values[canonicalEnvironmentKey("PATH")] != "explicit-path" || values[canonicalEnvironmentKey("DISTROPLANE_TEST")] != "1" {
+		t.Fatalf("environment=%v", environment)
+	}
+	if _, err := normalizeEnvironment([]string{"DUPLICATE=1", "DUPLICATE=2"}); err == nil {
+		t.Fatal("duplicate explicit environment accepted")
+	}
+	if runtime.GOOS == "windows" {
+		if _, err := normalizeEnvironment([]string{"Path=one", "PATH=two"}); err == nil {
+			t.Fatal("case-insensitive duplicate environment accepted")
+		}
 	}
 }
 
