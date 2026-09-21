@@ -123,6 +123,7 @@ type evidence struct {
 	UpdateBranch      string `json:"updateBranch"`
 	ManifestTreeSHA   string `json:"manifestTreeSha256"`
 	Commit            string `json:"commit,omitempty"`
+	DestinationCommit string `json:"destinationCommit,omitempty"`
 	PackageID         string `json:"packageId"`
 	PackageVersion    string `json:"packageVersion"`
 	PublicationState  string `json:"publicationState"`
@@ -227,7 +228,7 @@ func (p Provider) Reconcile(ctx context.Context, request protocol.ReconcileReque
 	if providerErr != nil {
 		return protocol.ReconcileResponse{}, providerErr
 	}
-	result, providerErr := p.reconcile(ctx, payload, token)
+	result, providerErr := p.reconcile(ctx, payload, request.Previous, token)
 	if providerErr != nil {
 		return protocol.ReconcileResponse{}, providerErr
 	}
