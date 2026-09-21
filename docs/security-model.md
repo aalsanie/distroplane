@@ -6,9 +6,9 @@ Distroplane trusts the invoking OS account, the local filesystem, the selected p
 
 Planning records each provider's reported name/version, capabilities, and executable SHA-256. Apply and reconcile require those digests and verify the selected executable before use. The host checks the required protocol and capability through `describe`, then rechecks the executable digest before dispatch. A malicious provider can still lie about its identity or results.
 
-`0.9.0-rc.1` and current source have a known environment-isolation defect on Linux and macOS: provider discovery and planning inherit the invoking process's environment. Identity checks during apply and reconcile do so too. This can expose unrelated provider secrets and GitHub's OIDC request credentials, even though the credential resolver supplies only declared requirements.
+Provider processes receive a deliberately allowlisted baseline environment for executable discovery and temporary workspaces: `PATH`, applicable `TMPDIR`/`TMP`/`TEMP`, and on Windows `SYSTEMROOT`/`WINDIR`/`PATHEXT`. Unrelated parent variables, including GitHub's OIDC request credentials, are not inherited. Explicit provider environment entries and resolved credential destinations are merged with collision checks; environment names are compared case-insensitively on Windows.
 
-Keep secrets out of planning jobs. Run each provider's apply/reconcile in a separate job or process environment containing only that provider's credentials, and grant `id-token: write` only where needed. Credential mappings alone do not prevent this exposure. External tools required by a provider remain part of the trusted local execution environment.
+External tools required by a provider remain part of the trusted local execution environment. Grant `id-token: write` only where needed and continue to separate jobs or environments when distinct providers require distinct trust boundaries.
 
 Credentials are supplied by reference-to-environment mappings, resolved just before execution, and delivered under the environment names declared by the provider. Resolution events record reference metadata, not values. The host redacts exact resolved values from returned errors, diagnostics, provider state, and evidence. Credential buffers are cleared where practical; this is not a guarantee against memory inspection or copies held by the runtime.
 
