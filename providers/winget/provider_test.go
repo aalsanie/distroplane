@@ -138,16 +138,24 @@ func authenticatedProvider(client *http.Client) Provider {
 }
 
 type apiFixture struct {
-	mu        sync.Mutex
-	mode      string
-	state     string
-	checks    string
-	number    int64
-	branch    string
-	base      string
-	headSHA   string
-	url       string
-	postCount int
+	mu                       sync.Mutex
+	mode                     string
+	state                    string
+	checks                   string
+	number                   int64
+	branch                   string
+	base                     string
+	headSHA                  string
+	url                      string
+	postCount                int
+	destinationCommit        string
+	destinationFiles         map[string]string
+	destinationCommitStatus  int
+	destinationContentStatus int
+	destinationMalformed     bool
+	hidePullList             bool
+	moveDestinationTo        string
+	contentRefs              []string
 }
 
 func newAPIServer(t *testing.T, mode string) (*apiFixture, *httptest.Server) {
@@ -155,6 +163,7 @@ func newAPIServer(t *testing.T, mode string) (*apiFixture, *httptest.Server) {
 	fixture := &apiFixture{
 		mode: mode, state: "open", checks: "pending", number: 42,
 		headSHA: strings.Repeat("b", 40), url: "https://example.test/pr/42",
+		destinationCommit: strings.Repeat("d", 40), destinationFiles: map[string]string{},
 	}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	return fixture, server
@@ -169,21 +178,29 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveChecks(w)
 		return
 	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/") {
+		f.serveDestinationContent(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/commits/") {
+		f.serveDestinationCommit(w)
+		return
+	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls/") && !strings.HasSuffix(r.URL.Path, "/pulls") {
+		f.servePullRequestByNumber(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		if f.branch == "" {
+		if f.branch == "" || f.hidePullList {
 			_, _ = io.WriteString(w, "[]")
 			return
 		}
-		merged := "null"
-		if f.state == "merged" {
-			merged = `"2026-09-18T00:00:00Z"`
-		}
-		_, _ = fmt.Fprintf(w,
-			`[{"number":%d,"html_url":%q,"state":%q,"merged_at":%s,"head":{"ref":%q,"sha":%q},"base":{"ref":%q}}]`,
-			f.number, f.url, f.state, merged, f.branch, f.headSHA, f.base)
+		_, _ = io.WriteString(w, "[")
+		f.writePullRequest(w)
+		_, _ = io.WriteString(w, "]")
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -226,11 +243,84 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	f.writePullRequest(w)
+}
+
+func (f *apiFixture) serveDestinationCommit(w http.ResponseWriter) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.destinationCommitStatus != 0 {
+		w.WriteHeader(f.destinationCommitStatus)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if f.destinationMalformed {
+		_, _ = io.WriteString(w, `{"sha":`)
+		return
+	}
+	commit := f.destinationCommit
+	_, _ = fmt.Fprintf(w, `{"sha":%q}`, commit)
+	if f.moveDestinationTo != "" {
+		f.destinationCommit = f.moveDestinationTo
+		f.moveDestinationTo = ""
+	}
+}
+
+func (f *apiFixture) serveDestinationContent(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/repos/microsoft/winget-pkgs/contents/"
+	path := strings.TrimPrefix(r.URL.Path, prefix)
+	if path == r.URL.Path {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.contentRefs = append(f.contentRefs, r.URL.Query().Get("ref"))
+	if f.destinationContentStatus != 0 {
+		w.WriteHeader(f.destinationContentStatus)
+		return
+	}
+	content, ok := f.destinationFiles[path]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = io.WriteString(w, content)
+}
+
+func (f *apiFixture) servePullRequestByNumber(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.branch == "" || !strings.HasSuffix(r.URL.Path, fmt.Sprintf("/pulls/%d", f.number)) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	f.writePullRequest(w)
+}
+
+func (f *apiFixture) writePullRequest(w io.Writer) {
+	merged := "null"
+	if f.state == "merged" {
+		merged = `"2026-09-18T00:00:00Z"`
+	}
 	_, _ = fmt.Fprintf(w,
-		`{"number":%d,"html_url":%q,"state":"open","head":{"ref":%q,"sha":%q},"base":{"ref":%q}}`,
-		f.number, f.url, f.branch, f.headSHA, f.base)
+		`{"number":%d,"html_url":%q,"state":%q,"merged_at":%s,"head":{"ref":%q,"sha":%q},"base":{"ref":%q}}`,
+		f.number, f.url, f.state, merged, f.branch, f.headSHA, f.base)
+}
+
+func (f *apiFixture) publishDestination(files []manifestFile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.destinationFiles = make(map[string]string, len(files))
+	for _, file := range files {
+		f.destinationFiles[file.Path] = file.Content
+	}
 }
 
 func (f *apiFixture) serveChecks(w http.ResponseWriter) {
@@ -332,7 +422,7 @@ func TestValidationAndReviewStates(t *testing.T) {
 	}
 }
 
-func TestMergedOrPublishedRequiresReconciliation(t *testing.T) {
+func TestMergedPullRequestWaitsForDestinationContent(t *testing.T) {
 	repo := newRepo(t)
 	fixture, server := newAPIServer(t, "normal")
 	defer server.Close()
@@ -347,14 +437,27 @@ func TestMergedOrPublishedRequiresReconciliation(t *testing.T) {
 	fixture.checks = "passed"
 	fixture.mu.Unlock()
 	reconciled, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
-	if providerErr != nil || reconciled.Result.State != protocol.ResultPublished || reconciled.Result.ProviderState != "merged" {
+	if providerErr != nil || reconciled.Result.State != protocol.ResultWaitingExternal || reconciled.Result.ProviderState != "merged-awaiting-destination" {
 		t.Fatalf("merged=%+v err=%v", reconciled, providerErr)
 	}
 
 	repo.promote(t, payload.UpdateBranch, payload.Branch)
 	reconciled, providerErr = provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil || reconciled.Result.State != protocol.ResultWaitingExternal || reconciled.Result.ProviderState != "merged-awaiting-destination" {
+		t.Fatalf("fork base incorrectly established publication: %+v err=%v", reconciled, providerErr)
+	}
+
+	fixture.publishDestination(payload.Files)
+	reconciled, providerErr = provider.Reconcile(context.Background(), reconcileRequest(payload))
 	if providerErr != nil || reconciled.Result.State != protocol.ResultPublished || reconciled.Result.ProviderState != "published" {
 		t.Fatalf("published=%+v err=%v", reconciled, providerErr)
+	}
+	var got evidence
+	if err := json.Unmarshal(reconciled.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DestinationCommit != strings.Repeat("d", 40) {
+		t.Fatalf("evidence=%+v", got)
 	}
 }
 
@@ -398,7 +501,7 @@ func TestAmbiguousSubmissionReconcilesWithoutDuplicatePR(t *testing.T) {
 	}
 }
 
-func TestBranchConflictAndAlreadyPublished(t *testing.T) {
+func TestForkBaseDoesNotEstablishPublication(t *testing.T) {
 	repo := newRepo(t)
 	_, server := newAPIServer(t, "normal")
 	defer server.Close()
@@ -416,8 +519,8 @@ func TestBranchConflictAndAlreadyPublished(t *testing.T) {
 	}
 	repo.promote(t, first.UpdateBranch, first.Branch)
 	response, providerErr = provider.Apply(context.Background(), applyRequest(first))
-	if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "already-published" {
-		t.Fatalf("published=%+v err=%v", response, providerErr)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "submitted" {
+		t.Fatalf("fork base incorrectly established publication: %+v err=%v", response, providerErr)
 	}
 }
 
@@ -445,7 +548,7 @@ func (r *lostPushRunner) Run(ctx context.Context, dir string, env []string, args
 
 func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	repo := newRepo(t)
-	_, server := newAPIServer(t, "normal")
+	fixture, server := newAPIServer(t, "normal")
 	defer server.Close()
 	provider := authenticatedProvider(server.Client())
 	provider.Git = &lostPushRunner{delegate: execGitRunner{}}
@@ -453,6 +556,276 @@ func TestLostPushConfirmationIsReconciledBeforeSubmission(t *testing.T) {
 	response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
 	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal {
 		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("pull request submissions=%d", posts)
+	}
+}
+
+func TestApplyUsesDestinationContentBeforeSubmissionState(t *testing.T) {
+	t.Run("exact", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+
+		response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "already-published" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+		fixture.mu.Lock()
+		posts := fixture.postCount
+		fixture.mu.Unlock()
+		if posts != 0 {
+			t.Fatalf("pull request submissions=%d", posts)
+		}
+	})
+
+	t.Run("conflict", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		fixture.destinationFiles[payload.Files[1].Path] = "different\n"
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultRejected || response.Result.ProviderState != "destination-conflict" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+		fixture.mu.Lock()
+		posts := fixture.postCount
+		fixture.mu.Unlock()
+		if posts != 0 {
+			t.Fatalf("pull request submissions=%d", posts)
+		}
+	})
+}
+
+func TestPriorPullRequestEvidenceMustMatchPlannedSubmission(t *testing.T) {
+	repo := newRepo(t)
+	_, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+
+	if _, ok := priorPullRequestNumber(payload, nil); ok {
+		t.Fatal("nil prior evidence accepted")
+	}
+	if _, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: json.RawMessage(`{`)}); ok {
+		t.Fatal("malformed prior evidence accepted")
+	}
+	prior := evidence{
+		Repository: payload.PullRequest.Repository, BaseBranch: payload.Branch, UpdateBranch: payload.UpdateBranch,
+		ManifestTreeSHA: payload.TreeSHA256, PullRequestNumber: 42,
+	}
+	raw, _ := json.Marshal(prior)
+	if number, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: raw}); !ok || number != 42 {
+		t.Fatalf("number=%d ok=%v", number, ok)
+	}
+	prior.ManifestTreeSHA = strings.Repeat("f", 64)
+	raw, _ = json.Marshal(prior)
+	if _, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: raw}); ok {
+		t.Fatal("mismatched prior evidence accepted")
+	}
+}
+
+func TestDestinationContentUsesOneResolvedCommit(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	fixture.publishDestination(payload.Files)
+	fixture.mu.Lock()
+	resolved := fixture.destinationCommit
+	fixture.moveDestinationTo = strings.Repeat("e", 40)
+	fixture.mu.Unlock()
+
+	response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil || response.Result.State != protocol.ResultPublished || response.Result.ProviderState != "published" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	refs := append([]string(nil), fixture.contentRefs...)
+	current := fixture.destinationCommit
+	fixture.mu.Unlock()
+	if current == resolved || len(refs) != len(payload.Files) {
+		t.Fatalf("resolved=%q current=%q refs=%v", resolved, current, refs)
+	}
+	for _, ref := range refs {
+		if ref != resolved {
+			t.Fatalf("destination manifest read from moving ref %q, want %q", ref, resolved)
+		}
+	}
+	var got evidence
+	if err := json.Unmarshal(response.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DestinationCommit != resolved {
+		t.Fatalf("evidence=%+v", got)
+	}
+}
+
+func TestDestinationMissingAndConflictAreNotPublished(t *testing.T) {
+	t.Run("partial missing", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		delete(fixture.destinationFiles, payload.Files[0].Path)
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "absent" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+	})
+
+	t.Run("conflict", func(t *testing.T) {
+		repo := newRepo(t)
+		fixture, server := newAPIServer(t, "normal")
+		defer server.Close()
+		provider := authenticatedProvider(server.Client())
+		_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+		fixture.publishDestination(payload.Files)
+		fixture.mu.Lock()
+		fixture.destinationFiles[payload.Files[0].Path] = payload.Files[0].Content + "# conflict\n"
+		fixture.mu.Unlock()
+
+		response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+		if providerErr != nil || response.Result.State != protocol.ResultRejected || response.Result.ProviderState != "destination-conflict" {
+			t.Fatalf("response=%+v err=%v", response, providerErr)
+		}
+	})
+}
+
+func TestPreviousPullRequestEvidenceRecoversAfterSourceBranchDeletion(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	applied, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+	if providerErr != nil || applied.Result.State != protocol.ResultWaitingExternal {
+		t.Fatalf("apply=%+v err=%v", applied, providerErr)
+	}
+
+	runExternalGit(t, "", "--git-dir", repo.remote, "update-ref", "-d", "refs/heads/"+payload.UpdateBranch)
+	fixture.mu.Lock()
+	fixture.state = "merged"
+	fixture.checks = "passed"
+	fixture.hidePullList = true
+	fixture.mu.Unlock()
+
+	request := reconcileRequest(payload)
+	request.Previous = &applied.Result
+	response, providerErr := provider.Reconcile(context.Background(), request)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "merged-awaiting-destination" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	var got evidence
+	if err := json.Unmarshal(response.Result.Evidence, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.PullRequestNumber != fixture.number || got.PullRequestState != "merged" {
+		t.Fatalf("evidence=%+v", got)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("pull request submissions=%d", posts)
+	}
+}
+
+func TestDestinationObservationErrorsPreserveCategories(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		commitStatus  int
+		contentStatus int
+		malformed     bool
+		want          protocol.ErrorCode
+	}{
+		{name: "authentication", commitStatus: http.StatusUnauthorized, want: protocol.ErrorAuthentication},
+		{name: "authorization", commitStatus: http.StatusForbidden, want: protocol.ErrorAuthorization},
+		{name: "rate limit", commitStatus: http.StatusTooManyRequests, want: protocol.ErrorTransientExternal},
+		{name: "malformed commit", malformed: true, want: protocol.ErrorPermanentExternal},
+		{name: "content rate limit", contentStatus: http.StatusTooManyRequests, want: protocol.ErrorTransientExternal},
+		{name: "content server error", contentStatus: http.StatusInternalServerError, want: protocol.ErrorTransientExternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newRepo(t)
+			fixture, server := newAPIServer(t, "normal")
+			defer server.Close()
+			provider := authenticatedProvider(server.Client())
+			_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+			fixture.mu.Lock()
+			fixture.destinationCommitStatus = tc.commitStatus
+			fixture.destinationContentStatus = tc.contentStatus
+			fixture.destinationMalformed = tc.malformed
+			fixture.mu.Unlock()
+
+			_, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+			if providerErr == nil || providerErr.Code != tc.want {
+				t.Fatalf("err=%+v want=%s", providerErr, tc.want)
+			}
+		})
+	}
+}
+
+func TestDestinationObservationRejectsOversizedManifest(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	fixture.publishDestination(payload.Files)
+	fixture.mu.Lock()
+	fixture.destinationFiles[payload.Files[0].Path] = strings.Repeat("x", maxDestinationManifestBytes+1)
+	fixture.mu.Unlock()
+
+	_, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr == nil || providerErr.Code != protocol.ErrorPermanentExternal {
+		t.Fatalf("err=%+v", providerErr)
+	}
+}
+
+func TestStalePriorPullRequestEvidenceFallsBackReadOnly(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	prior := evidence{
+		Repository: payload.PullRequest.Repository, BaseBranch: payload.Branch, UpdateBranch: payload.UpdateBranch,
+		ManifestTreeSHA: payload.TreeSHA256, PullRequestNumber: fixture.number,
+	}
+	raw, _ := json.Marshal(prior)
+	request := reconcileRequest(payload)
+	request.Previous = &protocol.DistributionResult{
+		State: protocol.ResultWaitingExternal, ProviderState: "submitted", Evidence: raw,
+	}
+	response, providerErr := provider.Reconcile(context.Background(), request)
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "absent" {
+		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("reconcile submitted %d pull requests", posts)
 	}
 }
 

@@ -253,6 +253,15 @@ func (f *providerHostWinGetAPI) ServeHTTP(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/commits/") {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+		return
+	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/") {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	if !strings.HasSuffix(r.URL.Path, "/pulls") {
 		w.WriteHeader(http.StatusNotFound)
 		return

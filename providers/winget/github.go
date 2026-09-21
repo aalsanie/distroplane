@@ -49,6 +49,99 @@ type checkRunsResponse struct {
 	} `json:"check_runs"`
 }
 
+const maxDestinationManifestBytes = 1 << 20
+
+type destinationObservation struct {
+	state  string
+	commit string
+}
+
+const (
+	destinationExact    = "exact"
+	destinationMissing  = "missing"
+	destinationConflict = "conflict"
+)
+
+func (p Provider) observeDestination(ctx context.Context, payload operationPayload, token string) (destinationObservation, *protocol.ProviderError) {
+	commit, providerErr := p.resolveDestinationCommit(ctx, payload, token)
+	if providerErr != nil {
+		return destinationObservation{}, providerErr
+	}
+	state := destinationExact
+	for _, file := range payload.Files {
+		content, exists, providerErr := p.readDestinationFile(ctx, payload, file.Path, commit, token)
+		if providerErr != nil {
+			return destinationObservation{}, providerErr
+		}
+		if !exists {
+			if state != destinationConflict {
+				state = destinationMissing
+			}
+			continue
+		}
+		if string(content) != file.Content {
+			state = destinationConflict
+		}
+	}
+	return destinationObservation{state: state, commit: commit}, nil
+}
+
+func (p Provider) resolveDestinationCommit(ctx context.Context, payload operationPayload, token string) (string, *protocol.ProviderError) {
+	endpoint := repositoryEndpoint(payload.PullRequest) + "/commits/" + url.PathEscape(payload.Branch)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", providerError(protocol.ErrorProviderInternal, "build WinGet destination commit lookup", false)
+	}
+	setGitHubHeaders(request, token)
+	response, err := p.client().Do(request)
+	if err != nil {
+		return "", classifyGitHubReadError(ctx)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return "", classifyGitHubStatus(response.StatusCode, false)
+	}
+	var value struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&value); err != nil || strings.TrimSpace(value.SHA) == "" {
+		return "", providerError(protocol.ErrorPermanentExternal, "WinGet destination commit API returned malformed response", false)
+	}
+	return strings.TrimSpace(value.SHA), nil
+}
+
+func (p Provider) readDestinationFile(ctx context.Context, payload operationPayload, filePath, commit, token string) ([]byte, bool, *protocol.ProviderError) {
+	endpoint := destinationContentEndpoint(payload.PullRequest, filePath, commit)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, false, providerError(protocol.ErrorProviderInternal, "build WinGet destination manifest lookup", false)
+	}
+	setGitHubHeaders(request, token)
+	request.Header.Set("Accept", "application/vnd.github.raw+json")
+	response, err := p.client().Do(request)
+	if err != nil {
+		return nil, false, classifyGitHubReadError(ctx)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return nil, false, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return nil, false, classifyGitHubStatus(response.StatusCode, false)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, maxDestinationManifestBytes+1))
+	if err != nil {
+		return nil, false, classifyGitHubReadError(ctx)
+	}
+	if len(content) > maxDestinationManifestBytes {
+		return nil, false, providerError(protocol.ErrorPermanentExternal, "WinGet destination manifest exceeds response limit", false)
+	}
+	return content, true, nil
+}
+
 func (p Provider) lookupPullRequest(ctx context.Context, payload operationPayload, token string) (pullRequestObservation, *protocol.ProviderError) {
 	endpoint := pullRequestEndpoint(payload.PullRequest) + "?" + url.Values{
 		"state": []string{"all"},
@@ -83,6 +176,58 @@ func (p Provider) lookupPullRequest(ctx context.Context, payload operationPayloa
 		return observePullRequest(value), nil
 	}
 	return pullRequestObservation{}, nil
+}
+
+func (p Provider) lookupPriorPullRequest(ctx context.Context, payload operationPayload, previous *protocol.DistributionResult, token string) (pullRequestObservation, *protocol.ProviderError) {
+	number, ok := priorPullRequestNumber(payload, previous)
+	if !ok {
+		return pullRequestObservation{}, nil
+	}
+	endpoint := pullRequestEndpoint(payload.PullRequest) + "/" + fmt.Sprintf("%d", number)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return pullRequestObservation{}, providerError(protocol.ErrorProviderInternal, "build WinGet prior pull request lookup", false)
+	}
+	setGitHubHeaders(request, token)
+	response, err := p.client().Do(request)
+	if err != nil {
+		return pullRequestObservation{}, classifyGitHubReadError(ctx)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return pullRequestObservation{}, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return pullRequestObservation{}, classifyGitHubStatus(response.StatusCode, false)
+	}
+	var value githubPullRequest
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&value); err != nil || value.Number <= 0 || strings.TrimSpace(value.HTMLURL) == "" {
+		return pullRequestObservation{}, providerError(protocol.ErrorPermanentExternal, "WinGet pull request API returned malformed response", false)
+	}
+	if value.Number != number || (value.Head.Ref != "" && value.Head.Ref != payload.UpdateBranch) || (value.Base.Ref != "" && value.Base.Ref != payload.Branch) {
+		return pullRequestObservation{}, nil
+	}
+	return observePullRequest(value), nil
+}
+
+func priorPullRequestNumber(payload operationPayload, previous *protocol.DistributionResult) (int64, bool) {
+	if previous == nil || len(previous.Evidence) == 0 {
+		return 0, false
+	}
+	var prior evidence
+	if err := json.Unmarshal(previous.Evidence, &prior); err != nil {
+		return 0, false
+	}
+	if prior.PullRequestNumber <= 0 ||
+		prior.Repository != payload.PullRequest.Repository ||
+		prior.BaseBranch != payload.Branch ||
+		prior.UpdateBranch != payload.UpdateBranch ||
+		prior.ManifestTreeSHA != payload.TreeSHA256 {
+		return 0, false
+	}
+	return prior.PullRequestNumber, true
 }
 
 func (p Provider) submitPullRequest(ctx context.Context, payload operationPayload, token string) (pullRequestObservation, *protocol.ProviderError) {
@@ -188,6 +333,14 @@ func observePullRequest(value githubPullRequest) pullRequestObservation {
 
 func pullRequestEndpoint(cfg pullRequestConfig) string {
 	return repositoryEndpoint(cfg) + "/pulls"
+}
+
+func destinationContentEndpoint(cfg pullRequestConfig, filePath, commit string) string {
+	parts := strings.Split(filePath, "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return repositoryEndpoint(cfg) + "/contents/" + strings.Join(parts, "/") + "?" + url.Values{"ref": []string{commit}}.Encode()
 }
 
 func repositoryEndpoint(cfg pullRequestConfig) string {
