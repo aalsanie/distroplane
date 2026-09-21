@@ -49,7 +49,6 @@ type checkRunsResponse struct {
 	} `json:"check_runs"`
 }
 
-
 const maxDestinationManifestBytes = 1 << 20
 
 type destinationObservation struct {
