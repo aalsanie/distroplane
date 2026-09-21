@@ -8,13 +8,13 @@ These steps follow your artifact build and configuration setup:
 
 ```yaml
 - id: plan
-  uses: aalsanie/distroplane@v0.9.0-rc.1
+  uses: aalsanie/distroplane@v0.9.0-rc.2
   with:
     command: plan
     config: distroplane.json
 
 - id: apply
-  uses: aalsanie/distroplane@v0.9.0-rc.1
+  uses: aalsanie/distroplane@v0.9.0-rc.2
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
@@ -34,14 +34,14 @@ Use separate configuration/plan pairs and jobs when providers need different sec
 
 Every invocation installs the selected release unless `binary` is supplied. The installer downloads `SHA256SUMS`, the CLI, and all checksum-listed provider executables for the runner's OS/architecture. It verifies SHA-256 before executing each download, installs canonical names such as `distroplane-provider-npm`, and adds their directory to `PATH` for the current and later steps.
 
-- At `aalsanie/distroplane@v0.9.0-rc.1`, omitting `version` selects release `v0.9.0-rc.1`.
-- When pinning the Action to a commit, explicitly set `version: 0.9.0-rc.1`. A commit or branch is not a binary release version; the installer does not resolve it to a release.
+- At `aalsanie/distroplane@v0.9.0-rc.2`, omitting `version` selects release `v0.9.0-rc.2`.
+- When pinning the Action to a commit, explicitly set `version: 0.9.0-rc.2`. A commit or branch is not a binary release version; the installer does not resolve it to a release.
 - `version` accepts an exact release version with or without leading `v`. There is no `latest` lookup or version-range resolution.
 
 ```yaml
 - uses: aalsanie/distroplane@d309048ea96601523e4759b127355b239235e4af
   with:
-    version: 0.9.0-rc.1
+    version: 0.9.0-rc.2
     command: plan
 ```
 
@@ -90,7 +90,7 @@ apply:
         if ($plans.Count -ne 1) { throw 'Expected one reviewed plan' }
         "path=$($plans[0].FullName)" >> $env:GITHUB_OUTPUT
     - id: apply
-      uses: aalsanie/distroplane@v0.9.0-rc.1
+      uses: aalsanie/distroplane@v0.9.0-rc.2
       env:
         NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       with:
@@ -119,7 +119,7 @@ Save the plan, inputs, and journal before the runner disappears. Restore them in
 
 ```yaml
 - id: reconcile
-  uses: aalsanie/distroplane@v0.9.0-rc.1
+  uses: aalsanie/distroplane@v0.9.0-rc.2
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
