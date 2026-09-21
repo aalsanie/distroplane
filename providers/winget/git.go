@@ -82,12 +82,15 @@ type branchObservation struct {
 }
 
 func (p Provider) apply(ctx context.Context, payload operationPayload, token string) (protocol.DistributionResult, *protocol.ProviderError) {
-	base, providerErr := p.observeBranch(ctx, payload, payload.Branch, token)
+	destination, providerErr := p.observeDestination(ctx, payload, token)
 	if providerErr != nil {
 		return protocol.DistributionResult{}, providerErr
 	}
-	if base.exists && base.exact {
-		return wingetResult(protocol.ResultPublished, "already-published", payload, base.commit, pullRequestObservation{}, validationObservation{}), nil
+	switch destination.state {
+	case destinationExact:
+		return wingetResult(protocol.ResultPublished, "already-published", payload, "", destination, pullRequestObservation{}, validationObservation{state: "passed"}), nil
+	case destinationConflict:
+		return wingetResult(protocol.ResultRejected, "destination-conflict", payload, "", destination, pullRequestObservation{}, validationObservation{}), nil
 	}
 
 	update, providerErr := p.observeBranch(ctx, payload, payload.UpdateBranch, token)
@@ -96,7 +99,7 @@ func (p Provider) apply(ctx context.Context, payload operationPayload, token str
 	}
 	commit := update.commit
 	if update.exists && !update.exact {
-		return wingetResult(protocol.ResultRejected, "branch-conflict", payload, update.commit, pullRequestObservation{}, validationObservation{}), nil
+		return wingetResult(protocol.ResultRejected, "branch-conflict", payload, update.commit, destination, pullRequestObservation{}, validationObservation{}), nil
 	}
 	if !update.exists {
 		var gitErr error
@@ -106,7 +109,7 @@ func (p Provider) apply(ctx context.Context, payload operationPayload, token str
 			if observeErr == nil && observed.exists && observed.exact {
 				commit = observed.commit
 			} else if observeErr == nil && observed.exists {
-				return wingetResult(protocol.ResultRejected, "branch-conflict", payload, observed.commit, pullRequestObservation{}, validationObservation{}), nil
+				return wingetResult(protocol.ResultRejected, "branch-conflict", payload, observed.commit, destination, pullRequestObservation{}, validationObservation{}), nil
 			} else {
 				return protocol.DistributionResult{}, classifyGitPushError(gitErr, token)
 			}
@@ -124,18 +127,54 @@ func (p Provider) apply(ctx context.Context, payload operationPayload, token str
 		}
 	}
 	if pr.state == "closed" {
-		return wingetResult(protocol.ResultRejected, "pull-request-closed", payload, commit, pr, validationObservation{}), nil
+		return wingetResult(protocol.ResultRejected, "pull-request-closed", payload, commit, destination, pr, validationObservation{}), nil
 	}
-	return wingetResult(protocol.ResultWaitingExternal, "submitted", payload, commit, pr, validationObservation{}), nil
+	if pr.state == "merged" {
+		return wingetResult(protocol.ResultWaitingExternal, "merged-awaiting-destination", payload, commit, destination, pr, validationObservation{state: "passed"}), nil
+	}
+	return wingetResult(protocol.ResultWaitingExternal, "submitted", payload, commit, destination, pr, validationObservation{}), nil
 }
 
-func (p Provider) reconcile(ctx context.Context, payload operationPayload, token string) (protocol.DistributionResult, *protocol.ProviderError) {
-	base, providerErr := p.observeBranch(ctx, payload, payload.Branch, token)
+func (p Provider) reconcile(ctx context.Context, payload operationPayload, previous *protocol.DistributionResult, token string) (protocol.DistributionResult, *protocol.ProviderError) {
+	destination, providerErr := p.observeDestination(ctx, payload, token)
 	if providerErr != nil {
 		return protocol.DistributionResult{}, providerErr
 	}
-	if base.exists && base.exact {
-		return wingetResult(protocol.ResultPublished, "published", payload, base.commit, pullRequestObservation{}, validationObservation{state: "passed"}), nil
+	switch destination.state {
+	case destinationExact:
+		return wingetResult(protocol.ResultPublished, "published", payload, "", destination, pullRequestObservation{}, validationObservation{state: "passed"}), nil
+	case destinationConflict:
+		return wingetResult(protocol.ResultRejected, "destination-conflict", payload, "", destination, pullRequestObservation{}, validationObservation{}), nil
+	}
+
+	pr, providerErr := p.lookupPriorPullRequest(ctx, payload, previous, token)
+	if providerErr != nil {
+		return protocol.DistributionResult{}, providerErr
+	}
+	if !pr.exists {
+		pr, providerErr = p.lookupPullRequest(ctx, payload, token)
+		if providerErr != nil {
+			return protocol.DistributionResult{}, providerErr
+		}
+	}
+	if pr.exists {
+		if pr.state == "merged" {
+			return wingetResult(protocol.ResultWaitingExternal, "merged-awaiting-destination", payload, "", destination, pr, validationObservation{state: "passed"}), nil
+		}
+		if pr.state == "closed" {
+			return wingetResult(protocol.ResultRejected, "pull-request-closed", payload, "", destination, pr, validationObservation{}), nil
+		}
+		validation, providerErr := p.lookupValidation(ctx, payload, pr, token)
+		if providerErr != nil {
+			return protocol.DistributionResult{}, providerErr
+		}
+		if validation.state == "failed" {
+			return wingetResult(protocol.ResultRejected, "validation-failed", payload, "", destination, pr, validation), nil
+		}
+		if validation.state == "passed" {
+			return wingetResult(protocol.ResultWaitingExternal, "review-pending", payload, "", destination, pr, validation), nil
+		}
+		return wingetResult(protocol.ResultWaitingExternal, "validation-pending", payload, "", destination, pr, validation), nil
 	}
 
 	update, providerErr := p.observeBranch(ctx, payload, payload.UpdateBranch, token)
@@ -143,35 +182,12 @@ func (p Provider) reconcile(ctx context.Context, payload operationPayload, token
 		return protocol.DistributionResult{}, providerErr
 	}
 	if update.exists && !update.exact {
-		return wingetResult(protocol.ResultRejected, "branch-conflict", payload, update.commit, pullRequestObservation{}, validationObservation{}), nil
+		return wingetResult(protocol.ResultRejected, "branch-conflict", payload, update.commit, destination, pr, validationObservation{}), nil
 	}
-	pr, providerErr := p.lookupPullRequest(ctx, payload, token)
-	if providerErr != nil {
-		return protocol.DistributionResult{}, providerErr
+	if update.exists {
+		return wingetResult(protocol.ResultWaitingExternal, "branch-pushed", payload, update.commit, destination, pr, validationObservation{}), nil
 	}
-	if !pr.exists {
-		if update.exists {
-			return wingetResult(protocol.ResultWaitingExternal, "branch-pushed", payload, update.commit, pr, validationObservation{}), nil
-		}
-		return wingetResult(protocol.ResultWaitingExternal, "absent", payload, "", pr, validationObservation{}), nil
-	}
-	if pr.state == "merged" {
-		return wingetResult(protocol.ResultPublished, "merged", payload, update.commit, pr, validationObservation{state: "passed"}), nil
-	}
-	if pr.state == "closed" {
-		return wingetResult(protocol.ResultRejected, "pull-request-closed", payload, update.commit, pr, validationObservation{}), nil
-	}
-	validation, providerErr := p.lookupValidation(ctx, payload, pr, token)
-	if providerErr != nil {
-		return protocol.DistributionResult{}, providerErr
-	}
-	if validation.state == "failed" {
-		return wingetResult(protocol.ResultRejected, "validation-failed", payload, update.commit, pr, validation), nil
-	}
-	if validation.state == "passed" {
-		return wingetResult(protocol.ResultWaitingExternal, "review-pending", payload, update.commit, pr, validation), nil
-	}
-	return wingetResult(protocol.ResultWaitingExternal, "validation-pending", payload, update.commit, pr, validation), nil
+	return wingetResult(protocol.ResultWaitingExternal, "absent", payload, "", destination, pr, validationObservation{}), nil
 }
 
 func (p Provider) commitAndPush(ctx context.Context, payload operationPayload, token string) (string, error) {
@@ -408,10 +424,11 @@ func secureRepositoryPath(root, relative string, allowMissingParents bool) (stri
 	return filepath.Join(root, filepath.FromSlash(normalized)), nil
 }
 
-func wingetResult(state protocol.ResultState, providerState string, payload operationPayload, commit string, pr pullRequestObservation, validation validationObservation) protocol.DistributionResult {
+func wingetResult(state protocol.ResultState, providerState string, payload operationPayload, commit string, destination destinationObservation, pr pullRequestObservation, validation validationObservation) protocol.DistributionResult {
 	value := evidence{
 		Repository: payload.PullRequest.Repository, BaseBranch: payload.Branch, UpdateBranch: payload.UpdateBranch,
-		ManifestTreeSHA: payload.TreeSHA256, Commit: commit, PackageID: payload.PackageID, PackageVersion: payload.PackageVersion,
+		ManifestTreeSHA: payload.TreeSHA256, Commit: commit, DestinationCommit: destination.commit,
+		PackageID: payload.PackageID, PackageVersion: payload.PackageVersion,
 		PublicationState: providerState, PullRequestURL: pr.url, PullRequestNumber: pr.number, PullRequestState: pr.state,
 		ValidationState: validation.state, ValidationCheck: validation.failedCheck,
 	}
