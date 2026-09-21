@@ -138,16 +138,24 @@ func authenticatedProvider(client *http.Client) Provider {
 }
 
 type apiFixture struct {
-	mu        sync.Mutex
-	mode      string
-	state     string
-	checks    string
-	number    int64
-	branch    string
-	base      string
-	headSHA   string
-	url       string
-	postCount int
+	mu                     sync.Mutex
+	mode                   string
+	state                  string
+	checks                 string
+	number                 int64
+	branch                 string
+	base                   string
+	headSHA                string
+	url                    string
+	postCount              int
+	destinationCommit      string
+	destinationFiles       map[string]string
+	destinationCommitStatus int
+	destinationContentStatus int
+	destinationMalformed   bool
+	hidePullList           bool
+	moveDestinationTo      string
+	contentRefs            []string
 }
 
 func newAPIServer(t *testing.T, mode string) (*apiFixture, *httptest.Server) {
@@ -155,6 +163,7 @@ func newAPIServer(t *testing.T, mode string) (*apiFixture, *httptest.Server) {
 	fixture := &apiFixture{
 		mode: mode, state: "open", checks: "pending", number: 42,
 		headSHA: strings.Repeat("b", 40), url: "https://example.test/pr/42",
+		destinationCommit: strings.Repeat("d", 40), destinationFiles: map[string]string{},
 	}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	return fixture, server
@@ -169,21 +178,27 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveChecks(w)
 		return
 	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/") {
+		f.serveDestinationContent(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/commits/") {
+		f.serveDestinationCommit(w)
+		return
+	}
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls/") && !strings.HasSuffix(r.URL.Path, "/pulls") {
+		f.servePullRequestByNumber(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		if f.branch == "" {
+		if f.branch == "" || f.hidePullList {
 			_, _ = io.WriteString(w, "[]")
 			return
 		}
-		merged := "null"
-		if f.state == "merged" {
-			merged = `"2026-09-18T00:00:00Z"`
-		}
-		_, _ = fmt.Fprintf(w,
-			`[{"number":%d,"html_url":%q,"state":%q,"merged_at":%s,"head":{"ref":%q,"sha":%q},"base":{"ref":%q}}]`,
-			f.number, f.url, f.state, merged, f.branch, f.headSHA, f.base)
+		f.writePullRequest(w)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -226,11 +241,84 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	f.writePullRequest(w)
+}
+
+func (f *apiFixture) serveDestinationCommit(w http.ResponseWriter) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.destinationCommitStatus != 0 {
+		w.WriteHeader(f.destinationCommitStatus)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if f.destinationMalformed {
+		_, _ = io.WriteString(w, `{"sha":`)
+		return
+	}
+	commit := f.destinationCommit
+	_, _ = fmt.Fprintf(w, `{"sha":%q}`, commit)
+	if f.moveDestinationTo != "" {
+		f.destinationCommit = f.moveDestinationTo
+		f.moveDestinationTo = ""
+	}
+}
+
+func (f *apiFixture) serveDestinationContent(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/repos/microsoft/winget-pkgs/contents/"
+	path := strings.TrimPrefix(r.URL.Path, prefix)
+	if path == r.URL.Path {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.contentRefs = append(f.contentRefs, r.URL.Query().Get("ref"))
+	if f.destinationContentStatus != 0 {
+		w.WriteHeader(f.destinationContentStatus)
+		return
+	}
+	content, ok := f.destinationFiles[path]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = io.WriteString(w, content)
+}
+
+func (f *apiFixture) servePullRequestByNumber(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.branch == "" || !strings.HasSuffix(r.URL.Path, fmt.Sprintf("/pulls/%d", f.number)) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	f.writePullRequest(w)
+}
+
+func (f *apiFixture) writePullRequest(w io.Writer) {
+	merged := "null"
+	if f.state == "merged" {
+		merged = `"2026-09-18T00:00:00Z"`
+	}
 	_, _ = fmt.Fprintf(w,
-		`{"number":%d,"html_url":%q,"state":"open","head":{"ref":%q,"sha":%q},"base":{"ref":%q}}`,
-		f.number, f.url, f.branch, f.headSHA, f.base)
+		`{"number":%d,"html_url":%q,"state":%q,"merged_at":%s,"head":{"ref":%q,"sha":%q},"base":{"ref":%q}}`,
+		f.number, f.url, f.state, merged, f.branch, f.headSHA, f.base)
+}
+
+func (f *apiFixture) publishDestination(files []manifestFile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.destinationFiles = make(map[string]string, len(files))
+	for _, file := range files {
+		f.destinationFiles[file.Path] = file.Content
+	}
 }
 
 func (f *apiFixture) serveChecks(w http.ResponseWriter) {
