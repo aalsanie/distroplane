@@ -198,7 +198,9 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, "[]")
 			return
 		}
+		_, _ = io.WriteString(w, "[")
 		f.writePullRequest(w)
+		_, _ = io.WriteString(w, "]")
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -520,6 +522,12 @@ func TestForkBaseDoesNotEstablishPublication(t *testing.T) {
 	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "submitted" {
 		t.Fatalf("fork base incorrectly established publication: %+v err=%v", response, providerErr)
 	}
+}
+
+type lostPushRunner struct {
+	delegate GitRunner
+	mu       sync.Mutex
+	lost     bool
 }
 
 func (r *lostPushRunner) Run(ctx context.Context, dir string, env []string, args ...string) (gitOutput, error) {
