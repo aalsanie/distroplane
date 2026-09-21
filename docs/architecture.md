@@ -30,6 +30,8 @@ The saved plan contains absolute artifact paths for execution. It is not a porta
 
 The local executor schedules ready operations with bounded concurrency and explicit attempts, leases, timeouts, and stable idempotency keys. It journals provider start and dispatch boundaries before letting a request reach the provider. A lease expiry or missing response does not prove a side effect failed: dispatched work with an unknown outcome requires reconciliation.
 
+Execution outcome and publication outcome are intentionally distinct. Once a side-effecting call has been durably recorded as dispatched, a timeout, cancellation, or transport failure may leave the external result unknown. That operation is reconciled before another publication attempt is allowed; only failures known to be safely retryable can return to apply.
+
 The journal is a sequence of length-delimited, checksummed JSON events. Appends are acknowledged after file synchronization; writers hold an OS file lock. An incomplete final frame can be discarded on reopening; corruption in complete frames is rejected. Parent-directory synchronization is used on Unix and skipped on Windows.
 
 The reducer derives current state from the immutable plan and journal. Status does not contact external services. Reconcile invokes providers for pending or ambiguous operations and records their observations. It does not publish new content or refresh already completed targets. There is no daemon, distributed worker service, or universal rollback operation.
