@@ -138,24 +138,24 @@ func authenticatedProvider(client *http.Client) Provider {
 }
 
 type apiFixture struct {
-	mu                     sync.Mutex
-	mode                   string
-	state                  string
-	checks                 string
-	number                 int64
-	branch                 string
-	base                   string
-	headSHA                string
-	url                    string
-	postCount              int
-	destinationCommit      string
-	destinationFiles       map[string]string
-	destinationCommitStatus int
+	mu                       sync.Mutex
+	mode                     string
+	state                    string
+	checks                   string
+	number                   int64
+	branch                   string
+	base                     string
+	headSHA                  string
+	url                      string
+	postCount                int
+	destinationCommit        string
+	destinationFiles         map[string]string
+	destinationCommitStatus  int
 	destinationContentStatus int
-	destinationMalformed   bool
-	hidePullList           bool
-	moveDestinationTo      string
-	contentRefs            []string
+	destinationMalformed     bool
+	hidePullList             bool
+	moveDestinationTo        string
+	contentRefs              []string
 }
 
 func newAPIServer(t *testing.T, mode string) (*apiFixture, *httptest.Server) {
