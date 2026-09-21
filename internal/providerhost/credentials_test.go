@@ -320,6 +320,22 @@ func TestCredentialEnvironmentCollisionsFailClosed(t *testing.T) {
 		}
 	}
 
+	explicitClient := helperClient(t, "normal", func(options *Options) {
+		options.Environment = append(options.Environment, "DISTROPLANE_EXPLICIT=explicit")
+	})
+	explicitDriver, err := NewDriverWithCredentials(
+		explicitClient,
+		resolver,
+		[]Binding{{Provider: ref, Executable: helperExecutable(t)}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Requirements = []domain.Requirement{credentialRequirement(t, "release", "DISTROPLANE_EXPLICIT")}
+	if _, err := explicitDriver.Prepare(context.Background(), request, executor.DriverApply); err == nil {
+		t.Fatal("credential was allowed to replace explicit provider environment")
+	}
+
 	if runtime.GOOS == "windows" {
 		request.Requirements = []domain.Requirement{
 			credentialRequirement(t, "release", "DISTROPLANE_CASE_TEST"),
@@ -383,6 +399,10 @@ func TestRedactorAndEnvironmentMerge(t *testing.T) {
 		if _, err := mergeEnvironment(nil, []string{"Token=1", "TOKEN=2"}); err == nil {
 			t.Fatal("case-insensitive duplicate environment accepted")
 		}
+	}
+	empty, err := mergeEnvironment(nil, nil)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty environment=%v err=%v", empty, err)
 	}
 	if _, err := mergeEnvironment(nil, []string{"bad"}); err == nil {
 		t.Fatal("invalid environment accepted")
