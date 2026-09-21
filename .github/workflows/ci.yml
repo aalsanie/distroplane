@@ -151,10 +151,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      VERSION: 0.0.0-ci
-      COMMIT: ci
       BUILD_DATE: 1970-01-01T00:00:00Z
     steps:
       - name: Checkout
@@ -166,6 +164,16 @@ jobs:
         with:
           go-version: '1.27.1'
           cache: false
+      - name: Resolve release identity
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$') {
+              throw "invalid VERSION: $version"
+          }
+          $commit = (git rev-parse --short=12 HEAD).Trim()
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "COMMIT=$commit" >> $env:GITHUB_ENV
       - name: Build release artifacts
         if: runner.os != 'Windows'
         shell: bash
@@ -178,46 +186,22 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          expected=(
-            distroplane_0.0.0-ci_linux_amd64
-            distroplane_0.0.0-ci_linux_arm64
-            distroplane_0.0.0-ci_darwin_amd64
-            distroplane_0.0.0-ci_darwin_arm64
-            distroplane_0.0.0-ci_windows_amd64.exe
-            distroplane_0.0.0-ci_windows_arm64.exe
-            distroplane-provider-npm_0.0.0-ci_linux_amd64
-            distroplane-provider-npm_0.0.0-ci_linux_arm64
-            distroplane-provider-npm_0.0.0-ci_darwin_amd64
-            distroplane-provider-npm_0.0.0-ci_darwin_arm64
-            distroplane-provider-npm_0.0.0-ci_windows_amd64.exe
-            distroplane-provider-npm_0.0.0-ci_windows_arm64.exe
-            distroplane-provider-sdkman_0.0.0-ci_linux_amd64
-            distroplane-provider-sdkman_0.0.0-ci_linux_arm64
-            distroplane-provider-sdkman_0.0.0-ci_darwin_amd64
-            distroplane-provider-sdkman_0.0.0-ci_darwin_arm64
-            distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe
-            distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe
-            distroplane-provider-homebrew_0.0.0-ci_linux_amd64
-            distroplane-provider-homebrew_0.0.0-ci_linux_arm64
-            distroplane-provider-homebrew_0.0.0-ci_darwin_amd64
-            distroplane-provider-homebrew_0.0.0-ci_darwin_arm64
-            distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe
-            distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe
-            distroplane-provider-winget_0.0.0-ci_linux_amd64
-            distroplane-provider-winget_0.0.0-ci_linux_arm64
-            distroplane-provider-winget_0.0.0-ci_darwin_amd64
-            distroplane-provider-winget_0.0.0-ci_darwin_arm64
-            distroplane-provider-winget_0.0.0-ci_windows_amd64.exe
-            distroplane-provider-winget_0.0.0-ci_windows_arm64.exe
-          )
-          for artifact in "${expected[@]}"; do
-            test -f "dist/$artifact"
+          set -euo pipefail
+          targets=(linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64)
+          names=(distroplane distroplane-provider-npm distroplane-provider-sdkman distroplane-provider-homebrew distroplane-provider-winget)
+          for target in "${targets[@]}"; do
+            extension=""
+            if [[ "$target" == windows_* ]]; then extension=".exe"; fi
+            for name in "${names[@]}"; do
+              test -f "dist/${name}_${VERSION}_${target}${extension}"
+            done
           done
           test "$(find dist -maxdepth 1 -type f -name 'distroplane*' | wc -l | tr -d ' ')" -eq 30
           test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq 30
           test -f dist/RELEASE-METADATA.json
           grep -q '"schemaVersion":"1"' dist/RELEASE-METADATA.json
-          grep -q '"version":"0.0.0-ci"' dist/RELEASE-METADATA.json
+          grep -Fq "\"version\":\"${VERSION}\"" dist/RELEASE-METADATA.json
+          grep -Fq "\"commit\":\"${COMMIT}\"" dist/RELEASE-METADATA.json
           (
             cd dist
             if command -v sha256sum >/dev/null 2>&1; then
@@ -230,64 +214,57 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $expected = @(
-            'distroplane_0.0.0-ci_linux_amd64',
-            'distroplane_0.0.0-ci_linux_arm64',
-            'distroplane_0.0.0-ci_darwin_amd64',
-            'distroplane_0.0.0-ci_darwin_arm64',
-            'distroplane_0.0.0-ci_windows_amd64.exe',
-            'distroplane_0.0.0-ci_windows_arm64.exe',
-            'distroplane-provider-npm_0.0.0-ci_linux_amd64',
-            'distroplane-provider-npm_0.0.0-ci_linux_arm64',
-            'distroplane-provider-npm_0.0.0-ci_darwin_amd64',
-            'distroplane-provider-npm_0.0.0-ci_darwin_arm64',
-            'distroplane-provider-npm_0.0.0-ci_windows_amd64.exe',
-            'distroplane-provider-npm_0.0.0-ci_windows_arm64.exe',
-            'distroplane-provider-sdkman_0.0.0-ci_linux_amd64',
-            'distroplane-provider-sdkman_0.0.0-ci_linux_arm64',
-            'distroplane-provider-sdkman_0.0.0-ci_darwin_amd64',
-            'distroplane-provider-sdkman_0.0.0-ci_darwin_arm64',
-            'distroplane-provider-sdkman_0.0.0-ci_windows_amd64.exe',
-            'distroplane-provider-sdkman_0.0.0-ci_windows_arm64.exe',
-            'distroplane-provider-homebrew_0.0.0-ci_linux_amd64',
-            'distroplane-provider-homebrew_0.0.0-ci_linux_arm64',
-            'distroplane-provider-homebrew_0.0.0-ci_darwin_amd64',
-            'distroplane-provider-homebrew_0.0.0-ci_darwin_arm64',
-            'distroplane-provider-homebrew_0.0.0-ci_windows_amd64.exe',
-            'distroplane-provider-homebrew_0.0.0-ci_windows_arm64.exe',
-            'distroplane-provider-winget_0.0.0-ci_linux_amd64',
-            'distroplane-provider-winget_0.0.0-ci_linux_arm64',
-            'distroplane-provider-winget_0.0.0-ci_darwin_amd64',
-            'distroplane-provider-winget_0.0.0-ci_darwin_arm64',
-            'distroplane-provider-winget_0.0.0-ci_windows_amd64.exe',
-            'distroplane-provider-winget_0.0.0-ci_windows_arm64.exe'
+          $targets = @(
+              @('linux','amd64'), @('linux','arm64'),
+              @('darwin','amd64'), @('darwin','arm64'),
+              @('windows','amd64'), @('windows','arm64')
           )
-          foreach ($artifact in $expected) {
-            if (-not (Test-Path (Join-Path 'dist' $artifact) -PathType Leaf)) {
-              throw "missing release artifact: $artifact"
-            }
+          $names = @(
+              'distroplane',
+              'distroplane-provider-npm',
+              'distroplane-provider-sdkman',
+              'distroplane-provider-homebrew',
+              'distroplane-provider-winget'
+          )
+          foreach ($target in $targets) {
+              $os, $arch = $target
+              $extension = if ($os -eq 'windows') { '.exe' } else { '' }
+              foreach ($name in $names) {
+                  $artifact = "${name}_$($env:VERSION)_${os}_${arch}${extension}"
+                  if (-not (Test-Path (Join-Path 'dist' $artifact) -PathType Leaf)) {
+                      throw "missing release artifact: $artifact"
+                  }
+              }
           }
           if ((Get-ChildItem dist -File -Filter 'distroplane*').Count -ne 30) {
-            throw 'unexpected release artifact count'
+              throw 'unexpected release artifact count'
           }
           $lines = @(Get-Content dist/SHA256SUMS)
           if ($lines.Count -ne 30) {
-            throw 'unexpected checksum entry count'
+              throw 'unexpected checksum entry count'
           }
           $metadataPath = Join-Path 'dist' 'RELEASE-METADATA.json'
           if (-not (Test-Path $metadataPath -PathType Leaf)) {
-            throw 'missing release metadata'
+              throw 'missing release metadata'
           }
           $metadata = Get-Content $metadataPath -Raw | ConvertFrom-Json
-          if ($metadata.schemaVersion -ne '1' -or $metadata.version -ne '0.0.0-ci') {
-            throw 'invalid release metadata'
+          if ($metadata.schemaVersion -ne '1' -or $metadata.version -ne $env:VERSION -or $metadata.commit -ne $env:COMMIT) {
+              throw 'invalid release metadata'
           }
           foreach ($line in $lines) {
-            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
-              throw "invalid checksum entry: $line"
-            }
-            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path 'dist' $Matches[2])).Hash.ToLowerInvariant()
-            if ($actual -ne $Matches[1]) {
-              throw "checksum mismatch: $($Matches[2])"
-            }
+              if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
+                  throw "invalid checksum entry: $line"
+              }
+              $actual = (Get-FileHash -Algorithm SHA256 (Join-Path 'dist' $Matches[2])).Hash.ToLowerInvariant()
+              if ($actual -ne $Matches[1]) {
+                  throw "checksum mismatch: $($Matches[2])"
+              }
           }
+      - name: Smoke candidate artifacts through CLI
+        shell: pwsh
+        env:
+          DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
+        run: |
+          $env:DISTROPLANE_RELEASE_SMOKE_VERSION = $env:VERSION
+          $env:DISTROPLANE_RELEASE_SMOKE_COMMIT = $env:COMMIT
+          go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI$' -count=1
