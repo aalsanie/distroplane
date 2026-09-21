@@ -8,11 +8,9 @@
 
 Distroplane makes release distribution recoverable across external publishing systems. It records the exact publication intent, tracks each target's durable state, and reconciles pending or uncertain outcomes without blindly repeating irreversible publication. It currently supports npm, SDKMAN, Homebrew taps, and WinGet, from the same CLI locally or through GitHub Actions.
 
-## Why Distroplane
+## How is it different from other release automation tools?
 
-A failed publish job does not prove that publication failed. A registry may have accepted a request before the response was lost, a review-based target may still be pending after CI exits, or some destinations may already be complete while others are not. Re-running the same pipeline can therefore repeat an irreversible side effect or leave the operator to reconstruct state manually.
-
-Distroplane separates CI execution from publication state. It records the dispatch boundary before a side effect reaches a provider. If the outcome later becomes unknown, that operation requires reconciliation instead of another blind apply. Reconciliation observes the external destination using the saved plan and prior evidence; it does not publish new content.
+A failed publish job does not prove that publication failed. A registry may have accepted a request before the response was lost, a review-based target may still be pending after CI exits, or some destinations may already be complete while others are not. Re-running the same pipeline can therefore repeat an irreversible side effect or leave the operator to reconstruct state manually. The idea is to separate CI execution from publication state. Record the dispatch boundary before a side effect reaches a provider; if the outcome later becomes unknown, that operation requires reconciliation instead of another blind apply. Reconciliation observes the external destination using the saved plan and prior evidence; it does not publish new content.
 
 ## What it does
 
