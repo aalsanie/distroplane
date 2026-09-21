@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/executor"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
