@@ -35,7 +35,7 @@ Replace `example` with your fork owner. `repository` is the writable clone/push 
 
 Git 2 or later must be installed on `PATH`. Map `winget-publish` to a token that can push to the fork and open/read pull requests and validation checks on the review destination. The provider receives it as `DISTROPLANE_WINGET_TOKEN`. It uses HTTPS authentication without interactive Git prompts.
 
-`0.9.0-rc.1` has a known Git discovery issue affecting this provider. Use a later release once the provider-host fix is available.
+`0.9.0-rc.1` has a known Git discovery issue affecting this provider. Use `0.9.0-rc.2` or later.
 
 Defaults are `branch: "master"`, `manifestRoot: "manifests"`, `manifestVersion: "1.12.0"`, and `package.defaultLocale: "en-US"`. `updateBranch` is derived deterministically unless supplied. Optional package links are `packageUrl`, `publisherUrl`, and `releaseNotesUrl`. Installer URLs must use HTTPS.
 
@@ -45,6 +45,6 @@ Accepted architectures are `x86`, `x64`, `arm`, `arm64`, and `neutral`. Accepted
 
 ## Pending publication and limits
 
-A new submission returns `WAITING_EXTERNAL` with pull-request evidence. Reconciliation distinguishes validation pending, review pending, validation failure, closed requests, and merged requests. Failed validation or closure yields `REJECTED`; a merged request yields `PUBLISHED`. There is no client-index availability check.
+A new submission returns `WAITING_EXTERNAL` with pull-request evidence. Reconciliation distinguishes validation pending, review pending, validation failure, closed requests, merged requests, and destination publication. Failed validation or closure yields `REJECTED`. A merged pull request remains `WAITING_EXTERNAL` until all planned manifest files are observed byte-for-byte in `pullRequest.repository` on the configured base branch.
 
-`PUBLISHED` is not reliable proof of upstream publication in this release: matching files on the writable repository's base branch (including a fork), or a merged pull request, can produce it without verifying the planned manifests in `pullRequest.repository`. Before treating the release as published, compare all three planned manifest files with that destination's base branch. Pull-request status or a synchronized fork alone is insufficient. WinGet client-index availability is not checked.
+For each publication observation, the provider resolves the destination base branch to one commit and reads every planned manifest at that immutable commit. Exact destination content yields `PUBLISHED`; missing files remain `WAITING_EXTERNAL`; differing files yield `REJECTED`. The writable fork and pull-request status are submission evidence, not publication proof. WinGet client-index availability is not checked.
