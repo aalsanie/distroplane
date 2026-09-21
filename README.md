@@ -6,13 +6,18 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/aalsanie/distroplane)](https://github.com/aalsanie/distroplane/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
 
-Distroplane plans and tracks release distribution to npm, SDKMAN, Homebrew taps, and WinGet. Review what will be published before applying it, resume interrupted runs, and export one record of each target's known state. Use the same CLI locally or through GitHub Actions; no service is required.
+Distroplane makes release distribution recoverable across external publishing systems. It records the exact publication intent, tracks each target's durable state, and reconciles pending or uncertain outcomes without blindly repeating irreversible publication. It currently supports npm, SDKMAN, Homebrew taps, and WinGet, from the same CLI locally or through GitHub Actions.
+
+## How is it different from other release automation tools?
+
+A failed publish job does not prove that publication failed. A registry may have accepted a request before the response was lost, a review-based target may still be pending after CI exits, or some destinations may already be complete while others are not. Re-running the same pipeline can therefore repeat an irreversible side effect or leave the operator to reconstruct state manually. The idea is to separate CI execution from publication state. Record the dispatch boundary before a side effect reaches a provider; if the outcome later becomes unknown, that operation requires reconciliation instead of another blind apply. Reconciliation observes the external destination using the saved plan and prior evidence; it does not publish new content.
 
 ## What it does
 
 - Saves a deterministic plan bound to artifact hashes and provider binaries.
+- Journals execution and derives durable state for each planned publication operation.
+- Requires observation of pending or ambiguous outcomes before unsafe publication can be repeated.
 - Publishes through separate provider executables using named credential references.
-- Records execution so pending reviews and uncertain outcomes can be reconciled later.
 - Exports JSON evidence for published, pending, rejected, and failed targets.
 
 ## GitHub Actions
