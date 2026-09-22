@@ -40,7 +40,21 @@ Use the path returned by `plan` in place of `PLAN.json`. Preserve the plan and j
 
 ## GitHub Actions
 
-The [composite Action](docs/github-actions.md) installs the matching checksum-verified CLI and official providers and exposes the same plan/apply/reconcile workflow used locally.
+Use the same plan/apply flow in GitHub Actions:
+
+```yaml
+- id: plan
+  uses: aalsanie/distroplane@v0.9.0-rc.2
+  with:
+    command: plan
+
+- uses: aalsanie/distroplane@v0.9.0-rc.2
+  with:
+    command: apply
+    plan: ${{ steps.plan.outputs.plan-path }}
+```
+
+The [composite Action](docs/github-actions.md) installs the matching checksum-verified CLI and official providers. See the Action guide for credentials, OIDC, reconciliation, and evidence.
 
 ## Documentation
 
