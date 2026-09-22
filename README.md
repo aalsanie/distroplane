@@ -6,11 +6,11 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/aalsanie/distroplane)](https://github.com/aalsanie/distroplane/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
 
-Lightweight release distribution for npm, SDKMAN, Homebrew taps, and WinGet. Plan publication, apply it, and reconcile pending or uncertain outcomes without blindly repeating a publish.
+Lightweight tool for recoverable release distribution to npm, SDKMAN, Homebrew taps, and WinGet.
 
 - Deterministic plans bound to artifact and provider hashes.
 - Durable execution journal with resumable state.
-- Reconciliation for pending or ambiguous publication outcomes.
+- Reconciles pending or ambiguous publication outcomes before retrying them.
 - JSON evidence for published, pending, rejected, and failed targets.
 - Same CLI locally or through GitHub Actions.
 
