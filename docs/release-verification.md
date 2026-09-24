@@ -1,93 +1,59 @@
 # Installation and release verification
 
-The [current release candidate](https://github.com/aalsanie/distroplane/releases/tag/v0.9.0-rc.2) is `0.9.0-rc.2`. GitHub Actions users can use [the composite Action](github-actions.md), which installs the matching CLI and official providers automatically.
+The current release candidate is [v0.9.0-rc.2](https://github.com/aalsanie/distroplane/releases/tag/v0.9.0-rc.2). GitHub Actions users can use the [composite Action](github-actions.md), which installs matching CLI/provider binaries automatically.
 
 ## Release assets
 
-Every release includes separate executables for the CLI and the `npm`, `sdkman`, `homebrew`, and `winget` providers on these targets:
+v0.9.0-rc.2 provides the CLI and four official provider executables for:
 
-| OS | Architectures | Filename suffix |
+| OS | Architectures | Suffix |
 | --- | --- | --- |
 | Linux | amd64, arm64 | `_linux_<arch>` |
 | macOS | amd64, arm64 | `_darwin_<arch>` |
 | Windows | amd64, arm64 | `_windows_<arch>.exe` |
 
-For example: `distroplane_0.9.0-rc.2_linux_amd64` and `distroplane-provider-npm_0.9.0-rc.2_linux_amd64`. Release assets also include `SHA256SUMS` and `RELEASE-METADATA.json`. There are no installation archives or package-manager installers in this release.
+The release also contains `SHA256SUMS` and `RELEASE-METADATA.json`. The checksum file covers every executable; metadata records version, source commit, build date, Go version, and CGO setting. These files are unsigned and are not cryptographic attestations.
 
-`SHA256SUMS` covers every executable. `RELEASE-METADATA.json` records version, source commit, build date, Go version, and CGO setting. The checksum file and metadata are unsigned; the workflow does not currently publish cryptographic attestations. Checksums detect bytes that differ from the release manifest, and still require trust in the GitHub release source.
+## Manual installation
 
-## Linux and macOS
+Download `SHA256SUMS` plus the CLI and required providers from the same release. Verify each downloaded executable against its exact entry in the manifest before use.
 
-This installs the CLI and npm provider into a local `bin` directory. Run it in a new download directory. Set `platform` to one of the table's OS/architecture pairs; Apple Silicon uses `darwin_arm64`.
+Linux/macOS example for the amd64 Linux CLI:
 
 ```sh
-set -eu
-version=0.9.0-rc.2
-platform=linux_amd64
-base="https://github.com/aalsanie/distroplane/releases/download/v$version"
-curl --fail --location --remote-name "$base/SHA256SUMS"
-mkdir -p bin
-for name in distroplane distroplane-provider-npm; do
-  asset="${name}_${version}_${platform}"
-  curl --fail --location --remote-name "$base/$asset"
-  awk -v asset="$asset" '$2 == asset { print; count++ } END { if (count != 1) exit 1 }' \
-    SHA256SUMS > "$asset.sha256"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$asset.sha256"
-  else
-    shasum -a 256 -c "$asset.sha256"
-  fi
-  install -m 755 "$asset" "bin/$name"
-done
-export PATH="$PWD/bin:$PATH"
-distroplane version
+grep '  distroplane_0.9.0-rc.2_linux_amd64$' SHA256SUMS > selected.SHA256SUMS
+sha256sum -c selected.SHA256SUMS   # or: shasum -a 256 -c selected.SHA256SUMS
+chmod +x distroplane_0.9.0-rc.2_linux_amd64
 ```
 
-Add other `distroplane-provider-<name>` entries to the loop as needed. Keep the selected install directory on `PATH` in subsequent shells, or configure explicit provider executable paths.
+Repeat the manifest-entry check for each provider binary you install.
 
-## Windows PowerShell
-
-Run in a new download directory. Use `windows_arm64` for ARM64:
+Windows PowerShell example for the amd64 CLI:
 
 ```powershell
-$ErrorActionPreference = 'Stop'
-$version = '0.9.0-rc.2'
-$platform = 'windows_amd64'
-$base = "https://github.com/aalsanie/distroplane/releases/download/v$version"
-Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
-New-Item -ItemType Directory -Force bin | Out-Null
-foreach ($name in 'distroplane', 'distroplane-provider-npm') {
-    $asset = "${name}_${version}_${platform}.exe"
-    Invoke-WebRequest "$base/$asset" -OutFile $asset
-    $entry = @(Get-Content SHA256SUMS | Where-Object { $_.EndsWith("  $asset") })
-    if ($entry.Count -ne 1 -or $entry[0] -notmatch '^([0-9a-f]{64})  ') {
-        throw "Missing or invalid checksum for $asset"
-    }
-    $expected = $Matches[1]
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) { throw "Checksum mismatch: $asset" }
-    Copy-Item -LiteralPath $asset -Destination "bin/$name.exe"
-}
-$env:PATH = (Resolve-Path bin).Path + [IO.Path]::PathSeparator + $env:PATH
-distroplane version
+$entry = @(Get-Content SHA256SUMS | Where-Object { $_ -match '  distroplane_0\.9\.0-rc\.2_windows_amd64\.exe$' })
+if ($entry.Count -ne 1 -or $entry[0] -notmatch '^([0-9a-f]{64})  ') { throw 'invalid checksum entry' }
+$expected = $Matches[1]
+$actual = (Get-FileHash -Algorithm SHA256 distroplane_0.9.0-rc.2_windows_amd64.exe).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'checksum mismatch' }
 ```
+
+Put the CLI and provider executables on `PATH`, or configure explicit provider executable paths.
 
 ## Build from source
 
-Use Go 1.27.1, as declared in `go.mod`, and Git when using the Homebrew or WinGet providers:
+Use Go 1.27.1. Homebrew and WinGet also require Git at runtime.
 
 ```sh
 go build -trimpath -o bin/ ./cmd/...
 ```
 
-This builds the CLI, official providers, and development fake provider into `bin`. Add that directory to `PATH`. An ordinary build reports `0.0.0-dev`; it does not automatically use `VERSION` or match the released binary's digest. Plan and execute using the same provider builds.
+This also builds the development fake provider. An ordinary source build reports `0.0.0-dev`; it does not use `VERSION` automatically. Plan and execute with the same provider builds.
 
-Maintainers can build the full release layout with `scripts/build.sh` or `scripts/build.ps1`. Set `VERSION`, `COMMIT`, and `BUILD_DATE` explicitly using the release metadata when rebuilding. These scripts replace their output directory; use a dedicated disposable directory. Their default version is `0.0.0-dev`, not the contents of `VERSION`.
+Maintainers can create the release layout with `scripts/build.sh` or `scripts/build.ps1` using explicit `VERSION`, `COMMIT`, and `BUILD_DATE`.
 
-## Release identity and compatibility
+## Release process
 
-The release workflow checks out the pushed tag, requires it to match `v` plus the repository's `VERSION`, and requires successful CI and Action-smoke push runs on `main` for that commit. It builds with CGO disabled, trimmed source paths, injected version/commit metadata, and the source commit's timestamp. Candidate versions are marked as GitHub prereleases. The workflow consumes an existing tag; it does not create one.
+The release workflow accepts an existing `v*` tag only when it matches `VERSION` and the tagged commit has successful main-branch CI and Action-smoke runs. It rebuilds and verifies release assets before creating the GitHub release.
 
-CI runs native tests on Linux, macOS, and Windows, and release assets cover the supported OS/architecture targets above. See [reliability validation](reliability-validation.md) for test coverage and [performance measurements](performance-baseline.md) for the recorded baseline.
-
-This is a pre-1.0 interface. Use matching CLI/provider releases, preserve the tools for unfinished runs, and read release notes before upgrading. Protocol/configuration/plan/journal/evidence versions are distinct; unsupported versions are rejected. There is no automatic migration command or promise that every older candidate's saved run can execute on a newer version.
+This is a pre-1.0 interface. Protocol, configuration, plan, journal, and evidence versions are independent; unsupported versions are rejected. There is no automatic migration command.

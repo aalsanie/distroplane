@@ -1,8 +1,6 @@
 # WinGet provider
 
-Generates version, installer, and default-locale manifests, pushes an update branch, and opens a GitHub pull request. It supports one installer per target and leaves review and distribution indexing to the destination repository.
-
-Use `"provider": {"name": "winget"}` in the [shared configuration](../../docs/configuration.md), with this `configuration` object:
+Generates version, installer, and default-locale manifests, pushes an update branch, and opens a GitHub pull request. It supports one installer per target.
 
 ```json
 {
@@ -29,22 +27,16 @@ Use `"provider": {"name": "winget"}` in the [shared configuration](../../docs/co
 }
 ```
 
-Replace `example` with your fork owner. `repository` is the writable clone/push destination; `pullRequest.repository` is the GitHub review destination. The fork and its base branch must already exist. `artifact` names the local installer; its SHA-256 becomes `InstallerSha256`. Upload those exact bytes to `installer.url` yourself.
+`repository` is the writable clone/push destination; `pullRequest.repository` is the review and publication destination. The fork and base branch must already exist. `artifact` names the local installer and its SHA-256 becomes `InstallerSha256`; host those bytes at `installer.url`.
 
-## Requirements and options
+Git must be on `PATH`. Map the configured credential to a token that can push to the fork and read/open pull requests and validation checks.
 
-Git 2 or later must be installed on `PATH`. Map `winget-publish` to a token that can push to the fork and open/read pull requests and validation checks on the review destination. The provider receives it as `DISTROPLANE_WINGET_TOKEN`. It uses HTTPS authentication without interactive Git prompts.
+Defaults are `branch: "master"`, `manifestRoot: "manifests"`, `manifestVersion: "1.12.0"`, and `package.defaultLocale: "en-US"`. Architectures and installer types are provider-validated. The generated manifest is intentionally minimal and may not satisfy every destination policy.
 
-`0.9.0-rc.1` has a known Git discovery issue affecting this provider. Use `0.9.0-rc.2` or later.
+## Results
 
-Defaults are `branch: "master"`, `manifestRoot: "manifests"`, `manifestVersion: "1.12.0"`, and `package.defaultLocale: "en-US"`. `updateBranch` is derived deterministically unless supplied. Optional package links are `packageUrl`, `publisherUrl`, and `releaseNotesUrl`. Installer URLs must use HTTPS.
+A new submission is `WAITING_EXTERNAL`. Reconciliation distinguishes pending validation/review, failed validation, closed requests, merged requests, and destination publication.
 
-Accepted architectures are `x86`, `x64`, `arm`, `arm64`, and `neutral`. Accepted installer types are `exe`, `msi`, `msix`, `inno`, `nullsoft`, `wix`, `burn`, `portable`, and `zip`. The provider emits a minimal manifest; destination policy can require fields it cannot generate. In particular, it has no installer-switch or nested ZIP-installer configuration.
+A merged pull request remains `WAITING_EXTERNAL` until every planned manifest is observed byte-for-byte in `pullRequest.repository` on the configured base branch at one resolved commit. Exact content is `PUBLISHED`; missing files remain `WAITING_EXTERNAL`; differing files are `REJECTED`.
 
-`commit.message`, `commit.authorName`, and `commit.authorEmail` customize commits. `pullRequest.title`, `body`, and `api` customize submission; the API defaults to `https://api.github.com`.
-
-## Pending publication and limits
-
-A new submission returns `WAITING_EXTERNAL` with pull-request evidence. Reconciliation distinguishes validation pending, review pending, validation failure, closed requests, merged requests, and destination publication. Failed validation or closure yields `REJECTED`. A merged pull request remains `WAITING_EXTERNAL` until all planned manifest files are observed byte-for-byte in `pullRequest.repository` on the configured base branch.
-
-For each publication observation, the provider resolves the destination base branch to one commit and reads every planned manifest at that immutable commit. Exact destination content yields `PUBLISHED`; missing files remain `WAITING_EXTERNAL`; differing files yield `REJECTED`. The writable fork and pull-request status are submission evidence, not publication proof. WinGet client-index availability is not checked.
+Fork state and pull-request status are submission evidence, not publication proof. WinGet client-index availability is not checked.
