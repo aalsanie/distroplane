@@ -1,25 +1,37 @@
 # Distroplane
 
 [![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml)
-[![GitHub Action smoke](https://github.com/aalsanie/distroplane/actions/workflows/action-smoke.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/action-smoke.yml)
 [![Release](https://img.shields.io/github/v/release/aalsanie/distroplane?include_prereleases&sort=semver)](https://github.com/aalsanie/distroplane/releases)
-[![Go version](https://img.shields.io/github/go-mod/go-version/aalsanie/distroplane)](https://github.com/aalsanie/distroplane/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
 
-Lightweight tool for recoverable release distribution to npm, SDKMAN, Homebrew taps, and WinGet.
+Lightweight tool for recoverable release distribution to npm, SDKMAN, Homebrew taps, and WinGet. It plans existing artifacts, records publication state, and reconciles pending or uncertain outcomes before retrying side effects.
 
-- Deterministic plans bound to artifact and provider hashes.
-- Durable execution journal with resumable state.
-- Reconciles pending or ambiguous publication outcomes before retrying them.
-- JSON evidence for published, pending, rejected, and failed targets.
-- Same CLI locally or through GitHub Actions.
+## GitHub Actions
 
-## Quick start
+For an npm target configured with the credential reference `npm-publish`:
 
-[Install Distroplane and the providers you need](docs/release-verification.md), then create a [configuration](docs/configuration.md).
+```yaml
+- id: plan
+  uses: aalsanie/distroplane@v0.9.0-rc.2
+  with:
+    command: plan
+
+- uses: aalsanie/distroplane@v0.9.0-rc.2
+  env:
+    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+  with:
+    command: apply
+    plan: ${{ steps.plan.outputs.plan-path }}
+    credential-mappings: npm-publish=NPM_TOKEN
+```
+
+See [GitHub Actions](docs/github-actions.md) for plan handoff, reconciliation, OIDC, and evidence.
+
+## CLI
+
+[Install Distroplane](docs/release-verification.md), create a [configuration](docs/configuration.md), then:
 
 ```sh
-distroplane validate --config distroplane.json
 distroplane plan --config distroplane.json
 distroplane apply --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 distroplane status --plan PLAN.json --journal run.journal
@@ -33,33 +45,13 @@ Use the path returned by `plan` in place of `PLAN.json`. Preserve the plan and j
 
 | Provider | Publication flow |
 | --- | --- |
-| [npm](providers/npm/README.md) | Packed npm tarball to an npm registry; token or supplied OIDC token |
-| [SDKMAN](providers/sdkman/README.md) | Candidate/version registration through the vendor API |
-| [Homebrew](providers/homebrew/README.md) | Formula or cask in a custom tap, by direct push or GitHub pull request |
-| [WinGet](providers/winget/README.md) | Installer manifests submitted through a GitHub pull request |
-
-## GitHub Actions
-
-Use the same plan/apply flow in GitHub Actions:
-
-```yaml
-- id: plan
-  uses: aalsanie/distroplane@v0.9.0-rc.2
-  with:
-    command: plan
-
-- uses: aalsanie/distroplane@v0.9.0-rc.2
-  with:
-    command: apply
-    plan: ${{ steps.plan.outputs.plan-path }}
-```
-
-The [composite Action](docs/github-actions.md) installs the matching checksum-verified CLI and official providers. See the Action guide for credentials, OIDC, reconciliation, and evidence.
+| [npm](providers/npm/README.md) | npm-compatible registry |
+| [SDKMAN](providers/sdkman/README.md) | SDKMAN vendor API |
+| [Homebrew](providers/homebrew/README.md) | Custom tap by push or pull request |
+| [WinGet](providers/winget/README.md) | Manifest pull request |
 
 ## Documentation
 
-[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [GitHub Actions](docs/github-actions.md) · [Architecture](docs/architecture.md) · [Security](docs/security-model.md) · [Release verification](docs/release-verification.md) · [Contributing](CONTRIBUTING.md)
+[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Architecture](docs/architecture.md) · [Security](docs/security-model.md) · [Release verification](docs/release-verification.md) · [Contributing](CONTRIBUTING.md)
 
-## Status
-
-Current release: **0.9.0-rc.2**. Pre-1.0. [Apache-2.0](LICENSE).
+Apache-2.0.

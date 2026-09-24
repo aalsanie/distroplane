@@ -1,18 +1,10 @@
 # Contributing to Distroplane
 
-Distroplane keeps package-specific behavior in separate provider executables. Keep the core provider-neutral and prefer the Go standard library. See [architecture and protocol](docs/architecture.md) for the current boundaries.
+Keep the core provider-neutral, package-specific behavior in provider executables, and the Go module free of external dependencies unless an architecture decision explicitly changes that constraint. See [architecture](docs/architecture.md).
 
-## Development requirements
+## Checks
 
-- Go 1.27.1
-- no new external Go module dependency without an explicit architecture decision
-- `gofmt` clean
-- `go vet ./...` clean
-- `go test ./...` clean
-- `go test -race ./...` clean
-- at least 90% statement coverage for every first-party Go package and repository-wide
-
-Run the repository checks before opening a pull request:
+Use Go 1.27.1 and run:
 
 ```sh
 ./scripts/check-dependencies.sh
@@ -22,18 +14,16 @@ go vet ./...
 go test -race ./...
 ```
 
-See [building from source](docs/release-verification.md#build-from-source) for CLI/provider binaries. CI also exercises the Action, native OS builds, parser fuzzing, and benchmarks; the workflow files contain the exact commands.
+CI also runs formatting, fuzz smoke tests, native Linux/macOS/Windows tests and builds, release-build verification, benchmarks, and GitHub Action smoke tests.
 
-## Developer Certificate of Origin
+## DCO
 
-Distroplane uses the Developer Certificate of Origin 1.1 rather than a CLA. Sign off each commit with:
+Sign off each commit under the [Developer Certificate of Origin 1.1](https://developercertificate.org/):
 
 ```sh
 git commit -s
 ```
 
-The sign-off certifies that you have the right to submit the contribution under the project's Apache-2.0 license. See <https://developercertificate.org/> for the DCO text.
-
 ## Architecture changes
 
-Do not hide architecture changes inside implementation work. Changes to provider isolation, the zero-dependency core target, persistence semantics, protocol boundaries, or security invariants must be proposed and documented explicitly before implementation.
+Changes to provider isolation, dependency policy, persistence semantics, protocol boundaries, or security invariants should be explicit and documented with the implementation.
