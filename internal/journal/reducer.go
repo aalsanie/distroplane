@@ -14,8 +14,7 @@ type OperationState struct {
 	TargetID          domain.TargetID
 	State             domain.NormalizedState
 	Attempt           uint32
-	// BlockedAttempts are pre-dispatch preparation failures and do not consume the apply retry budget.
-	BlockedAttempts   uint32
+	BlockedAttempts   uint32 // Pre-dispatch preparation failures; excluded from apply retry budget.
 	ReadyJournaled    bool
 	LeaseActive       bool
 	LeaseID           string

@@ -45,10 +45,10 @@ func TestBlockedStateRequiresPreDispatchPreparationFailure(t *testing.T) {
 		})
 	}
 	for name, payload := range map[string]Payload{
-		"missing error": {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked},
-		"missing category": {Attempt: 1, State: domain.StateBlocked, ErrorCode: "MISSING"},
-		"retryable": {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked, ErrorCode: "MISSING", Retryable: true},
-		"reconcile result": {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked, ErrorCode: "MISSING"},
+		"missing error":                 {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked},
+		"missing category":              {Attempt: 1, State: domain.StateBlocked, ErrorCode: "MISSING"},
+		"retryable":                     {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked, ErrorCode: "MISSING", Retryable: true},
+		"reconcile result":              {Attempt: 1, State: domain.StateBlocked, ResultCategory: ResultCategoryBlocked, ErrorCode: "MISSING"},
 		"success with blocked category": {Attempt: 1, State: domain.StatePublished, ResultCategory: ResultCategoryBlocked},
 	} {
 		eventType := EventOperationResult

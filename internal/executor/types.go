@@ -43,7 +43,7 @@ type DriverError struct {
 	Ambiguous bool
 	// Blocked means preparation cannot proceed until the operator supplies a missing prerequisite.
 	// Only honored before any provider process starts or side effect is dispatched.
-	Blocked   bool
+	Blocked bool
 }
 
 func (e *DriverError) Error() string {
