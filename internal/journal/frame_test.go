@@ -73,7 +73,7 @@ func TestReadRejectsCorruption(t *testing.T) {
 	badChecksum[len(first)+frameHeaderBytes] ^= 0xff
 	badChecksum = append(badChecksum, third...)
 	cases["middle checksum"] = badChecksum
-	badJSON := rawFrame(t, map[string]any{"schemaVersion": 1, "sequence": 1, "runId": "run-1", "type": "RUN_STARTED", "observedAt": "not-time", "payload": map[string]any{}})
+	badJSON := rawFrame(t, map[string]any{"schemaVersion": SchemaVersion, "sequence": 1, "runId": "run-1", "type": "RUN_STARTED", "observedAt": "not-time", "payload": map[string]any{}})
 	cases["json"] = badJSON
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -93,7 +93,7 @@ func TestResolveRunIDRejectsCorruptJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writer.Append(journal.Entry{RunID: runID, Type: journal.EventRunStarted}); err != nil {
+	if _, err := writer.Append(journal.Entry{RunID: runID, Type: journal.EventRunStarted, PlanID: "plan-corrupt"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -135,7 +135,7 @@ func resultState(t *testing.T, result domain.NormalizedState) journal.DerivedSta
 	defer writer.Close()
 	operation := plan.Operations()[0]
 	entries := []journal.Entry{
-		{RunID: runID, Type: journal.EventRunStarted},
+		{RunID: runID, Type: journal.EventRunStarted, PlanID: plan.ID()},
 		{RunID: runID, Type: journal.EventAttemptStarted, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
 	}

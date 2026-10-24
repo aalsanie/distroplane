@@ -134,6 +134,9 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if started {
 				return DerivedState{}, fmt.Errorf("run already started")
 			}
+			if event.PlanID != plan.ID() {
+				return DerivedState{}, fmt.Errorf("%w: journal %q, requested %q", ErrPlanMismatch, event.PlanID, plan.ID())
+			}
 			started = true
 			refreshReady(operations)
 		case EventRunCompleted:

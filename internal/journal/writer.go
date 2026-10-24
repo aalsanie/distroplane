@@ -189,6 +189,7 @@ func (w *Writer) Append(entry Entry) (Event, error) {
 		SchemaVersion: SchemaVersion,
 		Sequence:      w.next,
 		RunID:         entry.RunID,
+		PlanID:        entry.PlanID,
 		Type:          entry.Type,
 		OperationID:   entry.OperationID,
 		TargetID:      entry.TargetID,

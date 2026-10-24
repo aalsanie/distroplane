@@ -79,7 +79,11 @@ func event(seq uint64, typ EventType, op, target string, payload Payload) Event 
 	}
 }
 
-func runStarted(seq uint64) Event { return event(seq, EventRunStarted, "", "", Payload{}) }
+func runStarted(seq uint64) Event {
+	e := event(seq, EventRunStarted, "", "", Payload{})
+	e.PlanID = "plan-1"
+	return e
+}
 func attemptStarted(seq uint64, op, target string, attempt uint32) Event {
 	return event(seq, EventAttemptStarted, op, target, Payload{Attempt: attempt})
 }

@@ -4,7 +4,7 @@ The repository tests interruption, corruption, concurrency, and unsafe retry beh
 
 **A side effect with an unknown post-dispatch result is reconciled before another publication attempt.**
 
-Coverage includes provider crashes/timeouts after dispatch, cancellation, lost remote responses, repeated pending reconciliation, journal truncation/corruption, changed artifacts/provider binaries, and plan tampering.
+Coverage includes provider crashes/timeouts after dispatch, cancellation, lost remote responses, repeated pending reconciliation, journal truncation/corruption, changed artifacts/provider binaries, plan tampering, and rejection of cross-plan journal replay (including completed publications and evidence).
 
 ## Scale and bounds
 

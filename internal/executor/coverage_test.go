@@ -207,7 +207,7 @@ func TestExecuteInfrastructureFailures(t *testing.T) {
 func TestExecuteRejectsRunMismatch(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
 	writer := openWriter(t, runID())
-	if _, err := writer.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted}); err != nil {
+	if _, err := writer.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"}); err != nil {
 		t.Fatal(err)
 	}
 	other, _ := domain.NewRunID("run-2")
@@ -223,7 +223,7 @@ func TestExecuteReconcileFailureAndContractViolation(t *testing.T) {
 	preseed := func(t *testing.T) *journal.Writer {
 		writer := openWriter(t, runID())
 		for _, entry := range []journal.Entry{
-			{RunID: runID(), Type: journal.EventRunStarted},
+			{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 			{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 			{RunID: runID(), Type: journal.EventSideEffectDispatched, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 		} {
@@ -402,7 +402,7 @@ func TestExecutionObserverOrderingAndDuplicates(t *testing.T) {
 	operation := plan.Operations()[0]
 	writer := openWriter(t, runID())
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
 	} {
 		if _, err := writer.Append(entry); err != nil {
@@ -501,7 +501,7 @@ func TestLeaseHelperFailurePaths(t *testing.T) {
 	}
 
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventOperationReady, OperationID: operation.ID(), TargetID: operation.TargetID()},
 		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Lease: &journal.LeasePayload{
 			ID: expiredState.ID, Owner: expiredState.Owner, AcquiredAt: expiredState.AcquiredAt, ExpiresAt: expiredState.ExpiresAt,
@@ -536,7 +536,7 @@ func TestLeaseExpirySchedulingHelpers(t *testing.T) {
 	writer := openWriter(t, runID())
 	now := time.Now().UTC()
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
 		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: &journal.LeasePayload{
 			ID: "lease-a", Owner: "worker-a", AcquiredAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Second),
@@ -567,7 +567,7 @@ func TestLeaseExpirySchedulingHelpers(t *testing.T) {
 		SchemaVersion: journal.SchemaVersion,
 		Sequence:      1,
 		RunID:         runID(),
-		Type:          journal.EventRunStarted,
+		Type:          journal.EventRunStarted, PlanID: "plan-1",
 		ObservedAt:    time.Unix(1, 0).UTC(),
 		Payload:       journal.Payload{},
 	}})
@@ -732,7 +732,7 @@ func TestRecoveryAndQuiescenceHelperBranches(t *testing.T) {
 	t.Run("ready journaling", func(t *testing.T) {
 		plan := testPlan(t, []operationSpec{{id: "op-a"}})
 		writer := openWriter(t, runID())
-		if _, err := writer.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted}); err != nil {
+		if _, err := writer.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"}); err != nil {
 			t.Fatal(err)
 		}
 		state, err := journal.Reduce(plan, writer.Events())
@@ -771,7 +771,7 @@ func TestRecoveryAndQuiescenceHelperBranches(t *testing.T) {
 			plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: tc.sideEffecting}})
 			writer := openWriter(t, runID())
 			entries := []journal.Entry{
-				{RunID: runID(), Type: journal.EventRunStarted},
+				{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 				{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
 				{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1, AttemptReason: journal.AttemptReasonInitial}},
 			}
@@ -816,7 +816,7 @@ func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a"}})
 
 	readyWriter := openWriter(t, runID())
-	if _, err := readyWriter.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted}); err != nil {
+	if _, err := readyWriter.Append(journal.Entry{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"}); err != nil {
 		t.Fatal(err)
 	}
 	readyState, err := journal.Reduce(plan, readyWriter.Events())
@@ -833,7 +833,7 @@ func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
 	leaseWriter := openWriter(t, runID())
 	now := time.Now().UTC()
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
 		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: &journal.LeasePayload{
 			ID: "lease-a", Owner: "worker-a", AcquiredAt: now.Add(-2 * time.Second), ExpiresAt: now.Add(-time.Second),
@@ -855,7 +855,7 @@ func TestRecoveryHelperWriterErrorsAndTerminalQuiescence(t *testing.T) {
 	}
 
 	terminal, err := journal.Reduce(plan, []journal.Event{
-		{SchemaVersion: journal.SchemaVersion, Sequence: 1, RunID: runID(), Type: journal.EventRunStarted, ObservedAt: time.Unix(1, 0).UTC(), Payload: journal.Payload{}},
+		{SchemaVersion: journal.SchemaVersion, Sequence: 1, RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1", ObservedAt: time.Unix(1, 0).UTC(), Payload: journal.Payload{}},
 		{SchemaVersion: journal.SchemaVersion, Sequence: 2, RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(2, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
 		{SchemaVersion: journal.SchemaVersion, Sequence: 3, RunID: runID(), Type: journal.EventProviderProcessStarted, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(3, 0).UTC(), Payload: journal.Payload{Attempt: 1}},
 		{SchemaVersion: journal.SchemaVersion, Sequence: 4, RunID: runID(), Type: journal.EventProviderResponseReceived, OperationID: "op-a", TargetID: "target-a", ObservedAt: time.Unix(4, 0).UTC(), Payload: journal.Payload{Attempt: 1}},

@@ -374,7 +374,7 @@ func evidenceJournal(t *testing.T, plan domain.Plan) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	appendEntry(t, writer, journal.Entry{RunID: runID, Type: journal.EventRunStarted})
+	appendEntry(t, writer, journal.Entry{RunID: runID, Type: journal.EventRunStarted, PlanID: plan.ID()})
 	for _, operation := range plan.Operations() {
 		appendEntry(t, writer, journal.Entry{
 			RunID: runID, Type: journal.EventAttemptStarted, OperationID: operation.ID(), TargetID: operation.TargetID(),
@@ -434,7 +434,7 @@ func publishedJournal(t *testing.T, plan domain.Plan) []byte {
 	}
 	operation := plan.Operations()[0]
 	for _, entry := range []journal.Entry{
-		{RunID: runID, Type: journal.EventRunStarted},
+		{RunID: runID, Type: journal.EventRunStarted, PlanID: plan.ID()},
 		{RunID: runID, Type: journal.EventAttemptStarted, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID, Type: journal.EventSideEffectDispatched, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID, Type: journal.EventOperationResult, OperationID: operation.ID(), TargetID: operation.TargetID(), Payload: journal.Payload{

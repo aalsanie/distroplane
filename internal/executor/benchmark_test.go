@@ -66,7 +66,7 @@ func benchmarkScheduler(b *testing.B, count int) {
 		SchemaVersion: journal.SchemaVersion,
 		Sequence:      1,
 		RunID:         runID(),
-		Type:          journal.EventRunStarted,
+		Type:          journal.EventRunStarted, PlanID: "plan-1",
 		ObservedAt:    time.Unix(1, 0).UTC(),
 		Payload:       journal.Payload{},
 	}})

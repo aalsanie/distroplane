@@ -24,7 +24,7 @@ func TestWriterAppendDurabilityAndLocking(t *testing.T) {
 	if _, err := OpenWriter(path, runID()); !errors.Is(err, ErrWriterLocked) {
 		t.Fatalf("second writer err=%v", err)
 	}
-	first, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted})
+	first, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestWriterRecoversTruncatedTailAndResumesSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = w.Append(Entry{RunID: runID(), Type: EventRunStarted})
+	_, _ = w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"})
 	_, _ = w.Append(Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: opID("op-a"), TargetID: targetID("target-a"), Payload: Payload{Attempt: 1}})
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
@@ -132,13 +132,13 @@ func TestWriterRejectsInvalidLifecycle(t *testing.T) {
 	}
 	other := runID()
 	other = "run-2"
-	if _, err := w.Append(Entry{RunID: other, Type: EventRunStarted}); err == nil {
+	if _, err := w.Append(Entry{RunID: other, Type: EventRunStarted, PlanID: "plan-1"}); err == nil {
 		t.Fatal("wrong run accepted")
 	}
-	if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted}); err != nil {
+	if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted}); err == nil {
+	if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); err == nil {
 		t.Fatal("duplicate run start accepted")
 	}
 	if _, err := w.Append(Entry{RunID: runID(), Type: EventAttemptStarted, OperationID: opID("op-a"), TargetID: targetID("target-a")}); err == nil {
@@ -149,7 +149,7 @@ func TestWriterRejectsInvalidLifecycle(t *testing.T) {
 func TestOpenWriterRejectsRunMismatchAndCorruption(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.journal")
 	w, _ := OpenWriter(path, runID())
-	_, _ = w.Append(Entry{RunID: runID(), Type: EventRunStarted})
+	_, _ = w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"})
 	_ = w.Close()
 	if _, err := OpenWriter(path, "run-2"); err == nil {
 		t.Fatal("run mismatch accepted")
@@ -192,10 +192,10 @@ func TestWriterPoisonsAfterPartialWriteOrSyncFailure(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &Writer{file: tc.file, runID: runID(), next: 1, clock: time.Now}
-			if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted}); err == nil {
+			if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); err == nil {
 				t.Fatal("failure not surfaced")
 			}
-			if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted}); !errors.Is(err, ErrWriterPoisoned) {
+			if _, err := w.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); !errors.Is(err, ErrWriterPoisoned) {
 				t.Fatalf("poison err=%v", err)
 			}
 			if err := w.Close(); err != nil {

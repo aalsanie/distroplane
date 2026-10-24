@@ -27,7 +27,7 @@ func (*benchmarkDurableFile) Close() error                { return nil }
 func BenchmarkWriterAppend(b *testing.B) {
 	file := &benchmarkDurableFile{}
 	w := &Writer{file: file, runID: runID(), next: 1, clock: func() time.Time { return time.Unix(1, 0) }}
-	entry := Entry{RunID: runID(), Type: EventRunStarted}
+	entry := Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

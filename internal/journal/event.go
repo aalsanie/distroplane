@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	SchemaVersion  uint16 = 1
+	SchemaVersion  uint16 = 2
 	MaxRecordBytes        = 1 << 20
 )
 
@@ -68,6 +68,8 @@ var (
 	ErrWriterLocked       = errors.New("journal writer is locked")
 	ErrWriterPoisoned     = errors.New("journal writer is poisoned")
 	ErrWriterClosed       = errors.New("journal writer is closed")
+	ErrUnboundJournal    = errors.New("journal is not bound to a plan")
+	ErrPlanMismatch      = errors.New("journal belongs to a different plan")
 )
 
 type LeasePayload struct {
@@ -92,6 +94,7 @@ type Payload struct {
 
 type Entry struct {
 	RunID       domain.RunID       `json:"runId"`
+	PlanID      domain.PlanID      `json:"planId,omitempty"`
 	Type        EventType          `json:"type"`
 	OperationID domain.OperationID `json:"operationId,omitempty"`
 	TargetID    domain.TargetID    `json:"targetId,omitempty"`
@@ -102,6 +105,7 @@ type Event struct {
 	SchemaVersion uint16             `json:"schemaVersion"`
 	Sequence      uint64             `json:"sequence"`
 	RunID         domain.RunID       `json:"runId"`
+	PlanID        domain.PlanID      `json:"planId,omitempty"`
 	Type          EventType          `json:"type"`
 	OperationID   domain.OperationID `json:"operationId,omitempty"`
 	TargetID      domain.TargetID    `json:"targetId,omitempty"`
@@ -129,6 +133,13 @@ func (e Entry) validate() error {
 	if !e.Type.valid() {
 		return fmt.Errorf("%w %q", ErrUnknownEventType, e.Type)
 	}
+	if e.Type == EventRunStarted {
+		if !e.PlanID.Valid() {
+			return fmt.Errorf("%w: %s event requires a valid plan ID", ErrUnboundJournal, EventRunStarted)
+		}
+	} else if e.PlanID != "" {
+		return fmt.Errorf("plan ID is only allowed on %q", EventRunStarted)
+	}
 	if e.Type == EventRunStarted || e.Type == EventRunCompleted || e.Type == EventRunCancelled {
 		if e.OperationID != "" || e.TargetID != "" || !e.Payload.empty() {
 			return fmt.Errorf("run lifecycle event %q must not contain operation, target, or payload data", e.Type)
@@ -154,7 +165,7 @@ func (e Event) validate() error {
 	if e.ObservedAt.IsZero() {
 		return fmt.Errorf("observation timestamp is required")
 	}
-	return (Entry{RunID: e.RunID, Type: e.Type, OperationID: e.OperationID, TargetID: e.TargetID, Payload: e.Payload}).validate()
+	return (Entry{RunID: e.RunID, PlanID: e.PlanID, Type: e.Type, OperationID: e.OperationID, TargetID: e.TargetID, Payload: e.Payload}).validate()
 }
 
 func (p Payload) empty() bool {

@@ -108,7 +108,7 @@ func TestWriterEventsSnapshotAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted}); err != nil {
+	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); err != nil {
 		t.Fatal(err)
 	}
 	events := writer.Events()
