@@ -83,12 +83,12 @@ func TestRetryAuthorizationRejectsUnreconciledAndUnsafeOutcomes(t *testing.T) {
 	absent := ambiguousNpmEvents()
 	absent[5].Payload.ProviderState = "absent"
 	var cases = map[string]struct {
-		plan domain.Plan
+		plan   domain.Plan
 		events []Event
 	}{
-		"never reconciled": {plan, absent[:4]},
+		"never reconciled":      {plan, absent[:4]},
 		"reconciliation failed": {plan, ambiguousNpmEvents()},
-		"non npm provider": {testPlan(t), absent},
+		"non npm provider":      {testPlan(t), absent},
 		"ordinary waiting": {plan, []Event{
 			runStarted(1), attemptStarted(2, "op-a", "target-a", 1),
 			dispatched(3, "op-a", "target-a", 1),

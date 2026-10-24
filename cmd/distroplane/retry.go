@@ -67,7 +67,7 @@ func runRetry(args []string, stdout, stderr io.Writer) int {
 		Authorized          bool   `json:"authorized"`
 	}{
 		OutputSchemaVersion: outputSchemaVersion,
-		PlanID: string(persisted.ID()), RunID: string(runID),
+		PlanID:              string(persisted.ID()), RunID: string(runID),
 		OperationID: string(operationID), Attempt: authorized.Payload.Attempt, Authorized: true,
 	}
 	if jsonMode {

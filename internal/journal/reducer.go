@@ -77,13 +77,13 @@ func (d DerivedState) Target(id domain.TargetID) (TargetState, bool) {
 
 type mutableOperation struct {
 	OperationState
-	dependencies  []domain.OperationID
-	sideEffecting bool
-	provider      domain.ProviderRef
-	kind          string
+	dependencies   []domain.OperationID
+	sideEffecting  bool
+	provider       domain.ProviderRef
+	kind           string
 	observedAbsent bool
-	dispatched    bool
-	reconciling   bool
+	dispatched     bool
+	reconciling    bool
 }
 
 func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
