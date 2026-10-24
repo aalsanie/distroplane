@@ -32,6 +32,7 @@ const (
 	ResultCategoryFailedRetryable = "FAILED_RETRYABLE"
 	ResultCategoryFailedPermanent = "FAILED_PERMANENT"
 	ResultCategoryCancelled       = "CANCELLED"
+	ResultCategoryBlocked         = "BLOCKED"
 	ResultCategoryAmbiguous       = "AMBIGUOUS"
 )
 
@@ -252,14 +253,23 @@ func (p Payload) validate(eventType EventType) error {
 		if p.Attempt == 0 {
 			return fmt.Errorf("attempt must be greater than zero")
 		}
-		if !resultState(p.State) {
+		if !resultState(p.State) || (eventType == EventReconcileResult && p.State == domain.StateBlocked) {
 			return fmt.Errorf("invalid result state %q", p.State)
+		}
+		if p.State == domain.StateBlocked {
+			if p.ResultCategory != ResultCategoryBlocked || p.ErrorCode == "" || p.Retryable ||
+				p.ProviderState != "" || len(p.Evidence) != 0 {
+				return fmt.Errorf("blocked result must contain only its attempt, error code, and blocked category")
+			}
 		}
 		if p.Retryable && p.State != domain.StateFailed && p.State != domain.StateWaitingExternal {
 			return fmt.Errorf("state %q cannot be retryable", p.State)
 		}
 	default:
 		return fmt.Errorf("%w %q", ErrUnknownEventType, eventType)
+	}
+	if p.ResultCategory == ResultCategoryBlocked && !(eventType == EventOperationResult && p.State == domain.StateBlocked) {
+		return fmt.Errorf("blocked category is only valid for a blocked operation result")
 	}
 	if p.Lease != nil {
 		return fmt.Errorf("event %q must not contain lease metadata", eventType)
@@ -303,7 +313,7 @@ func validResultCategory(value string) bool {
 	switch value {
 	case ResultCategoryPublished, ResultCategoryWaitingExternal, ResultCategoryRejected,
 		ResultCategoryFailedRetryable, ResultCategoryFailedPermanent, ResultCategoryCancelled,
-		ResultCategoryAmbiguous:
+		ResultCategoryAmbiguous, ResultCategoryBlocked:
 		return true
 	default:
 		return false
@@ -331,7 +341,7 @@ func (p LeasePayload) validate() error {
 
 func resultState(state domain.NormalizedState) bool {
 	switch state {
-	case domain.StateWaitingExternal, domain.StatePublished, domain.StateRejected, domain.StateFailed, domain.StateCancelled:
+	case domain.StateWaitingExternal, domain.StatePublished, domain.StateRejected, domain.StateFailed, domain.StateCancelled, domain.StateBlocked:
 		return true
 	default:
 		return false

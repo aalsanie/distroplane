@@ -11,6 +11,7 @@ const (
 	StatePlanned         NormalizedState = "PLANNED"
 	StateReady           NormalizedState = "READY"
 	StateRunning         NormalizedState = "RUNNING"
+	StateBlocked         NormalizedState = "BLOCKED"
 	StateWaitingExternal NormalizedState = "WAITING_EXTERNAL"
 	StatePublished       NormalizedState = "PUBLISHED"
 	StateRejected        NormalizedState = "REJECTED"
@@ -20,7 +21,7 @@ const (
 
 func (s NormalizedState) Valid() bool {
 	switch s {
-	case StatePlanned, StateReady, StateRunning, StateWaitingExternal, StatePublished, StateRejected, StateFailed, StateCancelled:
+	case StatePlanned, StateReady, StateRunning, StateBlocked, StateWaitingExternal, StatePublished, StateRejected, StateFailed, StateCancelled:
 		return true
 	default:
 		return false

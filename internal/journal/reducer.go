@@ -14,6 +14,8 @@ type OperationState struct {
 	TargetID          domain.TargetID
 	State             domain.NormalizedState
 	Attempt           uint32
+	// BlockedAttempts are pre-dispatch preparation failures and do not consume the apply retry budget.
+	BlockedAttempts   uint32
 	ReadyJournaled    bool
 	LeaseActive       bool
 	LeaseID           string
@@ -167,7 +169,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if operation.LeaseActive {
 				return DerivedState{}, fmt.Errorf("operation %q lease already acquired", operation.ID)
 			}
-			if operation.State != domain.StateReady && !(operation.State == domain.StateFailed && operation.Retryable) && !operation.ReconcileRequired {
+			if operation.State != domain.StateReady && operation.State != domain.StateBlocked && !(operation.State == domain.StateFailed && operation.Retryable) && !operation.ReconcileRequired {
 				return DerivedState{}, fmt.Errorf("operation %q cannot acquire lease from state %q", operation.ID, operation.State)
 			}
 			setLease(operation, *event.Payload.Lease)
@@ -224,7 +226,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if err != nil {
 				return DerivedState{}, err
 			}
-			if operation.State != domain.StateReady && !(operation.State == domain.StateFailed && operation.Retryable) {
+			if operation.State != domain.StateReady && operation.State != domain.StateBlocked && !(operation.State == domain.StateFailed && operation.Retryable) {
 				return DerivedState{}, fmt.Errorf("operation %q cannot start attempt from state %q", operation.ID, operation.State)
 			}
 			if operation.ReconcileRequired {
@@ -347,7 +349,13 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if operation.State != domain.StateRunning || event.Payload.Attempt != operation.Attempt {
 				return DerivedState{}, fmt.Errorf("operation %q has no matching running attempt", operation.ID)
 			}
-			if operation.sideEffecting && !operation.dispatched && event.Payload.State != domain.StateFailed && event.Payload.State != domain.StateCancelled {
+			if event.Payload.State == domain.StateBlocked {
+				if operation.ProviderStarted || operation.dispatched || operation.ReconcileRequired {
+					return DerivedState{}, fmt.Errorf("operation %q cannot block after provider start or dispatch", operation.ID)
+				}
+				operation.BlockedAttempts++
+			}
+			if operation.sideEffecting && !operation.dispatched && event.Payload.State != domain.StateBlocked && event.Payload.State != domain.StateFailed && event.Payload.State != domain.StateCancelled {
 				return DerivedState{}, fmt.Errorf("operation %q result recorded before side-effect dispatch", operation.ID)
 			}
 			applyResult(operation, event.Payload, false)
@@ -481,7 +489,7 @@ func cancelRemaining(operations map[domain.OperationID]*mutableOperation) {
 			continue
 		}
 		switch operation.State {
-		case domain.StatePlanned, domain.StateReady, domain.StateRunning, domain.StateFailed:
+		case domain.StatePlanned, domain.StateReady, domain.StateRunning, domain.StateFailed, domain.StateBlocked:
 			operation.State = domain.StateCancelled
 			operation.Retryable = false
 			operation.ErrorCode = "RUN_CANCELLED"
@@ -528,6 +536,7 @@ func aggregateTarget(ids []domain.OperationID, operations map[domain.OperationID
 		domain.StateRejected,
 		domain.StateFailed,
 		domain.StateCancelled,
+		domain.StateBlocked,
 		domain.StateWaitingExternal,
 		domain.StateRunning,
 		domain.StateReady,

@@ -46,6 +46,7 @@ type taskOutcome struct {
 	operationID       domain.OperationID
 	attempt           uint32
 	deferReconcile    bool
+	deferBlocked      bool
 	reconciled        bool
 	infrastructureErr error
 }
@@ -369,7 +370,7 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 		var firstErr error
 		for outcome := range outcomes {
 			key := operationAttempt{operationID: outcome.operationID, attempt: outcome.attempt}
-			if outcome.deferReconcile {
+			if outcome.deferReconcile || outcome.deferBlocked {
 				deferred[key] = struct{}{}
 			}
 			if outcome.reconciled {
@@ -414,7 +415,15 @@ func (e *Executor) candidates(state journal.DerivedState, operations map[domain.
 		if state.Cancelled || e.reconcileOnly {
 			continue
 		}
-		if operationState.State == domain.StateReady || (operationState.State == domain.StateFailed && operationState.Retryable && operationState.Attempt < e.maxAttempts) {
+		if operationState.State == domain.StateBlocked {
+			// A missing credential must be corrected between invocations; never spin in one apply.
+			if _, attempted := deferred[key]; attempted {
+				continue
+			}
+		}
+		if operationState.State == domain.StateReady || operationState.State == domain.StateBlocked ||
+			(operationState.State == domain.StateFailed && operationState.Retryable &&
+				operationState.Attempt-operationState.BlockedAttempts < e.maxAttempts) {
 			result = append(result, task{kind: taskApply, operation: operation, state: operationState})
 		}
 	}
@@ -497,7 +506,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			if current.kind == taskReconcile {
 				outcome.infrastructureErr = persistReconcileOutcome(parent, ctx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, Result{}, err)
 			} else {
-				outcome.infrastructureErr = persistPreparationFailure(parent, ctx, writer, runID, current.operation, outcome.attempt, err)
+				outcome.deferBlocked, outcome.infrastructureErr = persistPreparationFailure(parent, ctx, writer, runID, current.operation, outcome.attempt, err)
 			}
 			return outcome
 		}
@@ -574,14 +583,19 @@ func recordCredentialResolution(runID domain.RunID, writer *journal.Writer, oper
 	return nil
 }
 
-func persistPreparationFailure(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, callErr error) error {
+func persistPreparationFailure(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, callErr error) (bool, error) {
 	decision := decideFailure(failureBeforeProvider, operation.SideEffecting(), parent, callCtx, callErr)
 	state := domain.StateFailed
 	if decision.cancelled {
 		state = domain.StateCancelled
+	} else {
+		var driverErr *DriverError
+		if errors.As(callErr, &driverErr) && driverErr.valid() && driverErr.Blocked {
+			state = domain.StateBlocked
+		}
 	}
-	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, decision.code, decision.action == failureRetryApply))
-	return err
+	_, err := writer.Append(resultEntry(runID, operation, attempt, state, "", nil, decision.code, state == domain.StateFailed && decision.action == failureRetryApply))
+	return state == domain.StateBlocked, err
 }
 
 func operationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -785,6 +799,8 @@ func resultCategory(state domain.NormalizedState, retryable bool) string {
 		return journal.ResultCategoryFailedPermanent
 	case domain.StateCancelled:
 		return journal.ResultCategoryCancelled
+	case domain.StateBlocked:
+		return journal.ResultCategoryBlocked
 	default:
 		return ""
 	}
@@ -970,7 +986,7 @@ func hasTerminalUnpublishedDependency(operation domain.Operation, states map[dom
 		case domain.StateRejected, domain.StateCancelled:
 			return true
 		case domain.StateFailed:
-			if !state.Retryable || state.Attempt >= maxAttempts {
+			if !state.Retryable || state.Attempt-state.BlockedAttempts >= maxAttempts {
 				return true
 			}
 		}
@@ -986,7 +1002,7 @@ func executorQuiescent(state journal.DerivedState, maxAttempts uint32) bool {
 		switch operation.State {
 		case domain.StatePublished, domain.StateRejected, domain.StateCancelled:
 		case domain.StateFailed:
-			if operation.Retryable && operation.Attempt < maxAttempts {
+			if operation.Retryable && operation.Attempt-operation.BlockedAttempts < maxAttempts {
 				return false
 			}
 		default:
