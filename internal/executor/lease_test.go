@@ -323,7 +323,7 @@ func TestExecuteExpiresStaleJournalLeaseBeforeReclaim(t *testing.T) {
 		AcquiredAt: now.Add(-2 * time.Second), ExpiresAt: now.Add(-time.Second),
 	}
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: plan.ID()},
 		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
 		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: lease}},
 	} {
@@ -364,7 +364,7 @@ func TestExpiredLeaseAfterDispatchReconcilesWithoutReapply(t *testing.T) {
 		AcquiredAt: now.Add(-2 * time.Second), ExpiresAt: now.Add(-time.Second),
 	}
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: plan.ID()},
 		{RunID: runID(), Type: journal.EventOperationReady, OperationID: "op-a", TargetID: "target-a"},
 		{RunID: runID(), Type: journal.EventLeaseAcquired, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Lease: lease}},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},

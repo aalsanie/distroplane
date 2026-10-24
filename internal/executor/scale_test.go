@@ -26,7 +26,8 @@ func TestSchedulerHandlesTenThousandOperationDAG(t *testing.T) {
 		SchemaVersion: journal.SchemaVersion,
 		Sequence:      1,
 		RunID:         runID(),
-		Type:          journal.EventRunStarted, PlanID: "plan-1",
+		Type:          journal.EventRunStarted,
+		PlanID:        "plan-1",
 		ObservedAt:    time.Unix(1, 0).UTC(),
 		Payload:       journal.Payload{},
 	}}

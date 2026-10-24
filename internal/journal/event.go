@@ -68,8 +68,8 @@ var (
 	ErrWriterLocked       = errors.New("journal writer is locked")
 	ErrWriterPoisoned     = errors.New("journal writer is poisoned")
 	ErrWriterClosed       = errors.New("journal writer is closed")
-	ErrUnboundJournal    = errors.New("journal is not bound to a plan")
-	ErrPlanMismatch      = errors.New("journal belongs to a different plan")
+	ErrUnboundJournal     = errors.New("journal is not bound to a plan")
+	ErrPlanMismatch       = errors.New("journal belongs to a different plan")
 )
 
 type LeasePayload struct {
