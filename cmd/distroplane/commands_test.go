@@ -172,7 +172,7 @@ func TestCredentialFlagsRunIDAndStateExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writer.Append(journal.Entry{RunID: runID, Type: journal.EventRunStarted}); err != nil {
+	if _, err := writer.Append(journal.Entry{RunID: runID, Type: journal.EventRunStarted, PlanID: plan.ID()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {

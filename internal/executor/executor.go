@@ -218,7 +218,7 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 		return journal.DerivedState{}, err
 	}
 	if len(events) == 0 {
-		if _, err := writer.Append(journal.Entry{RunID: runID, Type: journal.EventRunStarted}); err != nil {
+		if _, err := writer.Append(journal.Entry{RunID: runID, PlanID: plan.ID(), Type: journal.EventRunStarted}); err != nil {
 			return journal.DerivedState{}, err
 		}
 		state, err = journal.Reduce(plan, writer.Events())

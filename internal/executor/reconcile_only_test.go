@@ -33,7 +33,7 @@ func TestReconcileOnlyProcessesPendingWithoutPublishingDownstream(t *testing.T) 
 	})
 	writer := openWriter(t, runID())
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID(), Type: journal.EventSideEffectDispatched, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID(), Type: journal.EventOperationResult, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "pending", Evidence: []byte(`{"id":"1"}`)}},

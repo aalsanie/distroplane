@@ -148,7 +148,7 @@ func TestExecuteRecoversUndispatchedAttempt(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	writer := openWriter(t, runID())
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 	} {
 		if _, err := writer.Append(entry); err != nil {
@@ -179,7 +179,7 @@ func TestExecuteRecoversProviderStartBeforeDispatch(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	writer := openWriter(t, runID())
 	for _, entry := range []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID(), Type: journal.EventProviderProcessStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 	} {

@@ -28,7 +28,7 @@ The saved plan contains absolute artifact paths and is not a portable artifact b
 
 The executor runs ready operations with bounded concurrency, attempts, leases, timeouts, and stable idempotency keys. Before a side-effecting provider request is released, its dispatch boundary is durably journaled. If the result is then unknown, the operation requires reconciliation before another publication attempt.
 
-The journal stores length-delimited, checksummed JSON events. Successful appends synchronize the file and writers hold an OS file lock. An incomplete final frame can be discarded on reopen; corruption in a complete frame is rejected. Parent-directory synchronization is used on Unix and skipped on Windows.
+Journal schema v2 binds every run's first durable `RUN_STARTED` event to the immutable plan ID. Replay rejects a journal bound to any other plan, even when operation IDs match. Legacy schema-v1 journals without a plan binding are rejected: they cannot safely be resumed or used as evidence with an arbitrary plan. Create a new run only after independently verifying external publication state to avoid duplicates.\n\nThe journal stores length-delimited, checksummed JSON events. Successful appends synchronize the file and writers hold an OS file lock. An incomplete final frame can be discarded on reopen; corruption in a complete frame is rejected. Parent-directory synchronization is used on Unix and skipped on Windows.
 
 `status` derives state only from the plan and journal. `reconcile` asks providers to observe pending or ambiguous work; it does not publish new content or refresh completed targets. There is no daemon, distributed worker service, universal rollback, or exactly-once publication guarantee.
 

@@ -218,6 +218,7 @@ func TestSchedulerHandlesOneThousandOperationDAG(t *testing.T) {
 		Sequence:      1,
 		RunID:         runID(),
 		Type:          journal.EventRunStarted,
+		PlanID:        "plan-1",
 		ObservedAt:    time.Unix(1, 0).UTC(),
 		Payload:       journal.Payload{},
 	}}
@@ -446,7 +447,7 @@ func TestExecuteRecoversDispatchedAttemptByReconciling(t *testing.T) {
 	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
 	writer := openWriter(t, runID())
 	entries := []journal.Entry{
-		{RunID: runID(), Type: journal.EventRunStarted},
+		{RunID: runID(), Type: journal.EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 		{RunID: runID(), Type: journal.EventSideEffectDispatched, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
 	}

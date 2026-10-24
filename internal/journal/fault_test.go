@@ -12,10 +12,10 @@ func TestWriterDiskFullPoisonsWriter(t *testing.T) {
 	file := &failingFile{writeLimit: 8, writeErr: diskFull}
 	writer := &Writer{file: file, runID: runID(), next: 1, clock: time.Now}
 
-	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted}); !errors.Is(err, diskFull) {
+	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); !errors.Is(err, diskFull) {
 		t.Fatalf("append err=%v", err)
 	}
-	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted}); !errors.Is(err, ErrWriterPoisoned) {
+	if _, err := writer.Append(Entry{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"}); !errors.Is(err, ErrWriterPoisoned) {
 		t.Fatalf("poisoned writer err=%v", err)
 	}
 }
@@ -37,7 +37,7 @@ func TestJournalSequenceRemainsAuthoritativeUnderClockSkew(t *testing.T) {
 		},
 	}
 	entries := []Entry{
-		{RunID: runID(), Type: EventRunStarted},
+		{RunID: runID(), Type: EventRunStarted, PlanID: "plan-1"},
 		{RunID: runID(), Type: EventOperationReady, OperationID: opID("op-a"), TargetID: targetID("target-a")},
 		{RunID: runID(), Type: EventAttemptStarted, OperationID: opID("op-a"), TargetID: targetID("target-a"), Payload: Payload{Attempt: 1, AttemptReason: AttemptReasonInitial}},
 	}

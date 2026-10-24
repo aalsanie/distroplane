@@ -18,7 +18,10 @@ func TestEntryValidation(t *testing.T) {
 		entry   Entry
 		wantErr bool
 	}{
-		{"run started", Entry{RunID: runID(), Type: EventRunStarted}, false},
+		{"run started", Entry{RunID: runID(), PlanID: "plan-1", Type: EventRunStarted}, false},
+		{"unbound run", Entry{RunID: runID(), Type: EventRunStarted}, true},
+		{"plan on operation", Entry{RunID: runID(), PlanID: "plan-1", Type: EventOperationReady, OperationID: validOp, TargetID: validTarget}, true},
+		{"plan on completed", Entry{RunID: runID(), PlanID: "plan-1", Type: EventRunCompleted}, true},
 		{"operation ready", Entry{RunID: runID(), Type: EventOperationReady, OperationID: validOp, TargetID: validTarget}, false},
 		{"lease acquired", Entry{RunID: runID(), Type: EventLeaseAcquired, OperationID: validOp, TargetID: validTarget, Payload: Payload{Lease: leasePayload("lease-a", "worker-a", 1, 10)}}, false},
 		{"lease renewed", Entry{RunID: runID(), Type: EventLeaseRenewed, OperationID: validOp, TargetID: validTarget, Payload: Payload{Lease: leasePayload("lease-a", "worker-a", 1, 20)}}, false},
@@ -113,7 +116,7 @@ func TestEventValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	variants := []Event{base, base, base}
-	variants[0].SchemaVersion = 2
+	variants[0].SchemaVersion = SchemaVersion + 1
 	variants[1].Sequence = 0
 	variants[2].ObservedAt = variants[2].ObservedAt.Add(-variants[2].ObservedAt.Sub(variants[2].ObservedAt))
 	variants[2].ObservedAt = variants[2].ObservedAt.Truncate(0)
