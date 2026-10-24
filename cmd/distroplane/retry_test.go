@@ -142,6 +142,32 @@ func TestCLIRetryAuthorizesOneReconciledAbsentNpmPublication(t *testing.T) {
 	if strings.Contains(stdout.String(), "authorized one retry") {
 		t.Fatal("duplicate retry reported success")
 	}
+
+	// Exercise the text output path independently; approval never republishes.
+	textJournalPath := filepath.Join(dir, "text.journal")
+	textWriter, err := journal.OpenWriter(textJournalPath, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if _, err := textWriter.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := textWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := execute([]string{
+		"retry", "--plan", planned.Path, "--journal", textJournalPath,
+		"--operation", string(operation.ID()), "--confirm-plan", planned.PlanID,
+		"--acknowledge-duplicate-risk",
+	}, &stdout, &stderr); code != exitOK ||
+		!strings.Contains(stdout.String(), "authorized one retry") ||
+		!strings.Contains(stdout.String(), "WARNING:") {
+		t.Fatalf("text retry code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
 }
 
 func TestCLIRetryRejectsInvalidInputs(t *testing.T) {
