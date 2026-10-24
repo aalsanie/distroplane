@@ -126,3 +126,51 @@ func TestCredentialBlockNeverAllowsPostDispatchRetry(t *testing.T) {
 		t.Fatalf("expected run mismatch, got %v", err)
 	}
 }
+
+func TestBlockedPreparationDoesNotExhaustRealRetryBudget(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	path := filepath.Join(t.TempDir(), "retry.journal")
+	blocked := 0
+	applyCalls := 0
+	driver := &preparationDriver{}
+	driver.prepare = func(ctx context.Context, request Request, operation DriverOperation) (Preparation, error) {
+		if blocked < 3 {
+			blocked++
+			return Preparation{}, &DriverError{Code: "CREDENTIAL_UNAVAILABLE", Blocked: true}
+		}
+		return Preparation{Context: ctx}, nil
+	}
+	driver.apply = func(context.Context, Request) (Result, error) {
+		applyCalls++
+		if applyCalls == 1 {
+			return Result{}, &DriverError{Code: "SAFE_TRANSIENT", Retryable: true}
+		}
+		return published(), nil
+	}
+	for i := 0; i < 3; i++ {
+		writer, err := journal.OpenWriter(path, runID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, err := newExecutor(t, driver, Options{MaxAttempts: 2}).Execute(context.Background(), plan, runID(), writer)
+		if err != nil || state.Completed {
+			t.Fatalf("blocked run %d completed: state=%+v err=%v", i, state, err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer, err := journal.OpenWriter(path, runID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	state, err := newExecutor(t, driver, Options{MaxAttempts: 2}).Execute(context.Background(), plan, runID(), writer)
+	if err != nil || !state.Completed {
+		t.Fatalf("real retries were exhausted by credential checks: state=%+v err=%v", state, err)
+	}
+	op, _ := state.Operation("op-a")
+	if op.State != domain.StatePublished || op.Attempt != 5 || op.BlockedAttempts != 3 || applyCalls != 2 {
+		t.Fatalf("operation=%+v real applies=%d", op, applyCalls)
+	}
+}

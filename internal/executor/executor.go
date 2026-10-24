@@ -590,7 +590,7 @@ func persistPreparationFailure(parent, callCtx context.Context, writer *journal.
 		state = domain.StateCancelled
 	} else {
 		var driverErr *DriverError
-		if errors.As(callErr, &driverErr) && driverErr.valid() && driverErr.Blocked {
+		if parent.Err() == nil && callCtx.Err() == nil && errors.As(callErr, &driverErr) && driverErr.valid() && driverErr.Blocked {
 			state = domain.StateBlocked
 		}
 	}
