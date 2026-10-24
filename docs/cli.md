@@ -25,9 +25,9 @@ distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.j
   --credential npm-publish=NPM_TOKEN
 ```
 
-`status` reads only the plan and journal. Target states include `PLANNED`, `READY`, `RUNNING`, `WAITING_EXTERNAL`, `PUBLISHED`, `REJECTED`, `FAILED`, and `CANCELLED`.
+`status` reads only the plan and journal. Target states include `PLANNED`, `READY`, `RUNNING`, `BLOCKED`, `WAITING_EXTERNAL`, `PUBLISHED`, `REJECTED`, `FAILED`, and `CANCELLED`.
 
-Use `reconcile` for pending or ambiguous operations. It observes external state and does not dispatch new publication work. If reconciliation unblocks operations that have not started, run `apply` again.
+A `BLOCKED` operation means a required credential could not be prepared **before provider dispatch**. The run stays pending (exit code `4`) without consuming its publication retry budget. Restore the credential mapping and value, then call `apply` again with the **same plan and journal**. Only the blocked operations resume; already-published operations are not dispatched again. Repeating `apply` without fixing the credential checks the missing prerequisite once per invocation and does not spin. The journal records the non-secret error code. Reconciliation does not publish or unblock credential-blocked work.\n\nUse `reconcile` for pending or ambiguous operations. It observes external state and does not dispatch new publication work. If reconciliation unblocks operations that have not started, run `apply` again.
 
 ## Evidence
 

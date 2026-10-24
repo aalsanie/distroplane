@@ -42,7 +42,7 @@ func TestCLICredentialBackedApply(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	withoutCredential := filepath.Join(dir, "without-credential.journal")
-	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", withoutCredential, "--json"}, &stdout, &stderr); code != exitFailed {
+	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", withoutCredential, "--json"}, &stdout, &stderr); code != exitPending {
 		t.Fatalf("missing credential code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 
@@ -50,8 +50,7 @@ func TestCLICredentialBackedApply(t *testing.T) {
 	t.Setenv("DISTROPLANE_TEST_TOKEN", secret)
 	stdout.Reset()
 	stderr.Reset()
-	withCredential := filepath.Join(dir, "with-credential.journal")
-	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", withCredential, "--credential", "release=DISTROPLANE_TEST_TOKEN", "--json"}, &stdout, &stderr); code != exitOK {
+	if code := execute([]string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", withoutCredential, "--credential", "release=DISTROPLANE_TEST_TOKEN", "--json"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("credential apply code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {

@@ -439,6 +439,8 @@ func stateExit(state journal.DerivedState) int {
 		case domain.StateRejected:
 			rejected = true
 		case domain.StatePublished:
+		case domain.StateBlocked:
+			pending = true
 		default:
 			pending = true
 		}

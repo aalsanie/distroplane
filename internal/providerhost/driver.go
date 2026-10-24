@@ -118,7 +118,7 @@ func (d *Driver) Prepare(ctx context.Context, request executor.Request, operatio
 		return executor.Preparation{}, &executor.DriverError{Code: "CREDENTIAL_REQUIREMENT_INVALID", Message: err.Error()}
 	}
 	if len(requirements) != 0 && d.resolver == nil {
-		return executor.Preparation{}, &executor.DriverError{Code: "CREDENTIAL_UNAVAILABLE", Message: "credential resolver is not configured"}
+		return executor.Preparation{}, &executor.DriverError{Code: "CREDENTIAL_UNAVAILABLE", Message: "credential resolver is not configured", Blocked: true}
 	}
 
 	materials := make([]*credentials.Material, 0, len(requirements))
@@ -146,11 +146,11 @@ func (d *Driver) Prepare(ctx context.Context, request executor.Request, operatio
 			}
 			if errors.Is(resolveErr, credentials.ErrNotFound) || errors.Is(resolveErr, credentials.ErrUnavailable) {
 				return executor.Preparation{}, &executor.DriverError{
-					Code: "CREDENTIAL_UNAVAILABLE", Message: fmt.Sprintf("credential %q is unavailable", requirement.Ref),
+					Code: "CREDENTIAL_UNAVAILABLE", Message: fmt.Sprintf("credential %q is unavailable", requirement.Ref), Blocked: true,
 				}
 			}
 			return executor.Preparation{}, &executor.DriverError{
-				Code: "CREDENTIAL_RESOLUTION_FAILED", Message: fmt.Sprintf("credential %q could not be resolved", requirement.Ref),
+				Code: "CREDENTIAL_RESOLUTION_FAILED", Message: fmt.Sprintf("credential %q could not be resolved", requirement.Ref), Blocked: true,
 			}
 		}
 		value, valueErr := material.Bytes()
