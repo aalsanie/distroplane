@@ -36,15 +36,15 @@ An npm publish request can reach the registry even when its response is lost. Di
 After verifying registry state independently, an operator who accepts the residual risk can durably authorize **one** retry:
 
 ```sh
-distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal \\
+distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal \
   --credential npm-publish=NPM_TOKEN
-distroplane retry --plan PLAN.json --journal run.journal \\
-  --operation TARGET:publish --confirm-plan PLAN_ID --acknowledge-duplicate-risk
-distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal \\
+distroplane retry --plan PLAN.json --journal run.journal \
+  --operation OPERATION_ID --confirm-plan PLAN_ID --acknowledge-duplicate-risk
+distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal \
   --credential npm-publish=NPM_TOKEN
 ```
 
-Use the **exact global operation ID** shown by `distroplane status --json` (the placeholder `TARGET:publish` is illustrative) and the immutable plan ID from `distroplane plan`. The `retry` command never calls a provider or publishes. It only works for an ambiguously dispatched **npm publish** operation whose most recent successful reconciliation explicitly found the version absent. It fails closed for missing/failed reconciliation, other providers, ordinary pending work, cancelled/completed runs, wrong plans, stale attempts, or repeat authorization. An authorization is journaled before the next `apply`, and if that next publish is ambiguous again, another successful reconciliation and new explicit authorization are required.
+Use the **exact global operation ID** shown by `distroplane status --json` (a namespaced `op-...` SHA-256 identifier) and the immutable plan ID from `distroplane plan`. The `retry` command never calls a provider or publishes. It only works for an ambiguously dispatched **npm publish** operation whose most recent successful reconciliation explicitly found the version absent. It fails closed for missing/failed reconciliation, other providers, ordinary pending work, cancelled/completed runs, wrong plans, stale attempts, or repeat authorization. An authorization is journaled before the next `apply`, and if that next publish is ambiguous again, another successful reconciliation and new explicit authorization are required.
 
 **Risk:** npm metadata can be eventually consistent and a previously timed-out request can still finish. Check the registry directly and use this override only when authorized by your release process. The npm provider checks the package version again before uploading and rejects conflicting content; neither check is an exactly-once guarantee.
 

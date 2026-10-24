@@ -113,7 +113,7 @@ func TestRetryAuthorizationRejectsUnreconciledAndUnsafeOutcomes(t *testing.T) {
 			event(7, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
 			event(8, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
 		},
-		"wrong attempt": {event(7, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 2})},
+		"wrong attempt":    {event(7, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 2})},
 		"after run cancel": {event(7, EventRunCancelled, "", "", Payload{}), event(8, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1})},
 	} {
 		t.Run(name, func(t *testing.T) {
