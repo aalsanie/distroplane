@@ -29,6 +29,25 @@ distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.j
 
 A `BLOCKED` operation means a required credential could not be prepared **before provider dispatch**. The run stays pending (exit code `4`) without consuming its publication retry budget. Restore the credential mapping and value, then call `apply` again with the **same plan and journal**. Only the blocked operations resume; already-published operations are not dispatched again. Repeating `apply` without fixing the credential checks the missing prerequisite once per invocation and does not spin. The journal records the non-secret error code. Reconciliation does not publish or unblock credential-blocked work.\n\nUse `reconcile` for pending or ambiguous operations. It observes external state and does not dispatch new publication work. If reconciliation unblocks operations that have not started, run `apply` again.
 
+## Ambiguous npm publication recovery
+
+An npm publish request can reach the registry even when its response is lost. Distroplane records an ambiguous side effect and reconciles it without republishing. An npm reconciliation showing the package version **absent** is not proof that the first request will never complete; automatic retry is therefore prohibited.
+
+After verifying registry state independently, an operator who accepts the residual risk can durably authorize **one** retry:
+
+```sh
+distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal \\
+  --credential npm-publish=NPM_TOKEN
+distroplane retry --plan PLAN.json --journal run.journal \\
+  --operation TARGET:publish --confirm-plan PLAN_ID --acknowledge-duplicate-risk
+distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal \\
+  --credential npm-publish=NPM_TOKEN
+```
+
+Use the **exact global operation ID** shown by `distroplane status --json` (the placeholder `TARGET:publish` is illustrative) and the immutable plan ID from `distroplane plan`. The `retry` command never calls a provider or publishes. It only works for an ambiguously dispatched **npm publish** operation whose most recent successful reconciliation explicitly found the version absent. It fails closed for missing/failed reconciliation, other providers, ordinary pending work, cancelled/completed runs, wrong plans, stale attempts, or repeat authorization. An authorization is journaled before the next `apply`, and if that next publish is ambiguous again, another successful reconciliation and new explicit authorization are required.
+
+**Risk:** npm metadata can be eventually consistent and a previously timed-out request can still finish. Check the registry directly and use this override only when authorized by your release process. The npm provider checks the package version again before uploading and rejects conflicting content; neither check is an exactly-once guarantee.
+
 ## Evidence
 
 ```sh

@@ -79,6 +79,9 @@ type mutableOperation struct {
 	OperationState
 	dependencies  []domain.OperationID
 	sideEffecting bool
+	provider      domain.ProviderRef
+	kind          string
+	observedAbsent bool
 	dispatched    bool
 	reconciling   bool
 }
@@ -93,6 +96,8 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			OperationState: OperationState{ID: operation.ID(), TargetID: operation.TargetID(), State: domain.StatePlanned},
 			dependencies:   operation.Dependencies(),
 			sideEffecting:  operation.SideEffecting(),
+			provider:       operation.Provider(),
+			kind:           operation.Kind(),
 		}
 	}
 	targets := make(map[domain.TargetID][]domain.OperationID, len(plan.Targets()))
@@ -249,6 +254,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.ProviderState = ""
 			operation.Evidence = nil
 			operation.ErrorCode = ""
+			operation.observedAbsent = false
 		case EventCredentialResolved:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -373,6 +379,28 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.reconciling = true
 			operation.ProviderStarted = false
 			operation.ProviderResponded = false
+		case EventRetryAuthorized:
+			operation, err := eventOperation(event, operations)
+			if err != nil {
+				return DerivedState{}, err
+			}
+			if !operation.sideEffecting || operation.provider.Name() != "npm" || operation.kind != "publish" ||
+				operation.State != domain.StateWaitingExternal || !operation.ReconcileRequired ||
+				!operation.Ambiguous || !operation.observedAbsent || operation.reconciling ||
+				operation.LeaseActive || event.Payload.Attempt != operation.Attempt {
+				return DerivedState{}, fmt.Errorf("operation %q has no eligible reconciled absent npm publication to authorize", operation.ID)
+			}
+			// This is an explicit human-authorized risk decision, never an automatic
+			// consequence of a registry 404. A READY transition grants exactly one
+			// new attempt even if the ordinary retry budget was exhausted.
+			operation.observedAbsent = false
+			operation.State = domain.StateReady
+			operation.Retryable = false
+			operation.ReconcileRequired = false
+			operation.Ambiguous = false
+			operation.ProviderState = ""
+			operation.Evidence = nil
+			operation.ErrorCode = ""
 		case EventReconcileResult:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -382,6 +410,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				return DerivedState{}, fmt.Errorf("operation %q has no matching reconciliation", operation.ID)
 			}
 			applyResult(operation, event.Payload, true)
+			operation.observedAbsent = event.Payload.State == domain.StateWaitingExternal && event.Payload.ProviderState == "absent" && event.Payload.ErrorCode == ""
 			refreshReady(operations)
 		default:
 			return DerivedState{}, fmt.Errorf("%w %q", ErrUnknownEventType, event.Type)

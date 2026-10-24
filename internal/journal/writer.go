@@ -164,6 +164,11 @@ func (w *Writer) Append(entry Entry) (Event, error) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return w.appendLocked(entry)
+}
+
+// appendLocked appends a durable record while holding w.mu.
+func (w *Writer) appendLocked(entry Entry) (Event, error) {
 	if w.file == nil {
 		return Event{}, ErrWriterClosed
 	}

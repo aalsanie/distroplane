@@ -73,6 +73,8 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runStatus(args[1:], stdout, stderr)
 	case "reconcile":
 		return runExecutionContext(ctx, args[1:], stdout, stderr, true)
+	case "retry":
+		return runRetry(args[1:], stdout, stderr)
 	case "evidence":
 		return runEvidence(args[1:], stdout, stderr)
 	default:
@@ -122,6 +124,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "                                      inspect journal-derived state")
 	fmt.Fprintln(w, "  reconcile --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
 	fmt.Fprintln(w, "                                      reconcile external state only")
+	fmt.Fprintln(w, "  retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk")
+	fmt.Fprintln(w, "                                      authorize one reconciled absent npm retry (no publication)")
 	fmt.Fprintln(w, "  evidence --plan PATH --journal PATH [--output PATH] [--json]")
 	fmt.Fprintln(w, "                                      export normalized release evidence")
 	fmt.Fprintln(w, "  help                             print this help")
