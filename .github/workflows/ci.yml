@@ -37,6 +37,10 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
+      - name: Check release notes
+        run: |
+          ./scripts/check-release-notes.sh
+          ./scripts/test-release-notes.sh
       - name: Vet
         run: go vet ./...
       - name: Dependency budget

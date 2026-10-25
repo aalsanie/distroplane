@@ -51,7 +51,7 @@ This builds the development fake provider too. An ordinary source build reports 
 
 ## Publishing v0.9.0
 
-Before tagging, update `VERSION` to `0.9.0` and merge the final changes into `main`. Verify the exact intended commit has successful **main-branch CI** and **GitHub Action smoke** workflow runs, and review the provider integration results. Tag **that same commit** as `v0.9.0`. The release workflow rejects a tag that differs from `VERSION`, lacks the required successful workflow runs for its commit, or already has a published release. It rebuilds assets, checks checksums and metadata, runs a release-artifact smoke test, and publishes the GitHub release. Creating this documentation PR does not tag or publish a release.
+Confirm `VERSION` is `0.9.0` and the checked-in [v0.9.0 release notes](releases/v0.9.0.md) have passed `scripts/check-release-notes.sh`. Merge the release-preparation changes into `main`, then verify the **exact intended commit** has successful main-branch CI and GitHub Action smoke runs; review the provider integration results. Tag **that same commit** as `v0.9.0`. The release workflow rejects a tag that differs from `VERSION`, lacks valid versioned release notes, lacks the required successful workflow runs for its commit, or already has a published release. It rebuilds assets, checks checksums and metadata, runs a release-artifact smoke test, and publishes the GitHub release with the checked-in notes. Merging preparation changes does not tag or publish a release.
 
 ## Compatibility with release candidates
 
