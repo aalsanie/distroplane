@@ -155,9 +155,9 @@ fi
 	request.Release.Artifacts = []protocol.Artifact{{
 		Name: "archive", Size: int64(len(bytes)), Digest: fmt.Sprintf("sha256:%x", digest),
 	}}
-	response, err := (Provider{}).Plan(context.Background(), request)
-	if err != nil || len(response.Operations) != 1 {
-		t.Fatalf("JVM fixture planning failed: %+v error=%+v", response, err)
+	response, providerErr := (Provider{}).Plan(context.Background(), request)
+	if providerErr != nil || len(response.Operations) != 1 {
+		t.Fatalf("JVM fixture planning failed: %+v error=%+v", response, providerErr)
 	}
 	var payload operationPayload
 	if err := json.Unmarshal(response.Operations[0].ProviderPayload, &payload); err != nil {
