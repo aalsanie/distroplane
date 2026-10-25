@@ -1,79 +1,67 @@
-# CLI
+# CLI and recovery
 
-Install the CLI and required providers, build your artifacts, and create a [configuration](configuration.md).
+Build artifacts first, install the CLI and matching provider binaries, then create a [configuration](configuration.md).
 
-## Plan and apply
+## Publish
 
 ```sh
 distroplane validate --config distroplane.json
 distroplane plan --config distroplane.json
-distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal \
-  --credential npm-publish=NPM_TOKEN
+distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 ```
 
-`validate` checks core configuration structure. `plan` also reads artifacts, discovers providers, validates provider configuration, hashes artifacts/provider executables, and saves an immutable plan under `.distroplane/plans/` by default. Planning does not require publication credentials for the official providers.
+`validate` checks core JSON structure; `plan` additionally checks artifacts and provider-specific intent, then writes a content-addressed plan under `.distroplane/plans/` unless `--state-dir` is set. Use the returned plan path in subsequent commands. Planning has no publication side effects or credential requirement for the official providers.
 
-Review the plan before applying it. Apply verifies the saved artifact and provider digests, then executes or resumes the journaled run. The execution configuration must still contain the saved target IDs and select matching providers.
+Review the plan before applying. `apply` rechecks artifact and provider digests, then executes or resumes the journaled run. The execution configuration must retain the planned target IDs and matching provider selections. `--credential REF=ENV` resolves a declared credential from an environment variable at execution time; do not put secret values in a plan.
 
-Credential flags map a planned reference to an environment-variable name: `--credential REF=ENV`. Secret values stay in the environment.
-
-## Status and reconciliation
+## Inspect and reconcile
 
 ```sh
-distroplane status --plan PLAN.json --journal run.journal
-distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal \
-  --credential npm-publish=NPM_TOKEN
-```
-
-`status` reads only the plan and journal. Target states include `PLANNED`, `READY`, `RUNNING`, `BLOCKED`, `WAITING_EXTERNAL`, `PUBLISHED`, `REJECTED`, `FAILED`, and `CANCELLED`.
-
-A `BLOCKED` operation means a required credential could not be prepared **before provider dispatch**. The run stays pending (exit code `4`) without consuming its publication retry budget. Restore the credential mapping and value, then call `apply` again with the **same plan and journal**. Only the blocked operations resume; already-published operations are not dispatched again. Repeating `apply` without fixing the credential checks the missing prerequisite once per invocation and does not spin. The journal records the non-secret error code. Reconciliation does not publish or unblock credential-blocked work.\n\nUse `reconcile` for pending or ambiguous operations. It observes external state and does not dispatch new publication work. If reconciliation unblocks operations that have not started, run `apply` again.
-
-## Ambiguous npm publication recovery
-
-An npm publish request can reach the registry even when its response is lost. Distroplane records an ambiguous side effect and reconciles it without republishing. An npm reconciliation showing the package version **absent** is not proof that the first request will never complete; automatic retry is therefore prohibited.
-
-After verifying registry state independently, an operator who accepts the residual risk can durably authorize **one** retry:
-
-```sh
-distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal \
-  --credential npm-publish=NPM_TOKEN
-distroplane retry --plan PLAN.json --journal run.journal \
-  --operation OPERATION_ID --confirm-plan PLAN_ID --acknowledge-duplicate-risk
-distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal \
-  --credential npm-publish=NPM_TOKEN
-```
-
-Use the **exact global operation ID** shown by `distroplane status --json` (a namespaced `op-...` SHA-256 identifier) and the immutable plan ID from `distroplane plan`. The `retry` command never calls a provider or publishes. It only works for an ambiguously dispatched **npm publish** operation whose most recent successful reconciliation explicitly found the version absent. It fails closed for missing/failed reconciliation, other providers, ordinary pending work, cancelled/completed runs, wrong plans, stale attempts, or repeat authorization. An authorization is journaled before the next `apply`, and if that next publish is ambiguous again, another successful reconciliation and new explicit authorization are required.
-
-**Risk:** npm metadata can be eventually consistent and a previously timed-out request can still finish. Check the registry directly and use this override only when authorized by your release process. The npm provider checks the package version again before uploading and rejects conflicting content; neither check is an exactly-once guarantee.
-
-## Evidence
-
-```sh
+distroplane status --plan PLAN.json --journal run.journal --json
+distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 distroplane evidence --plan PLAN.json --journal run.journal --output evidence.json
 ```
 
-Evidence can be exported from completed, pending, or failed runs. It describes recorded state; a successful export does not mean publication succeeded. `--attestation NAME=URI` and `--journal-reference URI` attach references only; they are not signatures or verified attestations.
+`status` and `evidence` replay local state without querying the destination. `reconcile` checks dispatched or externally pending operations and never publishes new content. If reconciliation leaves undispatched operations ready, invoke `apply` again.
+
+| State | Operator interpretation |
+| --- | --- |
+| `PLANNED`, `READY`, `RUNNING` | Not yet completed |
+| `BLOCKED` | A prerequisite (notably credentials) failed before provider dispatch; repair and rerun `apply` with the same plan/journal |
+| `WAITING_EXTERNAL` | External state is pending or uncertain; reconcile rather than blindly republishing |
+| `PUBLISHED` | Provider-reported success; consult provider evidence for its strength |
+| `REJECTED`, `FAILED`, `CANCELLED` | Inspect error/status before deciding on another run |
+
+A blocked credential check does not consume the publication attempt budget, and repeatedly invoking `apply` without restoring the credential does not spin. A cancelled run may reconcile previously dispatched work, but `apply` does not restart its undispatched operations.
+
+## Explicit retry of an ambiguous npm publish
+
+If an npm publish request was dispatched and its result was lost, a missing version on reconciliation does **not** prove that the original request cannot still complete. Distroplane will not republish automatically. After independently checking the registry and accepting the duplicate-publication risk, an operator can authorize exactly one retry:
+
+```sh
+distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
+distroplane retry --plan PLAN.json --journal run.journal --operation OPERATION_ID --confirm-plan PLAN_ID --acknowledge-duplicate-risk
+distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
+```
+
+Use the global operation ID from `status --json` and the immutable plan ID. Authorization is durable but does not itself publish. It is allowed only for an ambiguous npm `publish` operation with a successful, latest reconciliation that found the version absent; it is rejected for other providers, stale observations, repeated authorization, or completed/cancelled runs. A new ambiguous outcome requires a fresh reconciliation and authorization.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Successful command; lifecycle operations are fully published |
+| `0` | Command successful; lifecycle run is fully published when applicable |
 | `1` | Operational error |
 | `2` | Invalid command or flags |
-| `3` | Invalid configuration, plan, run, or changed artifact |
-| `4` | Run still pending |
+| `3` | Invalid configuration/plan/run or changed artifact |
+| `4` | Work remains pending |
 | `5` | Rejected operation |
-| `6` | Failed or cancelled operation/run |
+| `6` | Failed or cancelled run/operation |
 
-Failure takes precedence over rejection, then pending. All lifecycle commands accept `--json`; errors go to stderr.
+Failure takes precedence over rejection, then pending. Lifecycle commands support `--json`; errors use stderr.
 
-## Recovery
+## Preserve recovery state
 
-Preserve the exact plan, journal, artifacts, provider binaries, and configuration until the run finishes. Saved artifact paths are absolute, and npm also stores its tarball path in provider payload.
+Keep the exact plan, journal, configuration, artifacts, and provider binaries until completion. Artifact paths are absolute, and some provider payloads contain additional local paths. Resume with the **same** plan and journal after an interruption; a new journal loses the previous run's recovery history. An incomplete final journal frame can be discarded on reopen, but a corrupted complete frame is rejected.
 
-After interruption, inspect `status` and resume with the same plan and journal. An unfinished dispatched operation is reconciled before a safe retry. A cancelled run can reconcile dispatched work, but `apply` does not restart undispatched work in that cancelled run.
-
-A truncated final journal record is recoverable from its valid prefix; corruption in a complete record is rejected. Starting a new journal discards the prior run's recovery state.
+See [release verification](release-verification.md) for compatibility with journals created by release candidates.

@@ -1,6 +1,8 @@
 # npm provider
 
-Publishes an existing gzip tarball directly to an npm-compatible registry. It does not run `npm publish`, build a package, or read `.npmrc`.
+Publishes an existing gzip tarball to an npm-compatible registry through its HTTP API. It does not run `npm publish`, build artifacts, or read `.npmrc`.
+
+## Configuration
 
 ```json
 {
@@ -11,26 +13,22 @@ Publishes an existing gzip tarball directly to an npm-compatible registry. It do
 }
 ```
 
-`artifact` names a release artifact. `packagePath` must be an absolute path to the same bytes and the archive must contain `package/package.json` with a valid package name and semantic version.
-
-Optional fields are `tag` (default `latest`) and `access` (`public` or `restricted`). Set `tag` explicitly for prereleases. HTTPS is required unless `allowInsecureHTTP: true` is set for a local test registry.
+`artifact` names an artifact in the core release configuration. `packagePath` must be absolute and must reference the same bytes. The archive must contain `package/package.json` with a valid package name and semantic version. Optional `tag` defaults to `latest`; optional `access` is `public` or `restricted`. Use an explicit prerelease tag when appropriate. Registries require HTTPS unless `allowInsecureHTTP` is enabled for local testing.
 
 ## Authentication
 
-For token authentication, map the configured credential reference at execution:
+With `mode: "token"`, map the credential reference to an environment variable at apply/reconcile time:
 
 ```sh
-distroplane apply --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
+distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 ```
 
-For trusted publishing, set `authentication.mode` to `trusted-publishing`. The provider exchanges a supplied OIDC ID token for an npm token; it does not obtain the ID token itself. In GitHub Actions, grant `id-token: write`, request an ID token with audience `npm:registry.npmjs.org`, and map that token's environment variable to the configured credential reference.
+`mode: "trusted-publishing"` exchanges a supplied npm-audience OIDC ID token for an npm token. The provider does **not** obtain the ID token itself. For GitHub Actions, explicitly request an ID token with audience `npm:registry.npmjs.org` and grant `id-token: write`; map its environment variable to the configured credential reference. Obtain a fresh ID token for a later reconciliation.
 
-See [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/) for account/workflow setup. Obtain a fresh ID token for later reconciliation.
+## Result and recovery semantics
 
-## Results
+Before upload, `apply` checks the registry for the planned version. Identical integrity and shasum yield `PUBLISHED`; conflicting content yields `REJECTED`. A successful upload response yields `PUBLISHED`. A lost or uncertain upload result is **ambiguous**, not a reason for an automatic retry.
 
-Before upload, apply checks whether the package/version already exists. Matching registry integrity and shasum are accepted as `PUBLISHED`; different content is `REJECTED`. A successful upload response is `PUBLISHED`. A lost response becomes ambiguous instead of triggering a blind upload retry.
+`reconcile` reads registry metadata without uploading. If the version is absent, the operation remains `WAITING_EXTERNAL`; absence does not prove an earlier timed-out publish cannot still complete. An explicit one-shot retry requires the [operator authorization workflow](../../docs/cli.md#explicit-retry-of-an-ambiguous-npm-publish).
 
-Reconcile compares registry metadata with the local tarball. A missing version remains `WAITING_EXTERNAL`; reconciliation never uploads.
-
-The provider does not generate npm provenance attestations or update dist-tags for an already matching version. Keep the tarball available while the run is pending.
+The provider does not change dist-tags on an already matching version or create npm provenance attestations. Preserve the tarball until the run finishes.

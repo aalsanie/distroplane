@@ -1,6 +1,6 @@
 # Contributing to Distroplane
 
-Keep the core provider-neutral, package-specific behavior in provider executables, and the Go module free of external dependencies unless an architecture decision explicitly changes that constraint. See [architecture](docs/architecture.md).
+Keep the core provider-neutral, package-specific behavior in separate provider executables, and the Go module free of external dependencies unless an architecture decision explicitly changes that constraint. See [architecture](docs/architecture.md).
 
 ## Checks
 
@@ -26,4 +26,4 @@ git commit -s
 
 ## Architecture changes
 
-Changes to provider isolation, dependency policy, persistence semantics, protocol boundaries, or security invariants should be explicit and documented with the implementation.
+Changes to provider isolation, dependency policy, persistence formats, protocol boundaries, or recovery/security invariants require corresponding tests and documentation. Update the canonical guide for the affected behavior: [CLI](docs/cli.md), [configuration](docs/configuration.md), [architecture](docs/architecture.md), [security](docs/security-model.md), or the destination-specific provider README. Do not duplicate implementation contracts across pages.

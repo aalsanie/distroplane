@@ -1,50 +1,48 @@
 # Architecture
 
-Distroplane separates release intent from execution. The Go core models artifacts, plans, execution state, and evidence. Package-specific APIs live in separate provider executables. The module uses only the Go standard library.
+Distroplane is a Go CLI with separate executable providers. The core owns release intent, scheduling, state, and evidence; providers own destination-specific validation, submission, and observation. The Go module uses only the standard library.
 
 ```mermaid
 flowchart LR
-  A[Artifacts + JSON config] --> B[Planner]
+  A[Artifacts and JSON configuration] --> B[Planner]
   B --> C[Immutable plan]
   C --> D[Executor]
   D --> E[Provider processes]
-  E --> F[External registries and repositories]
-  D --> G[Append-only journal]
-  C --> H[State reducer]
+  E --> F[Destinations]
+  D --> G[Durable journal]
+  C --> H[Reducer]
   G --> H
   H --> I[Status and evidence]
-  H -->|pending or ambiguous| D
+  H -->|unfinished work| D
 ```
 
-The CLI drives this lifecycle. The GitHub Action installs and invokes the CLI; publication logic remains in providers.
+## Plan boundary
 
-## Plan
+Planning validates the config and artifacts, invokes provider `describe`/`plan`, checks capabilities and operation dependencies, and records artifact SHA-256 digests, sizes, provider identities, and executable digests. The plan ID hashes semantic intent; core artifact source paths are excluded from that identity, but provider configuration and payload paths are not.
 
-Configuration is versioned JSON. Provider configuration is opaque to the core. Planning hashes artifacts and provider executables, calls provider `describe` and `plan`, validates the operation DAG, and writes a content-addressed plan.
-
-The saved plan contains absolute artifact paths and is not a portable artifact bundle. Core artifact source paths are excluded from semantic plan identity, while paths inside provider configuration or payloads remain part of provider intent.
+Saved plans retain absolute artifact paths. They are **not portable bundles**. Execution verifies artifact contents and provider binaries against the plan. Provider versions or local binaries cannot be silently replaced for an existing plan.
 
 ## Execution and recovery
 
-The executor runs ready operations with bounded concurrency, attempts, leases, timeouts, and stable idempotency keys. Before a side-effecting provider request is released, its dispatch boundary is durably journaled. If the result is then unknown, the operation requires reconciliation before another publication attempt.
+The executor schedules ready DAG operations with bounded concurrency, attempts, timeouts, and leases. Side-effecting requests have stable plan-derived idempotency keys. Before releasing a request to a provider process, the host durably journals its dispatch boundary. A dispatched operation whose outcome is unknown must be reconciled before another publication attempt.
 
-Journal schema v2 binds every run's first durable `RUN_STARTED` event to the immutable plan ID. Replay rejects a journal bound to any other plan, even when operation IDs match. Legacy schema-v1 journals without a plan binding are rejected: they cannot safely be resumed or used as evidence with an arbitrary plan. Create a new run only after independently verifying external publication state to avoid duplicates.\n\nThe journal stores length-delimited, checksummed JSON events. Successful appends synchronize the file and writers hold an OS file lock. An incomplete final frame can be discarded on reopen; corruption in a complete frame is rejected. Parent-directory synchronization is used on Unix and skipped on Windows.
+The append-only journal uses checksummed frames, sequence validation, file synchronization, and an OS writer lock. Journal schema v2 binds `RUN_STARTED` to the plan ID; replay against another plan fails even if operation IDs match. An incomplete final frame is recoverable, but corruption of a complete frame is not. The reducer derives state solely from the saved plan and journal.
 
-`status` derives state only from the plan and journal. `reconcile` asks providers to observe pending or ambiguous work; it does not publish new content or refresh completed targets. There is no daemon, distributed worker service, universal rollback, or exactly-once publication guarantee.
+`reconcile` observes outstanding side effects and never starts a new publication. An unmet credential prerequisite is `BLOCKED` before dispatch and can resume with the same plan/journal after credentials are supplied. The [CLI guide](cli.md) documents the narrowly scoped, operator-authorized retry for an ambiguous npm publication.
 
-## Provider protocol
+## Provider boundary
 
-Each provider invocation reads one UTF-8 JSON request from stdin, writes one response to stdout, and exits. Diagnostics use stderr. The host bounds output, applies deadlines, checks provider identity/version/capabilities, verifies executable digests for execution, and supplies an allowlisted runtime environment plus declared credentials.
+Each invocation exchanges one JSON request and response over stdin/stdout. The host enforces protocol size/deadline limits, provider identity and capability checks, executable digest binding, and an allowlisted environment with explicitly mapped credentials. Subprocesses are **not** security sandboxes.
 
-| Operation | Purpose |
+| Protocol operation | Responsibility |
 | --- | --- |
-| `describe` | Identity, protocol versions, capabilities |
-| `plan` | Validate target configuration and return immutable operations |
-| `apply` | Execute a planned operation |
-| `reconcile` | Observe existing external state without new publication |
+| `describe` | Advertise provider identity, versions, and capabilities |
+| `plan` | Validate destination configuration and return immutable operations |
+| `apply` | Attempt a planned operation |
+| `reconcile` | Observe external state without publishing |
 
-Protocol v1 is [candidate](../protocol/schema/v1/compatibility.json). Unknown protocol fields are ignored; unsupported versions, operations, and capabilities are rejected. The [schema](../protocol/schema/v1/protocol.schema.json) and [examples](../protocol/examples/v1/messages.json) define the wire format.
+Protocol v1 is documented by its [schema](../protocol/schema/v1/protocol.schema.json), [examples](../protocol/examples/v1/messages.json), and [compatibility status](../protocol/schema/v1/compatibility.json). Unknown fields are tolerated where the protocol permits; unsupported versions, operations, and capabilities are rejected.
 
-## Evidence
+## Evidence and guarantees
 
-Evidence export replays the journal and records release/artifact identity, provider versions, plan/run IDs, target and operation state, external references, provider evidence, and the journal digest. Export does not query destinations or create/verify signatures. Provider guides define what each provider result proves.
+Evidence exports the journal-derived run and operation states, artifact/provider identities, external references, and journal digest. It is not an independent destination query, signature, or attestation. Provider results vary in what they prove; consult each [provider guide](../README.md#providers). There is no daemon, distributed execution service, universal rollback, or exactly-once publication guarantee.
