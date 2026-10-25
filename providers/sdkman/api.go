@@ -90,7 +90,9 @@ func (p Provider) login(ctx context.Context, payload operationPayload, email, pa
 			return "", providerError(protocol.ErrorPermanentExternal, fmt.Sprintf("SDKMAN State API login failed with HTTP %d", response.StatusCode), false)
 		}
 	}
-	var credentials struct{ Token string `json:"token"` }
+	var credentials struct {
+		Token string `json:"token"`
+	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
 	if err := decoder.Decode(&credentials); err != nil || !validBearer(credentials.Token) {
 		return "", providerError(protocol.ErrorPermanentExternal, "SDKMAN State API returned an invalid login response", false)

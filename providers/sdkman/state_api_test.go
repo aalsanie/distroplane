@@ -14,22 +14,22 @@ import (
 )
 
 const (
-	stateEmail = "release-vendor@example.org"
+	stateEmail    = "release-vendor@example.org"
 	statePassword = "state-secret-password-123"
-	stateJWT = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ2ZW5kb3IifQ.signature"
+	stateJWT      = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ2ZW5kb3IifQ.signature"
 )
 
 type stateAPIFixture struct {
-	mu sync.Mutex
-	loginStatus int
-	publishStatus int
-	lookups int
-	logins int
-	publishes int
-	observed *stateVersion
-	lastPublished statePublishRequest
-	lastBody []byte
-	badAuth bool
+	mu             sync.Mutex
+	loginStatus    int
+	publishStatus  int
+	lookups        int
+	logins         int
+	publishes      int
+	observed       *stateVersion
+	lastPublished  statePublishRequest
+	lastBody       []byte
+	badAuth        bool
 	badPublishAuth bool
 }
 
@@ -56,7 +56,10 @@ func (f *stateAPIFixture) handler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(observed)
 	case r.Method == http.MethodPost && r.URL.Path == "/login":
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
-		var auth struct { Email string `json:"email"`; Password string `json:"password"` }
+		var auth struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
 		_ = json.Unmarshal(body, &auth)
 		f.mu.Lock()
 		f.logins++
@@ -86,7 +89,9 @@ func (f *stateAPIFixture) handler(w http.ResponseWriter, r *http.Request) {
 				URL: entry.URL, Platform: entry.Platform, SHA256: entry.SHA256, Distribution: entry.Distribution}
 		}
 		f.mu.Unlock()
-		if status == 0 { status = http.StatusNoContent }
+		if status == 0 {
+			status = http.StatusNoContent
+		}
 		w.WriteHeader(status)
 	default:
 		w.WriteHeader(http.StatusNotFound)
@@ -99,20 +104,29 @@ func statePlan(t *testing.T, provider Provider, url string, mutate func(*configu
 		c.Authentication = authenticationConfig{
 			Mode: AuthState, EmailCredential: "sdkman-email", PasswordCredential: "sdkman-password",
 		}
-		if mutate != nil { mutate(c) }
+		if mutate != nil {
+			mutate(c)
+		}
 	}))
-	if e != nil { t.Fatal(e) }
+	if e != nil {
+		t.Fatal(e)
+	}
 	var payload operationPayload
-	if err := json.Unmarshal(result.Operations[0].ProviderPayload, &payload); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(result.Operations[0].ProviderPayload, &payload); err != nil {
+		t.Fatal(err)
+	}
 	return payload, result
 }
 
 func stateProvider(server *httptest.Server) Provider {
 	return Provider{Client: server.Client(), Getenv: func(name string) string {
 		switch name {
-		case VendorEmailEnvironment: return stateEmail
-		case VendorPasswordEnvironment: return statePassword
-		default: return ""
+		case VendorEmailEnvironment:
+			return stateEmail
+		case VendorPasswordEnvironment:
+			return statePassword
+		default:
+			return ""
 		}
 	}}
 }
@@ -189,12 +203,12 @@ func TestStateAPIRejectsExistingConflictsWithoutMutation(t *testing.T) {
 
 func TestStateAPIAuthenticationAndResponseFailuresAreSafe(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		loginStatus int
+		name          string
+		loginStatus   int
 		publishStatus int
-		code protocol.ErrorCode
-		retryable bool
-		publishes int
+		code          protocol.ErrorCode
+		retryable     bool
+		publishes     int
 	}{
 		{"bad login", http.StatusUnauthorized, 0, protocol.ErrorAuthentication, false, 0},
 		{"login rate limit", http.StatusTooManyRequests, 0, protocol.ErrorTransientExternal, true, 0},
@@ -245,15 +259,15 @@ func TestStateAPIPlanCanonicalPlatformAndRejectInvalidModes(t *testing.T) {
 		})
 	}
 	for name, mutate := range map[string]func(*configuration){
-		"unknown mode": func(c *configuration){ c.Authentication.Mode = "basic" },
-		"mixed auth": func(c *configuration){ c.Authentication.ConsumerKeyCredential = "old-key" },
-		"duplicate auth": func(c *configuration){ c.Authentication.PasswordCredential = c.Authentication.EmailCredential },
-		"java": func(c *configuration){ c.Candidate = "java" },
-		"unsupported distribution": func(c *configuration){ c.StateDistribution = "unknown" },
-		"unsupported checksum": func(c *configuration){ c.Checksums = map[string]string{"SHA-1": strings.Repeat("a", 40)} },
+		"unknown mode":             func(c *configuration) { c.Authentication.Mode = "basic" },
+		"mixed auth":               func(c *configuration) { c.Authentication.ConsumerKeyCredential = "old-key" },
+		"duplicate auth":           func(c *configuration) { c.Authentication.PasswordCredential = c.Authentication.EmailCredential },
+		"java":                     func(c *configuration) { c.Candidate = "java" },
+		"unsupported distribution": func(c *configuration) { c.StateDistribution = "unknown" },
+		"unsupported checksum":     func(c *configuration) { c.Checksums = map[string]string{"SHA-1": strings.Repeat("a", 40)} },
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, e := provider.Plan(context.Background(), planRequest("https://state.sdkman.io", func(c *configuration){
+			_, e := provider.Plan(context.Background(), planRequest("https://state.sdkman.io", func(c *configuration) {
 				c.Authentication = authenticationConfig{Mode: AuthState, EmailCredential: "sdkman-email", PasswordCredential: "sdkman-password"}
 				mutate(c)
 			}))

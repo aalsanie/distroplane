@@ -17,17 +17,17 @@ import (
 )
 
 const (
-	Name                     = "sdkman"
-	DefaultVersion           = "0.0.0-dev"
-	ConsumerKeyEnvironment   = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
-	ConsumerTokenEnvironment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
+	Name                      = "sdkman"
+	DefaultVersion            = "0.0.0-dev"
+	ConsumerKeyEnvironment    = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
+	ConsumerTokenEnvironment  = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
 	VendorEmailEnvironment    = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
 	VendorPasswordEnvironment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
 	AuthState                 = "state"
 	AuthLegacy                = "legacy"
-	defaultAPI               = "https://vendors.sdkman.io"
-	defaultStateAPI          = "https://state.sdkman.io"
-	defaultOperationTimeout  = 120000
+	defaultAPI                = "https://vendors.sdkman.io"
+	defaultStateAPI           = "https://state.sdkman.io"
+	defaultOperationTimeout   = 120000
 )
 
 var platformStateIDs = map[string]string{
