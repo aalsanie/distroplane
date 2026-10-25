@@ -120,12 +120,12 @@ func TestStableLowLevelReleaseAndRecoveryCompatibility(t *testing.T) {
 			configBytes, err := json.Marshal(map[string]any{
 				"schemaVersion": "1",
 				"release": map[string]any{
-					"id": "compat-release",
+					"id":        "compat-release",
 					"artifacts": []map[string]any{{"name": "app", "source": "app.bin"}},
 				},
 				"targets": []map[string]any{{
-					"id": "primary",
-					"provider": map[string]any{"name": "fake", "executable": provider},
+					"id":            "primary",
+					"provider":      map[string]any{"name": "fake", "executable": provider},
 					"configuration": cfg,
 				}},
 			})
@@ -175,9 +175,13 @@ func TestStableLowLevelReleaseAndRecoveryCompatibility(t *testing.T) {
 			}
 			var bundle struct {
 				SchemaVersion string `json:"schemaVersion"`
-				PlanID string `json:"planId"`
-				Journal struct {SchemaVersion uint16 `json:"schemaVersion"`} `json:"journal"`
-				Targets []struct {State string `json:"state"`} `json:"targets"`
+				PlanID        string `json:"planId"`
+				Journal       struct {
+					SchemaVersion uint16 `json:"schemaVersion"`
+				} `json:"journal"`
+				Targets []struct {
+					State string `json:"state"`
+				} `json:"targets"`
 			}
 			if err := json.Unmarshal(call(exitOK, "evidence", "--plan", planned.Path, "--journal", journalPath), &bundle); err != nil ||
 				bundle.SchemaVersion != "1" || bundle.PlanID != planned.PlanID || bundle.Journal.SchemaVersion != 2 ||
