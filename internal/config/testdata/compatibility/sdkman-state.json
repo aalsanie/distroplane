@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1",
+  "release": {
+    "id": "compat-release",
+    "artifacts": [
+      {
+        "name": "app",
+        "source": "dist/app"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "id": "destination",
+      "provider": {
+        "name": "sdkman"
+      },
+      "configuration": {
+        "artifact": "app",
+        "candidate": "acme",
+        "version": "1.2.3",
+        "url": "https://example.invalid/downloads/app.zip",
+        "platform": "UNIVERSAL",
+        "authentication": {
+          "mode": "state",
+          "emailCredential": "sdkman-vendor-email",
+          "passwordCredential": "sdkman-vendor-password"
+        }
+      }
+    }
+  ]
+}

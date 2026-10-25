@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1",
+  "release": {
+    "id": "compat-release",
+    "artifacts": [
+      {
+        "name": "app",
+        "source": "dist/app"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "id": "destination",
+      "provider": {
+        "name": "npm"
+      },
+      "configuration": {
+        "artifact": "app",
+        "packagePath": "/tmp/app.tgz",
+        "registry": "https://registry.npmjs.org/",
+        "authentication": {
+          "mode": "token",
+          "credential": "npm-publish"
+        }
+      }
+    }
+  ]
+}

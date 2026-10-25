@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1",
+  "release": {
+    "id": "compat-release",
+    "artifacts": [
+      {
+        "name": "app",
+        "source": "dist/app"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "id": "destination",
+      "provider": {
+        "name": "winget"
+      },
+      "configuration": {
+        "artifact": "app",
+        "repository": "https://github.com/example/winget-pkgs.git",
+        "authentication": {
+          "credential": "winget-publish"
+        },
+        "package": {
+          "identifier": "Example.Acme",
+          "version": "1.2.3",
+          "publisher": "Example",
+          "name": "Acme",
+          "license": "Apache-2.0",
+          "shortDescription": "Acme CLI"
+        },
+        "installer": {
+          "architecture": "x64",
+          "type": "msi",
+          "url": "https://example.invalid/app.msi"
+        },
+        "pullRequest": {
+          "repository": "microsoft/winget-pkgs",
+          "headOwner": "example"
+        }
+      }
+    }
+  ]
+}

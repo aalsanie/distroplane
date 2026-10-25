@@ -1,0 +1,81 @@
+{
+  "events": [
+    {
+      "schemaVersion": 2,
+      "sequence": 1,
+      "runId": "run-1",
+      "planId": "plan-1",
+      "type": "RUN_STARTED",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {}
+    },
+    {
+      "schemaVersion": 2,
+      "sequence": 2,
+      "runId": "run-1",
+      "type": "ATTEMPT_STARTED",
+      "operationId": "op-c",
+      "targetId": "target-b",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {
+        "attempt": 1
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "sequence": 3,
+      "runId": "run-1",
+      "type": "PROVIDER_PROCESS_STARTED",
+      "operationId": "op-c",
+      "targetId": "target-b",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {
+        "attempt": 1
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "sequence": 4,
+      "runId": "run-1",
+      "type": "SIDE_EFFECT_DISPATCHED",
+      "operationId": "op-c",
+      "targetId": "target-b",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {
+        "attempt": 1
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "sequence": 5,
+      "runId": "run-1",
+      "type": "PROVIDER_RESPONSE_RECEIVED",
+      "operationId": "op-c",
+      "targetId": "target-b",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {
+        "attempt": 1
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "sequence": 6,
+      "runId": "run-1",
+      "type": "OPERATION_PUBLISHED",
+      "operationId": "op-c",
+      "targetId": "target-b",
+      "observedAt": "2026-10-25T06:26:46Z",
+      "payload": {
+        "attempt": 1,
+        "providerState": "published"
+      }
+    }
+  ],
+  "expected": {
+    "state": "PUBLISHED",
+    "attempt": 1,
+    "reconcileRequired": false,
+    "ambiguous": false,
+    "blockedAttempts": 0
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1",
+  "release": {
+    "id": "compat-release",
+    "artifacts": [
+      {
+        "name": "app",
+        "source": "dist/app"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "id": "destination",
+      "provider": {
+        "name": "homebrew"
+      },
+      "configuration": {
+        "artifact": "app",
+        "repository": "https://github.com/example/homebrew-tap.git",
+        "path": "Formula/acme.rb",
+        "mode": "pull-request",
+        "pullRequest": {
+          "repository": "example/homebrew-tap"
+        },
+        "manifest": {
+          "type": "formula",
+          "name": "Acme",
+          "description": "JVM CLI",
+          "homepage": "https://example.invalid",
+          "url": "https://example.invalid/app.zip",
+          "version": "1.2.3",
+          "binary": "acme",
+          "installLayout": "jvm-distribution",
+          "javaVersion": "21"
+        },
+        "authentication": {
+          "credential": "tap-publish"
+        }
+      }
+    }
+  ]
+}
