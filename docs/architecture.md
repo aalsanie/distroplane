@@ -1,6 +1,6 @@
 # Architecture
 
-Distroplane distributes release files that you have already built. The CLI checks those files, creates a publication plan, records what happened, and helps recover interrupted releases. Separate provider programs handle the steps required by npm, SDKMAN, Homebrew taps, and WinGet.
+The main CLI prepares the release, tracks progress, and handles recovery. Provider executables do the actual work required by npm, SDKMAN, Homebrew, or WinGet.
 
 ```mermaid
 flowchart LR
