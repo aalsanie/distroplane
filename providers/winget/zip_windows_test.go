@@ -39,7 +39,7 @@ func main() { fmt.Println("WIN_PACKAGE_FIXTURE_OK") }
 	}
 	archive, artifact := zipArtifact(t, map[string][]byte{
 		"bin/winget-fixture.exe": executable,
-		"README.md": []byte("WinGet portable ZIP integration fixture"),
+		"README.md":              []byte("WinGet portable ZIP integration fixture"),
 	})
 	repo := newRepo(t)
 	fixture, server := newAPIServer(t, "normal")

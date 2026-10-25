@@ -55,9 +55,9 @@ func zipInstaller(path string, nestedType string, entries ...nestedInstallerFile
 
 func TestZIPPortableManifestContainsSchemaRequiredNestedFields(t *testing.T) {
 	archive, artifact := zipArtifact(t, map[string][]byte{
-		"bin/tool.exe": []byte("MZ-test-executable"),
+		"bin/tool.exe":   []byte("MZ-test-executable"),
 		"bin/helper.exe": []byte("MZ-helper"),
-		"README.md": []byte("portable distribution"),
+		"README.md":      []byte("portable distribution"),
 	})
 	cfg := configuration{
 		ManifestRoot: "manifests", ManifestVersion: defaultManifestVersion,
@@ -89,7 +89,7 @@ func TestZIPPortableManifestContainsSchemaRequiredNestedFields(t *testing.T) {
 		"InstallerType: zip", "NestedInstallerType: portable", "NestedInstallerFiles:",
 		"RelativeFilePath: \"bin/tool.exe\"", "PortableCommandAlias: \"example-tool\"",
 		"RelativeFilePath: \"bin/helper.exe\"", "PortableCommandAlias: \"example-helper\"",
-		"InstallerSha256: "+strings.ToUpper(strings.TrimPrefix(artifact.Digest, "sha256:")),
+		"InstallerSha256: " + strings.ToUpper(strings.TrimPrefix(artifact.Digest, "sha256:")),
 	} {
 		if !strings.Contains(installerManifest, section) {
 			t.Fatalf("missing %q from installer manifest:\n%s", section, installerManifest)
@@ -128,28 +128,28 @@ func TestZIPFailClosedOnInvalidPathsAliasesAndLayouts(t *testing.T) {
 	archive, _ := zipArtifact(t, map[string][]byte{"bin/tool.exe": []byte("MZ")})
 	valid := zipInstaller(archive, "portable", nestedInstallerFile{RelativeFilePath: "bin/tool.exe", PortableCommandAlias: "tool"})
 	for name, change := range map[string]func(*installerConfig){
-		"missing archive": func(i *installerConfig) { i.ArchivePath = "" },
-		"relative archive": func(i *installerConfig) { i.ArchivePath = "relative.zip" },
-		"missing nested type": func(i *installerConfig) { i.NestedInstallerType = "" },
+		"missing archive":         func(i *installerConfig) { i.ArchivePath = "" },
+		"relative archive":        func(i *installerConfig) { i.ArchivePath = "relative.zip" },
+		"missing nested type":     func(i *installerConfig) { i.NestedInstallerType = "" },
 		"unsupported nested type": func(i *installerConfig) { i.NestedInstallerType = "msix" },
-		"missing nested files": func(i *installerConfig) { i.NestedInstallerFiles = nil },
-		"too many": func(i *installerConfig) { i.NestedInstallerFiles = make([]nestedInstallerFile, 17) },
+		"missing nested files":    func(i *installerConfig) { i.NestedInstallerFiles = nil },
+		"too many":                func(i *installerConfig) { i.NestedInstallerFiles = make([]nestedInstallerFile, 17) },
 		"multiple exe": func(i *installerConfig) {
 			i.NestedInstallerType = "exe"
 			i.NestedInstallerFiles = append(i.NestedInstallerFiles, nestedInstallerFile{RelativeFilePath: "other.exe"})
 		},
-		"alias nonportable": func(i *installerConfig) { i.NestedInstallerType = "exe" },
-		"wrong extension": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "bin/tool.cmd" },
-		"unsafe traversal": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "../tool.exe" },
+		"alias nonportable":         func(i *installerConfig) { i.NestedInstallerType = "exe" },
+		"wrong extension":           func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "bin/tool.cmd" },
+		"unsafe traversal":          func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "../tool.exe" },
 		"unsafe embedded traversal": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "a/../tool.exe" },
-		"absolute": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "/tool.exe" },
-		"drive": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "C:/tool.exe" },
-		"backslash": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = `bin\tool.exe` },
-		"ads": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "tool.exe:evil.exe" },
-		"device": func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "CON/tool.exe" },
-		"invalid alias": func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = "../bad" },
-		"device alias": func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = "NUL" },
-		"long alias": func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = strings.Repeat("a", 41) },
+		"absolute":                  func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "/tool.exe" },
+		"drive":                     func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "C:/tool.exe" },
+		"backslash":                 func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = `bin\tool.exe` },
+		"ads":                       func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "tool.exe:evil.exe" },
+		"device":                    func(i *installerConfig) { i.NestedInstallerFiles[0].RelativeFilePath = "CON/tool.exe" },
+		"invalid alias":             func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = "../bad" },
+		"device alias":              func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = "NUL" },
+		"long alias":                func(i *installerConfig) { i.NestedInstallerFiles[0].PortableCommandAlias = strings.Repeat("a", 41) },
 		"duplicate path": func(i *installerConfig) {
 			i.NestedInstallerFiles = append(i.NestedInstallerFiles, nestedInstallerFile{RelativeFilePath: "BIN/TOOL.EXE", PortableCommandAlias: "two"})
 		},
@@ -175,10 +175,10 @@ func TestZIPFailClosedOnInvalidPathsAliasesAndLayouts(t *testing.T) {
 
 func TestZIPArchiveRejectsMissingChangedOrUnsafeMembers(t *testing.T) {
 	for name, members := range map[string]map[string][]byte{
-		"missing": {"other.exe": []byte("MZ")},
-		"traversal": {"../tool.exe": []byte("MZ"), "bin/tool.exe": []byte("MZ")},
-		"drive": {"C:/tool.exe": []byte("MZ"), "bin/tool.exe": []byte("MZ")},
-		"duplicate": {"bin/tool.exe": []byte("MZ"), "BIN/TOOL.EXE": []byte("MZ")},
+		"missing":         {"other.exe": []byte("MZ")},
+		"traversal":       {"../tool.exe": []byte("MZ"), "bin/tool.exe": []byte("MZ")},
+		"drive":           {"C:/tool.exe": []byte("MZ"), "bin/tool.exe": []byte("MZ")},
+		"duplicate":       {"bin/tool.exe": []byte("MZ"), "BIN/TOOL.EXE": []byte("MZ")},
 		"reserved device": {"AUX.exe": []byte("MZ"), "bin/tool.exe": []byte("MZ")},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestZIPArchiveRejectsMissingChangedOrUnsafeMembers(t *testing.T) {
 		t.Fatal("changed ZIP size accepted")
 	}
 	changed = artifact
-	changed.Digest = "sha256:"+strings.Repeat("f", 64)
+	changed.Digest = "sha256:" + strings.Repeat("f", 64)
 	if err := validateZIPArchive(installer, changed); err == nil {
 		t.Fatal("changed ZIP digest accepted")
 	}
