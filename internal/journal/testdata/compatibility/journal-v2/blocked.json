@@ -32,7 +32,8 @@
       "payload": {
         "attempt": 1,
         "state": "BLOCKED",
-        "errorCode": "MISSING_CREDENTIAL"
+        "errorCode": "MISSING_CREDENTIAL",
+        "resultCategory": "BLOCKED"
       }
     }
   ],

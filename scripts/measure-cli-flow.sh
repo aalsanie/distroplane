@@ -7,8 +7,11 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/project/dist"
 
 # Warm build output is deliberately excluded from measured CLI invocations.
-go build -trimpath -o "$work/bin/distroplane" "$repo/cmd/distroplane"
-go build -trimpath -o "$work/bin/distroplane-provider-fake" "$repo/cmd/distroplane-provider-fake"
+(
+  cd "$repo"
+  go build -trimpath -o "$work/bin/distroplane" ./cmd/distroplane
+  go build -trimpath -o "$work/bin/distroplane-provider-fake" ./cmd/distroplane-provider-fake
+)
 export PATH="$work/bin:$PATH"
 printf 'controlled release artifact\n' > "$work/project/dist/app.bin"
 cat > "$work/project/distroplane.json" <<'JSON'
