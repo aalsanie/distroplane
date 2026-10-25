@@ -156,7 +156,9 @@ func TestJVMPublicationDirectAndReconcileIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "homebrew-clone")
 	runExternalGit(t, "", "clone", "-b", "main", repo.remote, path)
 	raw, readErr := os.ReadFile(filepath.Join(path, "Formula", "demo.rb"))
-	if readErr != nil || string(raw) != payload.Content {
+	// Git may materialize CRLF line endings on a Windows checkout; the
+	// committed blob and immutable operation content remain LF-normalized.
+	if readErr != nil || strings.ReplaceAll(string(raw), "\r\n", "\n") != payload.Content {
 		t.Fatalf("published content differs from planned JVM formula: %v", readErr)
 	}
 }
