@@ -126,7 +126,18 @@ func main() { fmt.Println("WIN_PACKAGE_FIXTURE_OK") }
 			t.Fatal(err)
 		}
 		for _, f := range payload.Files {
-			if err := os.WriteFile(filepath.Join(manifestDir, filepath.Base(f.Path)), []byte(f.Content), 0o600); err != nil {
+			// The manifest contains the official yaml-language-server schema
+			// comment, but installed WinGet builds can flag it as a warning
+			// and return a nonzero code even when validation succeeds.
+			// Remove only this editor comment from the temporary validation
+			// copy; preserve it in the exact submitted manifest.
+			content := f.Content
+			if strings.HasPrefix(content, "# yaml-language-server: $schema=") {
+				if newline := strings.IndexByte(content, '\n'); newline >= 0 {
+					content = content[newline+1:]
+				}
+			}
+			if err := os.WriteFile(filepath.Join(manifestDir, filepath.Base(f.Path)), []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
