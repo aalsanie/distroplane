@@ -126,24 +126,24 @@ func main() { fmt.Println("WIN_PACKAGE_FIXTURE_OK") }
 			t.Fatal(err)
 		}
 		for _, f := range payload.Files {
-			// The manifest contains the official yaml-language-server schema
-			// comment, but installed WinGet builds can flag it as a warning
-			// and return a nonzero code even when validation succeeds.
-			// Remove only this editor comment from the temporary validation
-			// copy; preserve it in the exact submitted manifest.
-			content := f.Content
-			if strings.HasPrefix(content, "# yaml-language-server: $schema=") {
-				if newline := strings.IndexByte(content, '\n'); newline >= 0 {
-					content = content[newline+1:]
-				}
-			}
-			if err := os.WriteFile(filepath.Join(manifestDir, filepath.Base(f.Path)), []byte(content), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(manifestDir, filepath.Base(f.Path)), []byte(f.Content), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
 		check := exec.Command(wingetBinary, "validate", "--manifest", manifestDir)
 		if output, err := check.CombinedOutput(); err != nil {
-			t.Fatalf("winget validate failed: %v\n%s", err, output)
+			// Some WinGet versions report a warning-only exit code for the
+			// documented aka.ms editor schema headers. Accept exactly that
+			// narrow outcome; schema errors or other warnings must still fail.
+			message := string(output)
+			expected := "Manifest Warning: The schema header URL does not match the expected pattern."
+			if !strings.Contains(message, "Manifest validation succeeded with warnings.") ||
+				strings.Count(message, "Manifest Warning:") != len(payload.Files) ||
+				strings.Count(message, expected) != len(payload.Files) ||
+				strings.Contains(message, "Manifest Error:") {
+				t.Fatalf("winget validate failed: %v\n%s", err, output)
+			}
+			t.Logf("winget validated manifest content with editor-only header warnings: %s", message)
 		}
 	} else {
 		t.Log("winget validate unavailable on runner; native executable extraction and publication completed")
