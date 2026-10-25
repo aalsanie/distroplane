@@ -1,6 +1,6 @@
 # Architecture
 
-Distroplane is a Go CLI with separate executable providers. The core owns release intent, scheduling, state, and evidence; providers own destination-specific validation, submission, and observation. The Go module uses only the standard library.
+Distroplane distributes release files that you have already built. The CLI checks those files, creates a publication plan, records what happened, and helps recover interrupted releases. Separate provider programs handle the steps required by npm, SDKMAN, Homebrew taps, and WinGet.
 
 ```mermaid
 flowchart LR
