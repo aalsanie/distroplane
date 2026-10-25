@@ -79,6 +79,8 @@ type manifestConfig struct {
 	Binary        string `json:"binary,omitempty"`
 	InstallKind   string `json:"installKind,omitempty"`
 	InstallSource string `json:"installSource,omitempty"`
+	InstallLayout string `json:"installLayout,omitempty"`
+	JavaVersion   string `json:"javaVersion,omitempty"`
 }
 
 type operationPayload struct {
@@ -313,8 +315,25 @@ func renderFormula(cfg manifestConfig, digest string) string {
 	if cfg.License != "" {
 		fmt.Fprintf(&b, "  license %s\n", rubyQuote(cfg.License))
 	}
+	if cfg.InstallLayout == "jvm-distribution" {
+		fmt.Fprintf(&b, "  depends_on %s\n", rubyQuote("openjdk@"+cfg.JavaVersion))
+	}
 	b.WriteString("\n  def install\n")
-	fmt.Fprintf(&b, "    bin.install %s\n", rubyQuote(cfg.Binary))
+	if cfg.InstallLayout == "jvm-distribution" {
+		// Homebrew stages both flat archives and archives with a single
+		// top-level application directory. Match only a root with an
+		// executable launcher and the sibling Gradle runtime JARs.
+		b.WriteString("    roots = [Pathname.pwd] + Dir[\"*\"].select { |entry| File.directory?(entry) }.map { |entry| Pathname.new(entry) }\n")
+		b.WriteString("    matches = roots.select do |root|\n")
+		fmt.Fprintf(&b, "      (root/\"bin\"/%s).file? && Dir[(root/\"lib\"/\"*.jar\").to_s].any?\n", rubyQuote(cfg.Binary))
+		b.WriteString("    end\n")
+		b.WriteString("    raise \"Expected one JVM distribution with bin launcher and lib/*.jar\" unless matches.length == 1\n")
+		b.WriteString("    libexec.install matches.first.children\n")
+		fmt.Fprintf(&b, "    (bin/%s).write_env_script libexec/\"bin\"/%s, Language::Java.overridable_java_home_env(%s)\n",
+			rubyQuote(cfg.Binary), rubyQuote(cfg.Binary), rubyQuote(cfg.JavaVersion))
+	} else {
+		fmt.Fprintf(&b, "    bin.install %s\n", rubyQuote(cfg.Binary))
+	}
 	b.WriteString("  end\nend\n")
 	return b.String()
 }
@@ -356,6 +375,21 @@ func validateManifest(cfg manifestConfig) error {
 		if cfg.InstallKind != "" || cfg.InstallSource != "" {
 			return fmt.Errorf("cask install fields are not valid for formula manifests")
 		}
+		switch cfg.InstallLayout {
+		case "":
+			if cfg.JavaVersion != "" {
+				return fmt.Errorf("javaVersion requires installLayout jvm-distribution")
+			}
+		case "jvm-distribution":
+			if !validJVMDistBinary(cfg.Binary) {
+				return fmt.Errorf("JVM distribution launcher name is invalid")
+			}
+			if !supportedJavaVersion(cfg.JavaVersion) {
+				return fmt.Errorf("JVM distribution requires a supported, explicit Java runtime version")
+			}
+		default:
+			return fmt.Errorf("unsupported formula installLayout %q", cfg.InstallLayout)
+		}
 		return nil
 	}
 	if !caskTokenPattern.MatchString(cfg.Name) {
@@ -369,10 +403,33 @@ func validateManifest(cfg manifestConfig) error {
 	if strings.TrimSpace(cfg.InstallSource) == "" || strings.ContainsAny(cfg.InstallSource, "\x00\r\n") {
 		return fmt.Errorf("cask installSource is invalid")
 	}
-	if cfg.Binary != "" || cfg.License != "" {
+	if cfg.Binary != "" || cfg.License != "" || cfg.InstallLayout != "" || cfg.JavaVersion != "" {
 		return fmt.Errorf("formula-only fields are not valid for cask manifests")
 	}
 	return nil
+}
+
+func supportedJavaVersion(version string) bool {
+	switch version {
+	case "8", "11", "17", "21", "25":
+		return true
+	default:
+		return false
+	}
+}
+
+func validJVMDistBinary(binary string) bool {
+	if binary == "" || len(binary) > 64 || binary == "." || binary == ".." {
+		return false
+	}
+	for _, r := range binary {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateRepository(value string) error {

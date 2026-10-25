@@ -144,6 +144,28 @@ jobs:
           go build -trimpath ./cmd/distroplane-provider-homebrew
           go build -trimpath ./cmd/distroplane-provider-winget
 
+  homebrew-jvm-install:
+    name: Homebrew JVM install (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Install and run the Gradle-style application ZIP through Homebrew
+        env:
+          DISTROPLANE_BREW_JVM_INSTALL_TEST: '1'
+        run: |
+          brew --version
+          java -version
+          go test ./providers/homebrew -run '^TestHomebrewJVMDistributionInstallsAndRunsWithRuntimeJars$' -count=1 -v
+
   release-build:
     name: Release build (${{ matrix.os }})
     strategy:
