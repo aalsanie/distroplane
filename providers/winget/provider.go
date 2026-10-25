@@ -76,9 +76,17 @@ type packageConfig struct {
 }
 
 type installerConfig struct {
-	Architecture string `json:"architecture"`
-	Type         string `json:"type"`
-	URL          string `json:"url"`
+	Architecture         string                `json:"architecture"`
+	Type                 string                `json:"type"`
+	URL                  string                `json:"url"`
+	ArchivePath          string                `json:"archivePath,omitempty"`
+	NestedInstallerType  string                `json:"nestedInstallerType,omitempty"`
+	NestedInstallerFiles []nestedInstallerFile `json:"nestedInstallerFiles,omitempty"`
+}
+
+type nestedInstallerFile struct {
+	RelativeFilePath     string `json:"relativeFilePath"`
+	PortableCommandAlias string `json:"portableCommandAlias,omitempty"`
 }
 
 type commitConfig struct {
@@ -156,6 +164,9 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 	}
 	artifact, err := selectArtifact(request.Release.Artifacts, cfg.Artifact)
 	if err != nil {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
+	if err := validateZIPArchive(cfg.Installer, artifact); err != nil {
 		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
 	}
 	files, err := renderManifestSet(cfg, artifact)
@@ -379,7 +390,7 @@ func validateInstaller(cfg installerConfig) error {
 	if _, err := normalizeHTTPURL(cfg.URL, false); err != nil {
 		return fmt.Errorf("installer URL is invalid")
 	}
-	return nil
+	return validateNestedInstaller(cfg)
 }
 
 func validateRepository(value string) error {
@@ -495,16 +506,29 @@ func renderVersionManifest(cfg configuration, locale string) string {
 
 func renderInstallerManifest(cfg configuration, digest string) string {
 	v := cfg.ManifestVersion
-	return schemaHeader("installer", v) +
-		"PackageIdentifier: " + yamlQuote(cfg.Package.Identifier) + "\n" +
-		"PackageVersion: " + yamlQuote(cfg.Package.Version) + "\n" +
-		"InstallerType: " + cfg.Installer.Type + "\n" +
-		"Installers:\n" +
-		"  - Architecture: " + cfg.Installer.Architecture + "\n" +
-		"    InstallerUrl: " + yamlQuote(cfg.Installer.URL) + "\n" +
-		"    InstallerSha256: " + digest + "\n" +
-		"ManifestType: installer\n" +
-		"ManifestVersion: " + v + "\n"
+	var b strings.Builder
+	b.WriteString(schemaHeader("installer", v))
+	fmt.Fprintf(&b, "PackageIdentifier: %s\n", yamlQuote(cfg.Package.Identifier))
+	fmt.Fprintf(&b, "PackageVersion: %s\n", yamlQuote(cfg.Package.Version))
+	fmt.Fprintf(&b, "InstallerType: %s\n", cfg.Installer.Type)
+	if cfg.Installer.Type == "zip" {
+		fmt.Fprintf(&b, "NestedInstallerType: %s\n", cfg.Installer.NestedInstallerType)
+	}
+	b.WriteString("Installers:\n")
+	fmt.Fprintf(&b, "  - Architecture: %s\n", cfg.Installer.Architecture)
+	fmt.Fprintf(&b, "    InstallerUrl: %s\n", yamlQuote(cfg.Installer.URL))
+	fmt.Fprintf(&b, "    InstallerSha256: %s\n", digest)
+	if cfg.Installer.Type == "zip" {
+		b.WriteString("    NestedInstallerFiles:\n")
+		for _, nested := range cfg.Installer.NestedInstallerFiles {
+			fmt.Fprintf(&b, "      - RelativeFilePath: %s\n", yamlQuote(nested.RelativeFilePath))
+			if nested.PortableCommandAlias != "" {
+				fmt.Fprintf(&b, "        PortableCommandAlias: %s\n", yamlQuote(nested.PortableCommandAlias))
+			}
+		}
+	}
+	fmt.Fprintf(&b, "ManifestType: installer\nManifestVersion: %s\n", v)
+	return b.String()
 }
 
 func renderLocaleManifest(cfg configuration, locale string) string {
