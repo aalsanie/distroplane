@@ -5,8 +5,8 @@ package homebrew
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -167,25 +167,38 @@ fi
 		!strings.Contains(payload.Content, `depends_on "openjdk@21"`) {
 		t.Fatalf("invalid checksum or Java dependency: %s", payload.Content)
 	}
-	formulaFile := filepath.Join(dir, "distroplane-jvm-fixture.rb")
-	if err := os.WriteFile(formulaFile, []byte(payload.Content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	nativeCommand(t, dir, os.Environ(), "ruby", "-c", formulaFile)
 	brewEnv := append(os.Environ(), "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ANALYTICS=1",
 		"HOMEBREW_NO_INSTALL_CLEANUP=1", "HOMEBREW_NO_ENV_HINTS=1",
 		"HOMEBREW_NO_INSTALL_FROM_API=1", "JAVA_HOME="+javaHome)
 	const formulaName = "distroplane-jvm-fixture"
+	const tapName = "distroplane/jvm-fixture"
+	qualifiedName := tapName + "/" + formulaName
 	t.Cleanup(func() {
-		cmd := exec.Command("brew", "uninstall", "--force", formulaName)
-		cmd.Env = brewEnv
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Logf("Homebrew fixture cleanup: %v %s", err, output)
+		for _, args := range [][]string{
+			{"uninstall", "--force", qualifiedName},
+			{"untap", tapName},
+		} {
+			cmd := exec.Command("brew", args...)
+			cmd.Env = brewEnv
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Logf("Homebrew fixture cleanup %v: %v %s", args, err, output)
+			}
 		}
 	})
+	nativeCommand(t, dir, brewEnv, "brew", "tap-new", tapName)
+	brewRepository := nativeCommand(t, dir, brewEnv, "brew", "--repository")
+	formulaFile := filepath.Join(brewRepository, "Library", "Taps", "distroplane",
+		"homebrew-jvm-fixture", "Formula", formulaName+".rb")
+	if err := os.MkdirAll(filepath.Dir(formulaFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(formulaFile, []byte(payload.Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nativeCommand(t, dir, os.Environ(), "ruby", "-c", formulaFile)
 	nativeCommand(t, dir, brewEnv, "brew", "install", "--formula", "--build-from-source",
-		"--ignore-dependencies", formulaFile)
-	prefix := nativeCommand(t, dir, brewEnv, "brew", "--prefix", formulaName)
+		"--ignore-dependencies", qualifiedName)
+	prefix := nativeCommand(t, dir, brewEnv, "brew", "--prefix", qualifiedName)
 	for _, relative := range []string{"libexec/bin/demo", "libexec/lib/demo-app.jar", "libexec/lib/demo-support.jar"} {
 		if _, err := os.Stat(filepath.Join(prefix, relative)); err != nil {
 			t.Fatalf("Homebrew dropped required distribution file %s: %v", relative, err)

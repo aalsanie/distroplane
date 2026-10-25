@@ -94,17 +94,17 @@ func TestJVMSingleBinaryAndCaskOutputIsUnchanged(t *testing.T) {
 func TestJVMConfigurationFailsClosedForInvalidLayouts(t *testing.T) {
 	base := jvmFormulaConfiguration("/tmp/tap.git", "direct")
 	for name, mutate := range map[string]func(*manifestConfig){
-		"unknown layout": func(m *manifestConfig) { m.InstallLayout = "tarball" },
-		"missing java version": func(m *manifestConfig) { m.JavaVersion = "" },
+		"unknown layout":           func(m *manifestConfig) { m.InstallLayout = "tarball" },
+		"missing java version":     func(m *manifestConfig) { m.JavaVersion = "" },
 		"unavailable java version": func(m *manifestConfig) { m.JavaVersion = "9" },
-		"java injection": func(m *manifestConfig) { m.JavaVersion = `21"; system("bad")` },
-		"binary path": func(m *manifestConfig) { m.Binary = "../bin/demo" },
-		"binary whitespace": func(m *manifestConfig) { m.Binary = "demo cli" },
-		"binary interpolation": func(m *manifestConfig) { m.Binary = `#{File.delete("x")}` },
-		"binary dot": func(m *manifestConfig) { m.Binary = ".." },
-		"binary empty": func(m *manifestConfig) { m.Binary = "" },
-		"binary too long": func(m *manifestConfig) { m.Binary = strings.Repeat("a", 65) },
-		"java without layout": func(m *manifestConfig) { m.InstallLayout = "" },
+		"java injection":           func(m *manifestConfig) { m.JavaVersion = `21"; system("bad")` },
+		"binary path":              func(m *manifestConfig) { m.Binary = "../bin/demo" },
+		"binary whitespace":        func(m *manifestConfig) { m.Binary = "demo cli" },
+		"binary interpolation":     func(m *manifestConfig) { m.Binary = `#{File.delete("x")}` },
+		"binary dot":               func(m *manifestConfig) { m.Binary = ".." },
+		"binary empty":             func(m *manifestConfig) { m.Binary = "" },
+		"binary too long":          func(m *manifestConfig) { m.Binary = strings.Repeat("a", 65) },
+		"java without layout":      func(m *manifestConfig) { m.InstallLayout = "" },
 		"cask with JVM layout": func(m *manifestConfig) {
 			m.Type = "cask"
 			m.Name = "demo"

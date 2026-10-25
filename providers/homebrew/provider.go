@@ -409,7 +409,6 @@ func validateManifest(cfg manifestConfig) error {
 	return nil
 }
 
-
 func supportedJavaVersion(version string) bool {
 	switch version {
 	case "8", "11", "17", "21", "25":
