@@ -1,6 +1,6 @@
 # Architecture
 
-The main CLI prepares the release, tracks progress, and handles recovery. Provider executables do the actual work required by npm, SDKMAN, Homebrew, or WinGet.
+Distroplane provides a single workflow for distributing prebuilt release artifacts to npm, SDKMAN, Homebrew taps, and WinGet. The CLI plans and coordinates the release, while each provider handles the publishing process for its destination. When a release is interrupted or a publishing outcome is uncertain, Distroplane checks the recorded state and reconciles with the destination before taking further action.
 
 ```mermaid
 flowchart LR
