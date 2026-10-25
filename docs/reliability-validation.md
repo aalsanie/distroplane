@@ -1,29 +1,22 @@
-# Reliability validation
+# Reliability and validation
 
-The repository tests interruption, corruption, concurrency, and unsafe retry behavior. The central invariant is:
+Core safety invariant: **an operation whose side effect may have been dispatched, but whose result is unknown, must be reconciled before publication is attempted again.** The host journals dispatch before releasing the provider request. It does not promise exactly-once delivery.
 
-**A side effect with an unknown post-dispatch result is reconciled before another publication attempt.**
+## Tested failure boundaries
 
-Credential preparation failures suspend a run as `BLOCKED` before dispatch and can be safely resumed with the original plan/journal after credentials are corrected. Blocked checks never publish, do not consume publication retry attempts, and never turn ambiguous post-dispatch outcomes into an automatic retry.\n\nCoverage includes provider crashes/timeouts after dispatch, cancellation, lost remote responses, repeated pending reconciliation, journal truncation/corruption, changed artifacts/provider binaries, plan tampering, and rejection of cross-plan journal replay (including completed publications and evidence).
+| Boundary | Validation |
+| --- | --- |
+| Pre-dispatch preparation | Missing credentials remain `BLOCKED`; restoration resumes the same plan/journal without spending the publication retry budget |
+| Post-dispatch uncertainty | Provider crash, timeout, cancellation, lost response, and ambiguous npm publication require reconciliation rather than an automatic republish |
+| Durable state | Truncated tail recovery; complete-record corruption rejection; concurrent writer locking; disk/write/sync failure cases |
+| Immutable intent | Changed artifacts or provider binaries, tampered plans, and cross-plan journal replay are rejected |
+| Executor scheduling | Dependency ordering, bounded concurrency, lease behavior, cancellation, and quiescence |
+| Protocol and subprocesses | Message/output size limits, process termination, credentials, and response validation |
 
-## Scale and bounds
+CI includes Linux/macOS/Windows tests and builds, race detection, fuzz smoke tests, provider integration tests, and GitHub Action smoke tests. Scale fixtures cover 1,000 targets, 10,000 operations, and 100,000 journal events; these are test workloads, not supported service-level guarantees.
 
-CI exercises:
+## Operational limits
 
-- 1,000-target planning;
-- 10,000-operation DAG scheduling;
-- 100,000 journal events;
-- cancellation storms and goroutine release;
-- bounded provider stdout/stderr and protocol messages;
-- Linux, macOS, and Windows tests/builds;
-- race detection and fuzz smoke tests.
+A `WAITING_EXTERNAL` result is not proof of failure or success. Reconciliation is read-only. Only the npm-specific, journaled operator authorization described in the [CLI guide](cli.md#explicit-retry-of-an-ambiguous-npm-publish) permits a subsequent attempt following a reconciled absent observation; absence alone is insufficient.
 
-Execution concurrency is bounded. Waiting-external runs do not keep provider goroutines resident, and reconciliation does not replay the original publish operation.
-
-## Durability
-
-Journal fault tests cover interrupted writes, disk exhaustion, read-only storage, clock skew, truncated tails, and corrupted complete frames. Writers synchronize successful appends and hold an OS file lock.
-
-Platform-sensitive tests cover provider process termination, path handling, locking, and release-artifact execution. See the [performance baseline](performance-baseline.md) for recorded measurements.
-
-Ambiguous npm side effects never automatically republish after an absent lookup. A dedicated, journaled, operator-authorized one-shot retry requires a successful reconciled absent observation and explicit duplicate-risk acknowledgment; ordinary reconciliation remains strictly read-only. Tests cover unauthorized, duplicate, stale, wrong-provider, and successful recovery flows.
+Checksummed journals detect accidental corruption but are not tamper-evident against a filesystem attacker. Provider responses and exported evidence are not independently attested. See the [security model](security-model.md) and [historical performance baseline](performance-baseline.md).

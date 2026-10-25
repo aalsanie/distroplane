@@ -1,6 +1,6 @@
 # Performance baseline
 
-Reference measurements for the 0.9.0 release-candidate line. Hosted-runner hardware varies; these numbers are comparison points, not latency guarantees.
+Historical measurements from a 0.9.0 release-candidate commit (identified below), **not** verified performance of the final v0.9.0 release. Hosted-runner measurements are comparisons only, not latency, memory, or throughput guarantees.
 
 ## Environment
 

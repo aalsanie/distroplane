@@ -1,6 +1,6 @@
 # Configuration
 
-`distroplane.json` names existing release artifacts and publication targets. It does not build artifacts or contain secret values.
+`distroplane.json` identifies prebuilt release artifacts and the destinations that should receive them. The core does not build or upload artifacts; each provider defines its own publication behavior.
 
 ```json
 {
@@ -30,7 +30,7 @@
 
 `targets[].configuration` is interpreted by the selected provider. Provider fields are documented in the [npm](../providers/npm/README.md), [SDKMAN](../providers/sdkman/README.md), [Homebrew](../providers/homebrew/README.md), and [WinGet](../providers/winget/README.md) guides.
 
-Planning computes artifact SHA-256 digests/sizes and provider executable digests. Do not place secret values in provider configuration because configuration is persisted into the plan.
+Planning computes artifact SHA-256 digests/sizes and provider executable digests. Provider configuration and operation payloads are persisted in the immutable plan: supply credential **references**, never secret values. For npm, `packagePath` must be an absolute path to the same tarball bytes as the named artifact.
 
 ## Provider discovery
 
@@ -46,7 +46,7 @@ Providers declare credential references during planning. At execution, map each 
 distroplane apply --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 ```
 
-The host resolves only declared references and passes only the invoked provider's credentials. The equivalent Action input is `credential-mappings`.
+The host resolves only declared references and passes only the invoked provider's credentials. The equivalent Action input is `credential-mappings`. See the [CLI recovery guide](cli.md) for what happens when a credential is missing.
 
 ## Validation
 

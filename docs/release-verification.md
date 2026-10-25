@@ -1,59 +1,60 @@
 # Installation and release verification
 
-The current release candidate is [v0.9.0-rc.2](https://github.com/aalsanie/distroplane/releases/tag/v0.9.0-rc.2). GitHub Actions users can use the [composite Action](github-actions.md), which installs matching CLI/provider binaries automatically.
+This document describes the **v0.9.0 release procedure and expected artifacts**. Until the stable tag is published, install a version from [GitHub releases](https://github.com/aalsanie/distroplane/releases); documentation on `main` does not imply `v0.9.0` binaries are already available.
 
 ## Release assets
 
-v0.9.0-rc.2 provides the CLI and four official provider executables for:
+For each release version, the build produces the CLI and npm, SDKMAN, Homebrew, and WinGet provider executables:
 
-| OS | Architectures | Suffix |
+| OS | Architectures | Asset suffix |
 | --- | --- | --- |
 | Linux | amd64, arm64 | `_linux_<arch>` |
 | macOS | amd64, arm64 | `_darwin_<arch>` |
 | Windows | amd64, arm64 | `_windows_<arch>.exe` |
 
-The release also contains `SHA256SUMS` and `RELEASE-METADATA.json`. The checksum file covers every executable; metadata records version, source commit, build date, Go version, and CGO setting. These files are unsigned and are not cryptographic attestations.
+Asset names are `distroplane_<version>_<os>_<arch>` and `distroplane-provider-<name>_<version>_<os>_<arch>` (plus `.exe` on Windows). Each release also includes `SHA256SUMS` for all executables and `RELEASE-METADATA.json` with the version, source commit, build date, Go version, and CGO setting. The checksum manifest and metadata are **unsigned**.
 
 ## Manual installation
 
-Download `SHA256SUMS` plus the CLI and required providers from the same release. Verify each downloaded executable against its exact entry in the manifest before use.
-
-Linux/macOS example for the amd64 Linux CLI:
+Download the executable(s) and `SHA256SUMS` from the **same** release, verify each exact filename, then add the CLI and installed providers to `PATH` (or configure explicit provider paths). For example, after `v0.9.0` is published:
 
 ```sh
-grep '  distroplane_0.9.0-rc.2_linux_amd64$' SHA256SUMS > selected.SHA256SUMS
-sha256sum -c selected.SHA256SUMS   # or: shasum -a 256 -c selected.SHA256SUMS
-chmod +x distroplane_0.9.0-rc.2_linux_amd64
+asset=distroplane_0.9.0_linux_amd64
+awk -v file="$asset" '$2 == file {print}' SHA256SUMS > selected.SHA256SUMS
+test "$(wc -l < selected.SHA256SUMS)" -eq 1
+sha256sum -c selected.SHA256SUMS  # on macOS: shasum -a 256 -c
+chmod +x "$asset"
 ```
 
-Repeat the manifest-entry check for each provider binary you install.
-
-Windows PowerShell example for the amd64 CLI:
+For the Windows amd64 CLI:
 
 ```powershell
-$entry = @(Get-Content SHA256SUMS | Where-Object { $_ -match '  distroplane_0\.9\.0-rc\.2_windows_amd64\.exe$' })
-if ($entry.Count -ne 1 -or $entry[0] -notmatch '^([0-9a-f]{64})  ') { throw 'invalid checksum entry' }
-$expected = $Matches[1]
-$actual = (Get-FileHash -Algorithm SHA256 distroplane_0.9.0-rc.2_windows_amd64.exe).Hash.ToLowerInvariant()
+$asset = 'distroplane_0.9.0_windows_amd64.exe'
+$entry = @(Get-Content SHA256SUMS | Where-Object { $_ -match '^[0-9a-fA-F]{64}  distroplane_0\.9\.0_windows_amd64\.exe$' })
+if ($entry.Count -ne 1) { throw 'missing or duplicate checksum entry' }
+$expected = $entry[0].Substring(0, 64).ToLowerInvariant()
+$actual = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'checksum mismatch' }
 ```
 
-Put the CLI and provider executables on `PATH`, or configure explicit provider executable paths.
+Verify provider executables as well. A manifest fetched from the same release authenticates downloads against accidental corruption, **not** against a compromised release publisher.
 
-## Build from source
+## Building from source
 
-Use Go 1.27.1. Homebrew and WinGet also require Git at runtime.
+Use Go 1.27.1. Homebrew and WinGet need Git at runtime.
 
 ```sh
 go build -trimpath -o bin/ ./cmd/...
 ```
 
-This also builds the development fake provider. An ordinary source build reports `0.0.0-dev`; it does not use `VERSION` automatically. Plan and execute with the same provider builds.
+This builds the development fake provider too. An ordinary source build reports `0.0.0-dev` unless version information is injected through linker flags; it does not infer the version from `VERSION`. Production release layouts are built by `scripts/build.sh` or `scripts/build.ps1` with `VERSION`, `COMMIT`, and `BUILD_DATE`.
 
-Maintainers can create the release layout with `scripts/build.sh` or `scripts/build.ps1` using explicit `VERSION`, `COMMIT`, and `BUILD_DATE`.
+## Publishing v0.9.0
 
-## Release process
+Before tagging, update `VERSION` to `0.9.0` and merge the final changes into `main`. Verify the exact intended commit has successful **main-branch CI** and **GitHub Action smoke** workflow runs, and review the provider integration results. Tag **that same commit** as `v0.9.0`. The release workflow rejects a tag that differs from `VERSION`, lacks the required successful workflow runs for its commit, or already has a published release. It rebuilds assets, checks checksums and metadata, runs a release-artifact smoke test, and publishes the GitHub release. Creating this documentation PR does not tag or publish a release.
 
-The release workflow accepts an existing `v*` tag only when it matches `VERSION` and the tagged commit has successful main-branch CI and Action-smoke runs. It rebuilds and verifies release assets before creating the GitHub release.
+## Compatibility with release candidates
 
-This is a pre-1.0 interface. Protocol, configuration, plan, journal, and evidence versions are independent; unsupported versions are rejected. There is no automatic migration command.\n\n**Journal compatibility for v0.9.0:** Journal schema v2 requires a durable plan ID on the initial `RUN_STARTED` event. Journals created by v0.9.0 release candidates with schema v1 cannot safely prove their originating plan and are rejected by apply, reconcile, status, and evidence. Do not attach a legacy journal to a freshly generated plan. Before initiating any replacement run, inspect the remote registries or repositories and reconcile any potentially published side effects to avoid duplicate releases.
+Journal schema v2 binds the initial `RUN_STARTED` event to the immutable plan ID. Journals from earlier `v0.9.0` candidates using schema v1 are rejected by `apply`, `reconcile`, `status`, and `evidence`; there is **no migration command**. Before initiating a replacement run, independently inspect the destination for prior publication and address any uncertain side effects. Never attach an old journal to a new plan.
+
+Protocol, configuration, plan, journal, and evidence formats have independent versions. Unsupported versions are rejected; do not assume cross-version persistence compatibility.

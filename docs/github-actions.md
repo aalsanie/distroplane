@@ -1,31 +1,21 @@
-# GitHub Actions
+# GitHub Actions integration
 
-The composite Action runs `plan`, `apply`, or `reconcile` with the same CLI used locally. See the [README](../README.md#github-actions) for a minimal plan/apply example.
+The composite Action calls the same CLI used locally. It supports `plan`, `apply`, and `reconcile`; [`action.yml`](../action.yml) defines the complete input/output contract. See the [single-job example](../README.md#github-actions).
 
-## Installation
+## Installation and version binding
 
-Unless `binary` is supplied, each invocation installs the selected Distroplane release for the runner's OS/architecture. It downloads `SHA256SUMS`, the CLI, and official providers, verifies each executable against the checksum file, and adds the install directory to `PATH`.
+An invocation without `binary` downloads the CLI and selected official providers for the runner's OS/architecture from a GitHub release and checks each executable against that release's `SHA256SUMS`. The Action requires PowerShell 7; release targets are Linux, macOS, and Windows on amd64/arm64. Homebrew and WinGet providers additionally require Git.
 
-Using a release tag such as `aalsanie/distroplane@v0.9.0-rc.2` selects the matching binary release when `version` is omitted. If the Action is pinned to a commit instead, set `version` explicitly to the binary release you intend to run.
+Once published, `uses: aalsanie/distroplane@v0.9.0` selects that binary release by default. When pinning the Action to a commit SHA, set `version: 0.9.0` (or another published binary release) explicitly. A supplied `binary` skips managed installation and verification.
 
-Supported release targets are Linux, macOS, and Windows on amd64/arm64. The Action requires PowerShell 7. Providers may have additional requirements; Homebrew and WinGet require Git.
+## Plan handoff across jobs
 
-## Plan handoff
+The optional `upload-plan: 'true'` artifact contains **only the plan file**. It does not capture release artifacts, configuration, provider binaries, or a journal. The plan retains absolute artifact paths and provider digests: jobs separated by approval or runner lifetime must restore the exact bytes at the exact paths on the same OS/architecture. Changing these inputs requires a new plan and review.
 
-`upload-plan: 'true'` uploads the generated plan as an Actions artifact. If approval separates planning from execution, also preserve the exact configuration, release artifacts, provider binaries when custom providers are used, and later the journal.
-
-Plans contain absolute artifact paths and provider digests. Restore the same bytes at the same paths on the same OS/architecture before applying a reviewed plan. Rebuilding an artifact or regenerating the plan changes what was reviewed.
-
-The built-in plan upload contains only the plan. Evidence upload contains only the evidence bundle. Neither preserves configuration, release artifacts, or the journal.
-
-## Pending work
-
-CLI exit code `4` is exposed by the Action as a successful step with `pending=true`; it does not mean all targets are published.
-
-Persist the plan, inputs, and journal before the runner disappears. A later job can restore them and run:
+Persist the journal after `apply` before the runner is destroyed. A later job can restore all inputs and run:
 
 ```yaml
-- uses: aalsanie/distroplane@v0.9.0-rc.2
+- uses: aalsanie/distroplane@v0.9.0
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
@@ -36,16 +26,12 @@ Persist the plan, inputs, and journal before the runner disappears. A later job 
     upload-evidence: 'true'
 ```
 
-Use the credentials required by the actual target. Reconciliation observes pending or ambiguous work and does not publish new content. If it unblocks operations that never started, run `apply` again.
+Replace the example paths with the restored paths. Reconciliation never publishes; run `apply` afterward if new undispatched work is ready.
+
+## Outputs and pending runs
+
+Exit code `4` becomes a successful Action step with `pending=true`, **not** a completed release. Downstream jobs should check `completed`/`pending` and retain recovery inputs. Key outputs include `plan-path`, `plan-id`, `run-id`, `completed`, `pending`, `exit-code`, and `result-json`. `upload-evidence: 'true'` uploads the exported evidence bundle after apply/reconcile when a journal exists; it does not upload the journal itself. Use unique artifact names for multiple runs.
 
 ## OIDC
 
-`oidc: required` only verifies that GitHub exposed its OIDC request URL and credential to the job. It does not request an ID token or pass GitHub's request credential to a provider.
-
-For npm trusted publishing, grant `id-token: write`, obtain an npm-audience ID token in the workflow, and map it to the provider's configured reference. See the [npm provider](../providers/npm/README.md#authentication).
-
-## Inputs and outputs
-
-[`action.yml`](../action.yml) is the authoritative input/output contract. Important outputs include `plan-path`, `run-id`, `completed`, `pending`, `exit-code`, `result-json`, and evidence metadata.
-
-`upload-evidence: 'true'` exports and uploads evidence after apply/reconcile when a journal exists. Use distinct artifact names when a workflow creates more than one plan or evidence artifact.
+`oidc: required` only checks whether GitHub exposed OIDC request environment variables; it does **not** obtain an ID token. For npm trusted publishing, grant `id-token: write`, explicitly request a token with audience `npm:registry.npmjs.org`, and map it to the configured provider credential reference. See [npm authentication](../providers/npm/README.md#authentication).
