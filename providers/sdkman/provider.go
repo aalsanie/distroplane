@@ -21,6 +21,10 @@ const (
 	DefaultVersion           = "0.0.0-dev"
 	ConsumerKeyEnvironment   = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
 	ConsumerTokenEnvironment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
+	VendorEmailEnvironment    = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
+	VendorPasswordEnvironment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
+	AuthState                 = "state"
+	AuthLegacy                = "legacy"
 	defaultAPI               = "https://vendors.sdkman.io"
 	defaultStateAPI          = "https://state.sdkman.io"
 	defaultOperationTimeout  = 120000
@@ -29,13 +33,17 @@ const (
 var platformStateIDs = map[string]string{
 	"UNIVERSAL":     "universal",
 	"LINUX_64":      "linuxx64",
+	"LINUX_X64":     "linuxx64",
 	"LINUX_ARM64":   "linuxarm64",
 	"LINUX_32":      "linuxx32",
+	"LINUX_X32":     "linuxx32",
 	"LINUX_ARM32SF": "linuxarm32sf",
 	"LINUX_ARM32HF": "linuxarm32hf",
 	"MAC_OSX":       "darwinx64",
+	"MAC_X64":       "darwinx64",
 	"MAC_ARM64":     "darwinarm64",
 	"WINDOWS_64":    "windowsx64",
+	"WINDOWS_X64":   "windowsx64",
 }
 
 var checksumHexLengths = map[string]int{
@@ -64,11 +72,15 @@ type configuration struct {
 }
 
 type authenticationConfig struct {
-	ConsumerKeyCredential   string `json:"consumerKeyCredential"`
-	ConsumerTokenCredential string `json:"consumerTokenCredential"`
+	Mode                    string `json:"mode,omitempty"`
+	EmailCredential         string `json:"emailCredential,omitempty"`
+	PasswordCredential      string `json:"passwordCredential,omitempty"`
+	ConsumerKeyCredential   string `json:"consumerKeyCredential,omitempty"`
+	ConsumerTokenCredential string `json:"consumerTokenCredential,omitempty"`
 }
 
 type operationPayload struct {
+	Mode              string            `json:"mode,omitempty"`
 	Artifact          string            `json:"artifact"`
 	Candidate         string            `json:"candidate"`
 	Version           string            `json:"version"`
@@ -142,22 +154,31 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
 	}
 	payload := operationPayload{
-		Artifact: cfg.Artifact, Candidate: cfg.Candidate, Version: cfg.Version, URL: cfg.URL,
-		Vendor: cfg.Vendor, Platform: cfg.Platform, StatePlatform: platformStateIDs[cfg.Platform],
+		Mode: cfg.Authentication.Mode, Artifact: cfg.Artifact, Candidate: cfg.Candidate, Version: cfg.Version, URL: cfg.URL,
+		Vendor: cfg.Vendor, Platform: cfg.Platform, StatePlatform: statePlatform(cfg.Platform, cfg.Authentication.Mode),
 		Checksums: checksums, API: cfg.API, StateAPI: cfg.StateAPI, StateDistribution: cfg.StateDistribution,
 		ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 	}
 	encoded, _ := json.Marshal(payload)
-	keyMetadata, _ := json.Marshal(map[string]string{"environment": ConsumerKeyEnvironment})
-	tokenMetadata, _ := json.Marshal(map[string]string{"environment": ConsumerTokenEnvironment})
+	requirements := make([]protocol.Requirement, 0, 2)
+	if cfg.Authentication.Mode == AuthState {
+		email, _ := json.Marshal(map[string]string{"environment": VendorEmailEnvironment})
+		password, _ := json.Marshal(map[string]string{"environment": VendorPasswordEnvironment})
+		requirements = append(requirements,
+			protocol.Requirement{Kind: "credential", Name: cfg.Authentication.EmailCredential, Metadata: email},
+			protocol.Requirement{Kind: "credential", Name: cfg.Authentication.PasswordCredential, Metadata: password})
+	} else {
+		key, _ := json.Marshal(map[string]string{"environment": ConsumerKeyEnvironment})
+		token, _ := json.Marshal(map[string]string{"environment": ConsumerTokenEnvironment})
+		requirements = append(requirements,
+			protocol.Requirement{Kind: "credential", Name: cfg.Authentication.ConsumerKeyCredential, Metadata: key},
+			protocol.Requirement{Kind: "credential", Name: cfg.Authentication.ConsumerTokenCredential, Metadata: token})
+	}
 	return protocol.PlanResponse{
 		Operations: []protocol.PlannedOperation{{
 			ID: "publish", Kind: "publish", SideEffecting: true, TimeoutMillis: defaultOperationTimeout, ProviderPayload: encoded,
 		}},
-		Requirements: []protocol.Requirement{
-			{Kind: "credential", Name: cfg.Authentication.ConsumerKeyCredential, Metadata: keyMetadata},
-			{Kind: "credential", Name: cfg.Authentication.ConsumerTokenCredential, Metadata: tokenMetadata},
-		},
+		Requirements: requirements,
 	}, nil
 }
 
@@ -168,6 +189,35 @@ func (p Provider) Apply(ctx context.Context, request protocol.ApplyRequest) (pro
 	payload, err := parsePayload(request.ProviderPayload)
 	if err != nil {
 		return protocol.ApplyResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
+	if payload.Mode == AuthState {
+		observed, lookupErr := p.lookup(ctx, payload)
+		if lookupErr != nil {
+			return protocol.ApplyResponse{}, lookupErr
+		}
+		if observed.exists {
+			return protocol.ApplyResponse{Result: resultForObserved(payload, observed)}, nil
+		}
+		email, password, credentialErr := p.stateCredentials()
+		if credentialErr != nil {
+			return protocol.ApplyResponse{}, credentialErr
+		}
+		token, loginErr := p.login(ctx, payload, email, password)
+		if loginErr != nil {
+			return protocol.ApplyResponse{}, loginErr
+		}
+		status, publishErr := p.publishState(ctx, payload, token)
+		if publishErr != nil {
+			return protocol.ApplyResponse{}, publishErr
+		}
+		if status == http.StatusConflict {
+			observed, lookupErr := p.lookup(ctx, payload)
+			if lookupErr != nil || !observed.exists {
+				return protocol.ApplyResponse{}, providerError(protocol.ErrorAmbiguousOutcome, "SDKMAN State API reported a conflicting publication that could not be reconciled", false)
+			}
+			return protocol.ApplyResponse{Result: resultForObserved(payload, observed)}, nil
+		}
+		return protocol.ApplyResponse{Result: acceptedResult(payload)}, nil
 	}
 	key, token, providerErr := p.credentials()
 	if providerErr != nil {
@@ -253,11 +303,40 @@ func parseConfiguration(raw json.RawMessage) (configuration, error) {
 	if err := validateChecksums(cfg.Checksums); err != nil {
 		return configuration{}, err
 	}
-	if !validCredentialRef(cfg.Authentication.ConsumerKeyCredential) || !validCredentialRef(cfg.Authentication.ConsumerTokenCredential) {
-		return configuration{}, fmt.Errorf("SDKMAN credential reference is invalid")
+	if cfg.Authentication.Mode == "" {
+		if cfg.Authentication.ConsumerKeyCredential != "" || cfg.Authentication.ConsumerTokenCredential != "" {
+			cfg.Authentication.Mode = AuthLegacy // Existing configurations keep their original contract.
+		} else {
+			cfg.Authentication.Mode = AuthState
+		}
 	}
-	if cfg.Authentication.ConsumerKeyCredential == cfg.Authentication.ConsumerTokenCredential {
-		return configuration{}, fmt.Errorf("SDKMAN consumer key and token credentials must use different references")
+	switch cfg.Authentication.Mode {
+	case AuthLegacy:
+		if cfg.Authentication.EmailCredential != "" || cfg.Authentication.PasswordCredential != "" ||
+			!validCredentialRef(cfg.Authentication.ConsumerKeyCredential) || !validCredentialRef(cfg.Authentication.ConsumerTokenCredential) ||
+			cfg.Authentication.ConsumerKeyCredential == cfg.Authentication.ConsumerTokenCredential {
+			return configuration{}, fmt.Errorf("SDKMAN legacy authentication requires distinct consumer key and token references")
+		}
+	case AuthState:
+		if cfg.Authentication.ConsumerKeyCredential != "" || cfg.Authentication.ConsumerTokenCredential != "" ||
+			!validCredentialRef(cfg.Authentication.EmailCredential) || !validCredentialRef(cfg.Authentication.PasswordCredential) ||
+			cfg.Authentication.EmailCredential == cfg.Authentication.PasswordCredential {
+			return configuration{}, fmt.Errorf("SDKMAN State API authentication requires distinct email and password references")
+		}
+		if cfg.Candidate == "java" {
+			return configuration{}, fmt.Errorf("the SDKMAN State API does not accept direct java publication")
+		}
+		cfg.Platform = canonicalPlatform(cfg.Platform)
+		if cfg.StateDistribution != "" && !validStateDistribution(cfg.StateDistribution) {
+			return configuration{}, fmt.Errorf("unsupported SDKMAN State API distribution %q", cfg.StateDistribution)
+		}
+		for algorithm := range cfg.Checksums {
+			if algorithm != "MD5" && algorithm != "SHA-256" && algorithm != "SHA-512" {
+				return configuration{}, fmt.Errorf("SDKMAN State API does not support %q checksums", algorithm)
+			}
+		}
+	default:
+		return configuration{}, fmt.Errorf("unsupported SDKMAN authentication mode %q", cfg.Authentication.Mode)
 	}
 	return cfg, nil
 }
@@ -270,7 +349,22 @@ func parsePayload(raw json.RawMessage) (operationPayload, error) {
 	if !validToken(payload.Artifact, 1024) || !validToken(payload.Candidate, 128) || !validToken(payload.Version, 256) || payload.URL == "" || payload.API == "" || payload.StateAPI == "" || payload.ArtifactDigest == "" || payload.ArtifactSize < 0 {
 		return operationPayload{}, fmt.Errorf("SDKMAN operation payload is incomplete")
 	}
+	if payload.Mode != "" && payload.Mode != AuthLegacy && payload.Mode != AuthState {
+		return operationPayload{}, fmt.Errorf("unsupported SDKMAN operation authentication mode %q", payload.Mode)
+	}
 	statePlatform, ok := platformStateIDs[payload.Platform]
+	if payload.Mode == AuthState {
+		statePlatform = canonicalPlatform(payload.Platform)
+		if payload.Candidate == "java" || !validStateDistributionOptional(payload.StateDistribution) ||
+			payload.Platform != statePlatform {
+			return operationPayload{}, fmt.Errorf("SDKMAN State API operation identity is invalid")
+		}
+		for algorithm := range payload.Checksums {
+			if algorithm != "MD5" && algorithm != "SHA-256" && algorithm != "SHA-512" {
+				return operationPayload{}, fmt.Errorf("unsupported SDKMAN State API checksum %q", algorithm)
+			}
+		}
+	}
 	if !ok || statePlatform != payload.StatePlatform {
 		return operationPayload{}, fmt.Errorf("SDKMAN operation platform is invalid")
 	}
@@ -396,6 +490,54 @@ func validCredentialRef(value string) bool {
 		}
 	}
 	return true
+}
+
+// Legacy platform values are still accepted for existing integrations. New State
+// API plans persist canonical platform coordinates as required by the OpenAPI schema.
+func canonicalPlatform(platform string) string {
+	switch platform {
+	case "LINUX_64":
+		return "LINUX_X64"
+	case "LINUX_32":
+		return "LINUX_X32"
+	case "MAC_OSX":
+		return "MAC_X64"
+	case "WINDOWS_64":
+		return "WINDOWS_X64"
+	default:
+		return platform
+	}
+}
+
+func statePlatform(platform, mode string) string {
+	if mode == AuthState {
+		return canonicalPlatform(platform)
+	}
+	return platformStateIDs[platform]
+}
+
+func validStateDistributionOptional(value string) bool {
+	return value == "" || validStateDistribution(value)
+}
+
+func validStateDistribution(value string) bool {
+	switch value {
+	case "BISHENG", "CORRETTO", "ELIYA", "GRAALCE", "GRAALVM", "JETBRAINS",
+		"KONA", "LIBERICA", "LIBERICA_NIK", "MANDREL", "MICROSOFT",
+		"OPENJDK", "ORACLE", "SAP_MACHINE", "SEMERU", "TEMURIN", "ZULU":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p Provider) stateCredentials() (string, string, *protocol.ProviderError) {
+	email := strings.TrimSpace(p.getenv(VendorEmailEnvironment))
+	password := p.getenv(VendorPasswordEnvironment)
+	if email == "" || strings.TrimSpace(password) == "" {
+		return "", "", providerError(protocol.ErrorAuthentication, "required SDKMAN State API credentials are unavailable", false)
+	}
+	return email, password, nil
 }
 
 func (p Provider) credentials() (string, string, *protocol.ProviderError) {
