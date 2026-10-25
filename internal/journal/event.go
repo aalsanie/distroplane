@@ -59,6 +59,7 @@ const (
 	EventOutcomeAmbiguous         EventType = "OUTCOME_AMBIGUOUS"
 	EventReconcileStarted         EventType = "RECONCILE_STARTED"
 	EventReconcileResult          EventType = "RECONCILE_RESULT"
+	EventRetryAuthorized          EventType = "RETRY_AUTHORIZED"
 )
 
 var (
@@ -120,7 +121,7 @@ func (t EventType) valid() bool {
 		EventLeaseExpired, EventLeaseReleased, EventAttemptStarted, EventCredentialResolved, EventProviderProcessStarted, EventSideEffectDispatched,
 		EventProviderResponseReceived, EventOperationWaitingExternal, EventOperationPublished, EventOperationRejected,
 		EventOperationFailed, EventOperationResult, EventOperationCancelled, EventOutcomeAmbiguous,
-		EventReconcileStarted, EventReconcileResult:
+		EventReconcileStarted, EventReconcileResult, EventRetryAuthorized:
 		return true
 	default:
 		return false
@@ -174,6 +175,12 @@ func (p Payload) empty() bool {
 		p.State == "" && p.ProviderState == "" && len(p.Evidence) == 0 && p.ErrorCode == "" && !p.Retryable && p.Lease == nil
 }
 
+func (p Payload) emptyExceptAttempt() bool {
+	q := p
+	q.Attempt = 0
+	return q.empty()
+}
+
 func (p Payload) validate(eventType EventType) error {
 	switch eventType {
 	case EventOperationReady:
@@ -188,6 +195,11 @@ func (p Payload) validate(eventType EventType) error {
 			return fmt.Errorf("event %q requires lease metadata", eventType)
 		}
 		return p.Lease.validate()
+	case EventRetryAuthorized:
+		if p.Attempt == 0 || !p.emptyExceptAttempt() {
+			return fmt.Errorf("retry authorization requires only a nonzero attempt")
+		}
+		return nil
 	case EventOperationCancelled:
 		if p.Attempt != 0 || p.AttemptReason != "" || p.ResultCategory != "" || p.CredentialRef != "" || p.State != "" || p.ProviderState != "" || len(p.Evidence) != 0 || p.Retryable {
 			return fmt.Errorf("operation-cancelled event contains unsupported payload")

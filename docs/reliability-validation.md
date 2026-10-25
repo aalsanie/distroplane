@@ -25,3 +25,5 @@ Execution concurrency is bounded. Waiting-external runs do not keep provider gor
 Journal fault tests cover interrupted writes, disk exhaustion, read-only storage, clock skew, truncated tails, and corrupted complete frames. Writers synchronize successful appends and hold an OS file lock.
 
 Platform-sensitive tests cover provider process termination, path handling, locking, and release-artifact execution. See the [performance baseline](performance-baseline.md) for recorded measurements.
+
+Ambiguous npm side effects never automatically republish after an absent lookup. A dedicated, journaled, operator-authorized one-shot retry requires a successful reconciled absent observation and explicit duplicate-risk acknowledgment; ordinary reconciliation remains strictly read-only. Tests cover unauthorized, duplicate, stale, wrong-provider, and successful recovery flows.
