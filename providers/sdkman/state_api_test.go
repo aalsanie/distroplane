@@ -294,3 +294,98 @@ func TestStateAPIMissingCredentialsAndNoLeaks(t *testing.T) {
 		t.Fatal("attempted API calls without credentials")
 	}
 }
+
+func TestStateAPILostPublishResponseReconcilesWithoutDuplicate(t *testing.T) {
+	var mu sync.Mutex
+	var observed *stateVersion
+	var publishes int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/versions/"):
+			mu.Lock()
+			result := observed
+			mu.Unlock()
+			if result == nil {
+				w.WriteHeader(http.StatusNotFound)
+			} else {
+				_ = json.NewEncoder(w).Encode(result)
+			}
+		case r.Method == http.MethodPost && r.URL.Path == "/login":
+			_, _ = io.WriteString(w, `{"token":"`+stateJWT+`"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/versions":
+			if r.Header.Get("Authorization") != "Bearer "+stateJWT {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			var publish statePublishRequest
+			if err := json.NewDecoder(r.Body).Decode(&publish); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			publishes++
+			observed = &stateVersion{
+				Candidate: publish.Candidate, Version: publish.Version, Platform: publish.Platform,
+				URL: publish.URL, SHA256: publish.SHA256, Distribution: publish.Distribution,
+			}
+			mu.Unlock()
+			connection, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = connection.Close() // Simulate a successful server-side write with lost response.
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	provider := stateProvider(server)
+	payload, _ := statePlan(t, provider, server.URL, nil)
+	_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+	if providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome || providerErr.Retryable {
+		t.Fatalf("lost response was not ambiguous: %+v", providerErr)
+	}
+	reconciled, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil || reconciled.Result.State != protocol.ResultPublished {
+		t.Fatalf("reconciliation failed: result=%+v err=%+v", reconciled, providerErr)
+	}
+	again, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+	if providerErr != nil || again.Result.State != protocol.ResultPublished {
+		t.Fatalf("idempotent retry failed: result=%+v err=%+v", again, providerErr)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if publishes != 1 {
+		t.Fatalf("reconciliation accidentally published %d times", publishes)
+	}
+}
+
+func TestStateAPIRedirectsDoNotForwardCredentials(t *testing.T) {
+	var leaked int
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+	for _, redirectStage := range []string{"login", "publish"} {
+		t.Run(redirectStage, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet:
+					w.WriteHeader(http.StatusNotFound)
+				case r.URL.Path == "/login" && redirectStage == "publish":
+					_, _ = io.WriteString(w, `{"token":"`+stateJWT+`"}`)
+				default:
+					w.Header().Set("Location", destination.URL)
+					w.WriteHeader(http.StatusTemporaryRedirect)
+				}
+			}))
+			defer server.Close()
+			provider := stateProvider(server)
+			payload, _ := statePlan(t, provider, server.URL, nil)
+			_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+			if providerErr == nil || leaked != 0 {
+				t.Fatalf("redirect leaked SDKMAN credentials: err=%+v requests=%d", providerErr, leaked)
+			}
+		})
+	}
+}
