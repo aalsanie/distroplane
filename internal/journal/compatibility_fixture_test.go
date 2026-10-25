@@ -25,13 +25,13 @@ func TestStableJournalV2ReplayFixtures(t *testing.T) {
 				t.Fatal(err)
 			}
 			var fixture struct {
-				Events []Event `json:"events"`
+				Events   []Event `json:"events"`
 				Expected struct {
 					State             domain.NormalizedState `json:"state"`
-					Attempt           uint32 `json:"attempt"`
-					ReconcileRequired bool `json:"reconcileRequired"`
-					Ambiguous         bool `json:"ambiguous"`
-					BlockedAttempts   uint32 `json:"blockedAttempts"`
+					Attempt           uint32                 `json:"attempt"`
+					ReconcileRequired bool                   `json:"reconcileRequired"`
+					Ambiguous         bool                   `json:"ambiguous"`
+					BlockedAttempts   uint32                 `json:"blockedAttempts"`
 				} `json:"expected"`
 			}
 			if err := json.Unmarshal(raw, &fixture); err != nil {
