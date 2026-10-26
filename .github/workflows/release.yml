@@ -8,6 +8,9 @@ on:
 permissions:
   actions: read
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -86,17 +89,38 @@ jobs:
           export COMMIT="${COMMIT:0:12}"
           export BUILD_DATE="$(git show -s --format=%cI HEAD)"
           ./scripts/build.sh
-          (cd dist && sha256sum -c SHA256SUMS)
-          test -f dist/RELEASE-METADATA.json
-          grep -Fq "\"version\":\"${VERSION}\"" dist/RELEASE-METADATA.json
-          grep -Fq "\"commit\":\"${COMMIT}\"" dist/RELEASE-METADATA.json
+          go run ./scripts/release-assets.go verify
+          jq -e --arg version "$VERSION" --arg commit "$COMMIT" \
+            '.schemaVersion == "2" and .version == $version and .commit == $commit and (.assets | length == 36)' \
+            dist/RELEASE-METADATA.json
           identity="$("./dist/distroplane_${VERSION}_linux_amd64" version --json)"
-          grep -Fq "\"version\":\"${VERSION}\"" <<<"$identity"
-          grep -Fq "\"commit\":\"${COMMIT}\"" <<<"$identity"
+          jq -e --arg version "$VERSION" --arg commit "$COMMIT" \
+            '.version == $version and .commit == $commit' <<<"$identity"
           DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
           DISTROPLANE_RELEASE_SMOKE_VERSION="$VERSION" \
           DISTROPLANE_RELEASE_SMOKE_COMMIT="$COMMIT" \
             go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI$' -count=1
+          DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
+            go test ./scripts -run '^TestReleaseArchiveNativeExecutables$' -count=1
+
+      - name: Attest verified release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+
+      - name: Verify signed release provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          for asset in dist/*; do
+            gh attestation verify "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --source-digest "$SOURCE_COMMIT" \
+              --source-ref "$GITHUB_REF" >/dev/null
+          done
 
       - name: Publish GitHub release
         shell: bash

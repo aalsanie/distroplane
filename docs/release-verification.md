@@ -12,7 +12,9 @@ For each release version, the build produces the CLI and npm, SDKMAN, Homebrew, 
 | macOS | amd64, arm64 | `_darwin_<arch>` |
 | Windows | amd64, arm64 | `_windows_<arch>.exe` |
 
-Asset names are `distroplane_<version>_<os>_<arch>` and `distroplane-provider-<name>_<version>_<os>_<arch>` (plus `.exe` on Windows). Each release also includes `SHA256SUMS` for all executables and `RELEASE-METADATA.json` with the version, source commit, build date, Go version, and CGO setting. The checksum manifest and metadata are **unsigned**.
+Asset names are `distroplane_<version>_<os>_<arch>` and `distroplane-provider-<name>_<version>_<os>_<arch>` (plus `.exe` on Windows). Each release also includes six unified archives, named `distroplane_<version>_<os>_<arch>.tar.gz` (Linux/macOS) and `distroplane_<version>_windows_<arch>.zip`. The archive layout is `bin/distroplane` (or `.exe`), `libexec/distroplane-provider-<name>` (four executables), and `PACKAGE-METADATA.json`, which records the exact embedded byte digests and executable modes.
+
+`SHA256SUMS` covers all 36 assets. `RELEASE-METADATA.json` (schema 2) records the version, source commit, Go toolchain, and per-asset digests. CI checks the embedded files and exact inventory before a release. Release workflow artifacts receive GitHub OIDC/Sigstore build provenance attestations; consumers can verify a downloaded asset with `gh attestation verify ASSET --repo aalsanie/distroplane --source-ref refs/tags/v<VERSION>`. Release-local checksums alone are not an independent trust anchor; publishing access and the GitHub Actions signing workflow remain trust boundaries.
 
 ## Manual installation
 
