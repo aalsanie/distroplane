@@ -82,7 +82,7 @@ func TestReleaseVerificationRejectsTampering(t *testing.T) {
 	}{
 		{"altered binary", "distroplane_1.0.0_linux_amd64", func(b []byte) []byte { return append(b, 'x') }},
 		{"altered archive", "distroplane_1.0.0_windows_amd64.zip", func(b []byte) []byte { return append(b, 'x') }},
-		{"altered checksum", "SHA256SUMS", func(b []byte) []byte { b[0] = '0'; return b }},
+		{"altered checksum", "SHA256SUMS", func(b []byte) []byte { if b[0] == '0' { b[0] = '1' } else { b[0] = '0' }; return b }},
 		{"altered metadata", "RELEASE-METADATA.json", func(b []byte) []byte { return append(b, 'x') }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
