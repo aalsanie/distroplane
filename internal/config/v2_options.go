@@ -124,10 +124,6 @@ func validateOptionObject(path string, raw json.RawMessage, fields map[string]op
 			if string(raw) != "true" && string(raw) != "false" {
 				return nil, fmt.Errorf("%s: expected boolean", field)
 			}
-			var value bool
-			if err := json.Unmarshal(raw, &value); err != nil {
-				return nil, fmt.Errorf("%s: expected boolean", field)
-			}
 		case "object":
 			if _, err := validateOptionObject(field, raw, rule.children); err != nil {
 				return nil, err
@@ -203,18 +199,10 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 		if authMode := optionString(auth["mode"]); authMode != "token" && authMode != "trusted-publishing" {
 			return nil, fmt.Errorf("%s.authentication.mode: expected token or trusted-publishing", path)
 		}
-		for _, name := range []string{"mode", "credential"} {
-			if err := requireV2(path, options, "authentication", name); err != nil {
-				return nil, err
-			}
-		}
 		if err := validLocalPath(path+".packagePath", optionString(options["packagePath"])); err != nil {
 			return nil, err
 		}
 	case "sdkman":
-		if err := requireV2(path, options, "authentication", "mode"); err != nil {
-			return nil, err
-		}
 		names := []string{}
 		switch optionString(auth["mode"]) {
 		case "state":
@@ -256,9 +244,6 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 			return nil, fmt.Errorf("%s.manifest.type: expected formula or cask", path)
 		}
 	case "winget":
-		if err := requireV2(path, options, "authentication", "credential"); err != nil {
-			return nil, err
-		}
 		if err := requireV2(path, options, "pullRequest", "repository"); err != nil {
 			return nil, err
 		}
@@ -285,10 +270,10 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 		}
 	}
 	// The artifact association is a v2 core field, never user-defined provider data.
-	options["artifact"], err = json.Marshal(artifact)
-	if err != nil {
-		return nil, err
-	}
+	// Encoding a Go string cannot fail; the provider artifact association is
+	// supplied by the core and is never accepted from raw provider options.
+	artifactValue, _ := json.Marshal(artifact)
+	options["artifact"] = artifactValue
 	encoded, err := json.Marshal(options)
 	if err != nil {
 		return nil, err
