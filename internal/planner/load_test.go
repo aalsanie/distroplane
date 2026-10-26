@@ -127,7 +127,10 @@ func TestResolveExecutableRelativeToBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	absolute, _ := filepath.Abs(path)
+	absolute, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if resolved != filepath.Clean(absolute) {
 		t.Fatalf("resolved=%q want %q", resolved, absolute)
 	}

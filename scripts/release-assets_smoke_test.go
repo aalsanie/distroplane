@@ -144,4 +144,55 @@ func TestReleaseArchiveNativeExecutables(t *testing.T) {
 			t.Fatalf("%s incorrect identity: %s", name, fmt.Sprintf("%+v", reply))
 		}
 	}
+
+	// Verify extracted CLI discovery takes precedence over a shadowed PATH.
+	artifact := filepath.Join(dest, "candidate.zip")
+	if err := os.WriteFile(artifact, []byte("artifact bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := map[string]any{
+		"schemaVersion": "1",
+		"release": map[string]any{
+			"id":        "archive-provider-discovery",
+			"artifacts": []map[string]any{{"name": "app", "source": artifact}},
+		},
+		"targets": []map[string]any{{
+			"id":       "sdkman",
+			"provider": map[string]any{"name": "sdkman"},
+			"configuration": map[string]any{
+				"artifact": "app", "candidate": "example", "version": "1.2.3",
+				"url": "https://example.invalid/candidate.zip",
+				"authentication": map[string]any{
+					"mode": "legacy", "consumerKeyCredential": "sdkman-key",
+					"consumerTokenCredential": "sdkman-token",
+				},
+			},
+		}},
+	}
+	config, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dest, "test-config.json")
+	if err := os.WriteFile(configPath, config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	shadow := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shadow, "distroplane-provider-sdkman"+ext), []byte("PATH shadow"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	plan := exec.Command(filepath.Join(dest, "bin", "distroplane"+ext),
+		"plan", "--config", configPath, "--state-dir", filepath.Join(dest, "state"), "--json")
+	plan.Env = append(os.Environ(), "PATH="+shadow+string(os.PathListSeparator)+os.Getenv("PATH"))
+	planned, err := plan.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bundled SDKMAN provider was not discovered: %v: %s", err, planned)
+	}
+	var output struct {
+		PlanID     string `json:"planId"`
+		Operations int    `json:"operations"`
+	}
+	if err := json.Unmarshal(planned, &output); err != nil || output.PlanID == "" || output.Operations != 1 {
+		t.Fatalf("bundled provider plan invalid: %+v %v: %s", output, err, planned)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -15,10 +16,14 @@ func TestExecutableResolverConvention(t *testing.T) {
 	}
 
 	lookedUp := ""
+	defaultProviderName := providerExecutablePrefix + "fake"
+	if runtime.GOOS == "windows" {
+		defaultProviderName += ".exe"
+	}
 	r := executableResolver{
 		lookPath: func(candidate string) (string, error) {
 			lookedUp = candidate
-			if candidate == providerExecutablePrefix+"fake" {
+			if candidate == defaultProviderName {
 				return file, nil
 			}
 			return candidate, nil
@@ -29,7 +34,7 @@ func TestExecutableResolverConvention(t *testing.T) {
 	if got, err := r.Resolve("fake", ""); err != nil || got == "" {
 		t.Fatalf("got=%q err=%v", got, err)
 	}
-	if lookedUp != providerExecutablePrefix+"fake" {
+	if lookedUp != defaultProviderName {
 		t.Fatalf("looked up %q", lookedUp)
 	}
 
@@ -37,8 +42,8 @@ func TestExecutableResolverConvention(t *testing.T) {
 	if got, err := r.Resolve("fake", file); err != nil || got == "" {
 		t.Fatalf("got=%q err=%v", got, err)
 	}
-	if lookedUp != file {
-		t.Fatalf("configured executable lookup=%q", lookedUp)
+	if lookedUp != "" {
+		t.Fatalf("explicit filesystem path must not invoke PATH lookup: %q", lookedUp)
 	}
 
 	r.lookPath = func(string) (string, error) { return "", errors.New("missing") }

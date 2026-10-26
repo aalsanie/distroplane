@@ -9,6 +9,7 @@ import (
 	"math"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aalsanie/distroplane/internal/canonicaljson"
@@ -67,7 +68,7 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 	providerDigests := make(map[domain.ProviderRef]domain.Digest)
 
 	for _, targetConfig := range targetConfigs {
-		endpoint, err := p.resolveEndpoint(targetConfig)
+		endpoint, err := p.resolveEndpoint(loaded.BaseDir, targetConfig)
 		if err != nil {
 			return DistributionPlan{}, fmt.Errorf("target %q: %w", targetConfig.ID, err)
 		}
@@ -274,8 +275,15 @@ func (p *Planner) buildRelease(loaded config.Loaded) (domain.Release, protocol.R
 	return release, protocol.Release{ID: string(releaseID), Artifacts: protocolArtifacts}, nil
 }
 
-func (p *Planner) resolveEndpoint(target config.Target) (Endpoint, error) {
-	executable, err := p.resolver.Resolve(target.Provider.Name, target.Provider.Executable)
+func (p *Planner) resolveEndpoint(baseDir string, target config.Target) (Endpoint, error) {
+	configured := target.Provider.Executable
+	if configured != "" && !filepath.IsAbs(configured) && strings.ContainsAny(configured, `/\\`) {
+		if strings.TrimSpace(baseDir) == "" {
+			return Endpoint{}, fmt.Errorf("base directory must not be empty for relative provider executable")
+		}
+		configured = filepath.Join(baseDir, configured)
+	}
+	executable, err := p.resolver.Resolve(target.Provider.Name, configured)
 	if err != nil {
 		return Endpoint{}, err
 	}
