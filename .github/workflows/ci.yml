@@ -31,6 +31,7 @@ jobs:
       - name: Check formatting
         shell: bash
         run: |
+          gofmt -d scripts/release-assets_negative_test.go
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "The following files require gofmt:" >&2
@@ -48,7 +49,10 @@ jobs:
       - name: Architecture guard
         run: ./scripts/check-architecture.sh
       - name: Coverage
-        run: ./scripts/check-coverage.sh
+        run: |
+          go test ./scripts -coverprofile=/tmp/release-assets-coverage.out
+          go tool cover -func=/tmp/release-assets-coverage.out
+          ./scripts/check-coverage.sh
       - name: Race detector
         run: go test -race ./...
       - name: Module hygiene
