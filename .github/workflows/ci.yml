@@ -48,11 +48,7 @@ jobs:
       - name: Architecture guard
         run: ./scripts/check-architecture.sh
       - name: Coverage
-        run: |
-          go test ./internal/runstate -coverprofile=/tmp/runstate-coverage.out
-          go tool cover -func=/tmp/runstate-coverage.out
-          awk '$3 == 0 {print}' /tmp/runstate-coverage.out
-          ./scripts/check-coverage.sh
+        run: ./scripts/check-coverage.sh
       - name: Race detector
         run: go test -race ./...
       - name: Module hygiene
