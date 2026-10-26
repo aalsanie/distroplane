@@ -9,9 +9,9 @@ import (
 func TestReleaseAssetCommandReturnCodes(t *testing.T) {
 	root := t.TempDir()
 	environment := map[string]string{
-		"OUT_DIR": root,
-		"VERSION": "1.0.0",
-		"COMMIT": "0123456789ab",
+		"OUT_DIR":    root,
+		"VERSION":    "1.0.0",
+		"COMMIT":     "0123456789ab",
 		"BUILD_DATE": "2026-10-25T00:00:00Z",
 		"GO_VERSION": "go1.27.1",
 	}
