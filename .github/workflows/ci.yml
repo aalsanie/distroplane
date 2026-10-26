@@ -31,6 +31,7 @@ jobs:
       - name: Check formatting
         shell: bash
         run: |
+          gofmt -d internal/runstate/store.go internal/runstate/store_test.go cmd/distroplane/runs.go cmd/distroplane/commands.go cmd/distroplane/main.go
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "The following files require gofmt:" >&2
