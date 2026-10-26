@@ -10,6 +10,7 @@ import (
 
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/journal"
+	"github.com/aalsanie/distroplane/internal/planner"
 )
 
 func TestMissingCatalogIsEmptyOnlyForNewProject(t *testing.T) {
@@ -134,8 +135,12 @@ func TestCatalogCompletedAndUncertainExecutionState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			op := domain.OperationID("fake-target/publish")
-			target := domain.TargetID("fake-target")
+			persisted, err := planner.Load(plan)
+			if err != nil { t.Fatal(err) }
+			operations := persisted.Plan().Operations()
+			if len(operations) != 1 { t.Fatalf("unexpected operation count: %d", len(operations)) }
+			op := operations[0].ID()
+			target := operations[0].TargetID()
 			appendEvent(journal.Entry{RunID: "run-one", PlanID: id, Type: journal.EventRunStarted})
 			appendEvent(journal.Entry{RunID: "run-one", Type: journal.EventAttemptStarted, OperationID: op, TargetID: target, Payload: journal.Payload{Attempt: 1, AttemptReason: journal.AttemptReasonInitial}})
 			appendEvent(journal.Entry{RunID: "run-one", Type: journal.EventProviderProcessStarted, OperationID: op, TargetID: target, Payload: journal.Payload{Attempt: 1}})
