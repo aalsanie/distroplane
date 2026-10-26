@@ -31,7 +31,6 @@ jobs:
       - name: Check formatting
         shell: bash
         run: |
-          gofmt -d internal/planner/provider.go internal/planner/planner.go internal/planner/provider_test.go internal/planner/bundled_provider_test.go
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "The following files require gofmt:" >&2
