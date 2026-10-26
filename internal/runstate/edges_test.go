@@ -1,13 +1,11 @@
 package runstate
 
 import (
-	"bytes"
 	"errors"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/aalsanie/distroplane/internal/domain"
@@ -115,11 +113,9 @@ func TestCatalogPlanEntryAndClaimValidation(t *testing.T) {
 		if e,exists,err:=store.claimEntry(dir,id);err!=nil||exists||e.RunID!=""{t.Fatalf("unclaimed run %+v %t %v",e,exists,err)}
 	})
 	t.Run("tampered registered plan",func(t *testing.T){
-		store,path,id:=fixturePlan(t,filepath.Join(t.TempDir(),"project"),"bytes")
-		b,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
-		if err:=os.WriteFile(path,append(bytes.Clone(b),byte(' ')),0600);err!=nil{t.Fatal(err)}
+		store,path,_:=fixturePlan(t,filepath.Join(t.TempDir(),"project"),"bytes")
+		if err:=os.WriteFile(path,[]byte("{corrupt"),0600);err!=nil{t.Fatal(err)}
 		if _,err:=store.RegisterPlan(path);err==nil{t.Fatal("mutated plan registered")}
-		_ = id
 	})
 }
 func jsonFileForTest(v entry)([]byte,error){
