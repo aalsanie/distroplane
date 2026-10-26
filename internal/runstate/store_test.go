@@ -315,7 +315,7 @@ func TestCatalogEntryIntegrityAndErrorPaths(t *testing.T) {
 	if _, err := readEntries(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("missing directory accepted")
 	}
-	v := entry{SchemaVersion: schemaVersion, PlanID: "safe-id", PlanPath: "/tmp/file"}
+	v := entry{SchemaVersion: schemaVersion, PlanID: "safe-id", PlanPath: filepath.Join(dir, "file")}
 	if created, err := install(dir, "entry.json", v); err != nil || !created {
 		t.Fatalf("write entry %t %v", created, err)
 	}
