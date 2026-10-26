@@ -83,7 +83,8 @@ func validProviderExecutableName(name string) bool {
 		return false
 	}
 	for i, c := range name {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (i > 0 && (c == '-' || c == '_')) {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			(i > 0 && (c == '-' || c == '_' || c == '.')) {
 			continue
 		}
 		return false
