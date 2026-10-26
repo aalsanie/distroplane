@@ -104,7 +104,7 @@ func TestReleaseArchiveRejectsUnexpectedEntriesAndByteSubstitution(t *testing.T)
 		t.Fatal("substituted archive content accepted")
 	}
 	wrong = append([]packedFile(nil), want...)
-	wrong[0].mode = 0644
+	wrong[1].mode = 0644
 	if err := verifyArchive(good, "windows", wrong); err == nil {
 		t.Fatal("unexpected archive mode accepted")
 	}
