@@ -38,16 +38,6 @@ for target in "${targets[@]}"; do
   done
 done
 
-(
-  cd "$out"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum distroplane* > SHA256SUMS
-  else
-    shasum -a 256 distroplane* > SHA256SUMS
-  fi
-)
-
-
-cat > "$out/RELEASE-METADATA.json" <<EOF
-{"schemaVersion":"1","version":"$version","commit":"$commit","buildDate":"$build_date","goVersion":"$go_version","cgoEnabled":false}
-EOF
+# Assemble archives and verify both package contents and released hashes.
+VERSION="$version" COMMIT="$commit" BUILD_DATE="$build_date" GO_VERSION="$go_version" OUT_DIR="$out" \
+  go run ./scripts/release-assets.go build

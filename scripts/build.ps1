@@ -49,19 +49,23 @@ try {
     $env:GOARCH = $OldGoarch
 }
 
-$Lines = Get-ChildItem $Out -File -Filter 'distroplane*' | Sort-Object Name | ForEach-Object {
-    $Hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
-    "$Hash  $($_.Name)"
+$OldVersion = $env:VERSION
+$OldCommit = $env:COMMIT
+$OldBuildDate = $env:BUILD_DATE
+$OldGoVersion = $env:GO_VERSION
+$OldOutDir = $env:OUT_DIR
+$env:VERSION = $Version
+$env:COMMIT = $Commit
+$env:BUILD_DATE = $BuildDate
+$env:GO_VERSION = $GoVersion
+$env:OUT_DIR = $Out
+try {
+    go run ./scripts/release-assets.go build
+    if ($LASTEXITCODE -ne 0) { throw 'release asset packaging failed' }
+} finally {
+    $env:VERSION = $OldVersion
+    $env:COMMIT = $OldCommit
+    $env:BUILD_DATE = $OldBuildDate
+    $env:GO_VERSION = $OldGoVersion
+    $env:OUT_DIR = $OldOutDir
 }
-Set-Content -Path (Join-Path $Out 'SHA256SUMS') -Value $Lines -Encoding ascii
-
-
-$Metadata = [ordered]@{
-    schemaVersion = '1'
-    version = $Version
-    commit = $Commit
-    buildDate = $BuildDate
-    goVersion = $GoVersion
-    cgoEnabled = $false
-}
-$Metadata | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $Out 'RELEASE-METADATA.json') -Encoding ascii
