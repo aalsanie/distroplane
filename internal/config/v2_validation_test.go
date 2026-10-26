@@ -75,16 +75,15 @@ func TestV2ProviderSpecificRequiredMetadata(t *testing.T){
 func TestV2CoreTypeAndDestinationSafety(t *testing.T){
  basic:=`{"schemaVersion":"2","release":{"id":"v2","artifacts":{"app":{"source":"dist/app"}}},"destinations":{"npm":{"artifact":"app","options":{"packagePath":"dist/app","registry":"https://registry.npmjs.org/","authentication":{"mode":"token","credential":"publish"}}}}}`
  cases:=[]struct{label,raw,field string}{
-  {"missing destinations",strings.Replace(basic,`"destinations":{`,`"destinations":{`,1)+"", ""},
+  {"missing destinations",strings.Replace(basic,`"destinations":{"npm":`,`"destinations":{"other":`,1),"destinations.other"},
   {"nonobject artifacts",strings.Replace(basic,`"artifacts":{"app":{"source":"dist/app"}}`,`"artifacts":[]`,1),"release"},
   {"missing release id",strings.Replace(basic,`"id":"v2"`,`"id":""`,1),"release.id"},
-  {"array without explicit id",strings.Replace(basic,`"npm":{"artifact":`,`"npm":[{"artifact":`,1),"decode config"},
+  {"array without explicit id",`{"schemaVersion":"2","release":{"id":"v2","artifacts":{"app":{"source":"dist/app"}}},"destinations":{"npm":[{"artifact":"app","options":{"packagePath":"dist/app","registry":"https://registry.npmjs.org/","authentication":{"mode":"token","credential":"publish"}}}]}}`,"destinations.npm[0].id"},
   {"unknown artifact key",strings.Replace(basic,`"source":"dist/app"`,`"source":"dist/app","digest":"inject"`,1),"release.artifacts.app"},
   {"unknown config provider",strings.Replace(basic,`"npm":{`,`"pypi":{`,1),"destinations.pypi"},
-  {"single missing options",strings.Replace(basic,`"options":{"packagePath":"dist/app"`,`"options":null,"packagePath":"dist/app"`,1),"decode config"},
+  {"single missing options",`{"schemaVersion":"2","release":{"id":"v2","artifacts":{"app":{"source":"dist/app"}}},"destinations":{"npm":{"artifact":"app","options":null}}}`,"destinations.npm.options"},
  }
  for _,tc:=range cases{
-  if tc.label=="missing destinations"||tc.label=="array without explicit id"||tc.label=="single missing options" {continue}
   t.Run(tc.label,func(t *testing.T){
    _,err:=Decode(strings.NewReader(tc.raw))
    if err==nil{t.Fatal("invalid configuration accepted")}
