@@ -21,7 +21,7 @@ type configV2 struct {
 }
 type releaseV2 struct {
 	ID        string                `json:"id"`
-	Artifacts map[string]artifactV2 `json:"artifacts"`
+	Artifacts map[string]json.RawMessage `json:"artifacts"`
 }
 type artifactV2 struct {
 	Source    string `json:"source"`
@@ -68,7 +68,10 @@ func decodeV2(raw []byte) (Config, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		a := input.Release.Artifacts[name]
+		var a artifactV2
+		if err := strictV2JSON(input.Release.Artifacts[name], &a); err != nil {
+			return Config{}, fmt.Errorf("release.artifacts.%s: %w", name, err)
+		}
 		path := "release.artifacts." + name
 		if err := validateText(path, name, false); err != nil {
 			return Config{}, err

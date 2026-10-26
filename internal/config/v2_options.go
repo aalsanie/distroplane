@@ -167,8 +167,12 @@ func requireV2(path string, values map[string]json.RawMessage, names ...string) 
 			if json.Unmarshal(raw, &value) != nil || value == "" {
 				return fmt.Errorf("%s.%s: expected non-empty value", path, strings.Join(names, "."))
 			}
-		} else if json.Unmarshal(raw, &current) != nil {
-			return fmt.Errorf("%s.%s: expected object", path, strings.Join(names[:i+1], "."))
+		} else {
+			var nested map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &nested); err != nil {
+				return fmt.Errorf("%s.%s: expected object", path, strings.Join(names[:i+1], "."))
+			}
+			current = nested
 		}
 	}
 	return nil
