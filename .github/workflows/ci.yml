@@ -119,6 +119,8 @@ jobs:
         run: go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceOneHundredThousandEvents)$' -benchmem -benchtime=3x
       - name: Provider process startup
         run: go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x
+      - name: CLI workflow timings (isolated fixture)
+        run: ./scripts/measure-cli-flow.sh
 
   build:
     name: Build (${{ matrix.os }})
