@@ -125,7 +125,10 @@ func TestInvalidInstalledProviderFailsClosed(t *testing.T) {
 			if runtime.GOOS == "windows" {
 				t.Skip("POSIX file permissions not applicable to Windows")
 			}
-			if err := os.WriteFile(path, []byte("binary"), 0777); err != nil {
+			if err := os.WriteFile(path, []byte("binary"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0777); err != nil {
 				t.Fatal(err)
 			}
 		}},
