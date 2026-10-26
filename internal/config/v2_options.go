@@ -22,10 +22,12 @@ func object(required bool, fields map[string]optionRule) optionRule {
 	return optionRule{kind: "object", required: required, children: fields}
 }
 
-var authRules = map[string]optionRule{
-	"mode": str(false), "credential": str(false), "emailCredential": str(false),
-	"passwordCredential": str(false), "consumerKeyCredential": str(false), "consumerTokenCredential": str(false),
+var npmAuthRules = map[string]optionRule{"mode": str(true), "credential": str(true)}
+var sdkmanAuthRules = map[string]optionRule{
+	"mode": str(true), "emailCredential": str(false), "passwordCredential": str(false),
+	"consumerKeyCredential": str(false), "consumerTokenCredential": str(false),
 }
+var credentialAuthRules = map[string]optionRule{"credential": str(true)}
 var commitRules = map[string]optionRule{"message": str(false), "authorName": str(false), "authorEmail": str(false)}
 var prRules = map[string]optionRule{
 	"repository": str(false), "api": str(false), "headOwner": str(false), "title": str(false),
@@ -38,14 +40,14 @@ func optionFields(provider string) map[string]optionRule {
 		return map[string]optionRule{
 			"packagePath": str(true), "registry": str(true), "tag": str(false),
 			"access": str(false), "allowInsecureHTTP": boolean(),
-			"authentication": object(true, authRules),
+			"authentication": object(true, npmAuthRules),
 		}
 	case "sdkman":
 		return map[string]optionRule{
 			"candidate": str(true), "version": str(true), "url": str(true),
 			"vendor": str(false), "platform": str(false), "api": str(false), "stateApi": str(false),
 			"stateDistribution": str(false), "checksums": {kind: "stringMap"},
-			"allowInsecureHTTP": boolean(), "authentication": object(true, authRules),
+			"allowInsecureHTTP": boolean(), "authentication": object(true, sdkmanAuthRules),
 		}
 	case "homebrew":
 		return map[string]optionRule{
@@ -57,7 +59,7 @@ func optionFields(provider string) map[string]optionRule {
 				"binary": str(false), "installKind": str(false), "installSource": str(false),
 				"installLayout": str(false), "javaVersion": str(false),
 			}),
-			"commit": object(false, commitRules), "authentication": object(false, authRules),
+			"commit": object(false, commitRules), "authentication": object(false, credentialAuthRules),
 			"pullRequest": object(false, prRules),
 		}
 	case "winget":
@@ -77,7 +79,7 @@ func optionFields(provider string) map[string]optionRule {
 					"relativeFilePath": str(true), "portableCommandAlias": str(false),
 				}},
 			}),
-			"commit": object(false, commitRules), "authentication": object(true, authRules),
+			"commit": object(false, commitRules), "authentication": object(true, credentialAuthRules),
 			"pullRequest": object(true, prRules),
 		}
 	}
@@ -119,6 +121,9 @@ func validateOptionObject(path string, raw json.RawMessage, fields map[string]op
 				return nil, err
 			}
 		case "boolean":
+			if string(raw) != "true" && string(raw) != "false" {
+				return nil, fmt.Errorf("%s: expected boolean", field)
+			}
 			var value bool
 			if err := json.Unmarshal(raw, &value); err != nil {
 				return nil, fmt.Errorf("%s: expected boolean", field)
@@ -195,6 +200,9 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 	}
 	switch provider {
 	case "npm":
+		if authMode:=optionString(auth["mode"]);authMode!="token" && authMode!="trusted-publishing" {
+			return nil,fmt.Errorf("%s.authentication.mode: expected token or trusted-publishing",path)
+		}
 		for _, name := range []string{"mode", "credential"} {
 			if err := requireV2(path, options, "authentication", name); err != nil {
 				return nil, err
