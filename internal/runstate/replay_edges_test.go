@@ -136,9 +136,13 @@ func TestCatalogCompletedAndUncertainExecutionState(t *testing.T) {
 				}
 			}
 			persisted, err := planner.Load(plan)
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			operations := persisted.Plan().Operations()
-			if len(operations) != 1 { t.Fatalf("unexpected operation count: %d", len(operations)) }
+			if len(operations) != 1 {
+				t.Fatalf("unexpected operation count: %d", len(operations))
+			}
 			op := operations[0].ID()
 			target := operations[0].TargetID()
 			appendEvent(journal.Entry{RunID: "run-one", PlanID: id, Type: journal.EventRunStarted})
