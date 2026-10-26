@@ -65,7 +65,9 @@ func fixturePlan(t *testing.T, root, payload string) (Store, string, domain.Plan
 		t.Fatal(err)
 	}
 	store := Store{Root: filepath.Join(root, ".distroplane")}
-	if err := store.Ensure(); err != nil { t.Fatal(err) }
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
 	path, err := (planner.Store{Root: filepath.Join(root, ".distroplane")}).Save(plan)
 	if err != nil {
 		t.Fatal(err)

@@ -121,15 +121,34 @@ func (s Store) directory(create bool) (string, error) {
 			// A marker outlives accidental catalog removal. It is installed
 			// durably after the directory hierarchy is initialized.
 			temp, err := os.CreateTemp(root, ".catalog-marker-*")
-			if err != nil { return "", err }
+			if err != nil {
+				return "", err
+			}
 			defer os.Remove(temp.Name())
-			if err := temp.Chmod(0600); err != nil { temp.Close(); return "", err }
-			if _, err := temp.Write([]byte("1\\n")); err != nil { temp.Close(); return "", err }
-			if err := temp.Sync(); err != nil { temp.Close(); return "", err }
-			if err := temp.Close(); err != nil { return "", err }
-			if err := os.Link(temp.Name(), marker); err != nil && !errors.Is(err, os.ErrExist) { return "", err }
-			if err := directorySync(root); err != nil { return "", err }
-		} else if err != nil { return "", err }
+			if err := temp.Chmod(0600); err != nil {
+				temp.Close()
+				return "", err
+			}
+			if _, err := temp.Write([]byte("1\\n")); err != nil {
+				temp.Close()
+				return "", err
+			}
+			if err := temp.Sync(); err != nil {
+				temp.Close()
+				return "", err
+			}
+			if err := temp.Close(); err != nil {
+				return "", err
+			}
+			if err := os.Link(temp.Name(), marker); err != nil && !errors.Is(err, os.ErrExist) {
+				return "", err
+			}
+			if err := directorySync(root); err != nil {
+				return "", err
+			}
+		} else if err != nil {
+			return "", err
+		}
 	}
 	return catalog, nil
 }
