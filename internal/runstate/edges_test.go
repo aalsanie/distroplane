@@ -250,7 +250,11 @@ func TestCatalogJournalMismatchFailsClosed(t *testing.T) {
 	store, path, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "bytes")
 	j := filepath.Join(store.Root, "old.journal")
 	startJournal(t, j, domain.RunID("run-one"), id)
-	incorrect := entry{SchemaVersion: schemaVersion, PlanID: string(id), PlanPath: path, RunID: "another-run", JournalPath: j}
+	canonical, err := canonicalFile(j, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incorrect := entry{SchemaVersion: schemaVersion, PlanID: string(id), PlanPath: path, RunID: "another-run", JournalPath: canonical}
 	if _, err := readJournal(incorrect); !errors.Is(err, ErrConflict) {
 		t.Fatalf("mismatched run permitted: %v", err)
 	}
