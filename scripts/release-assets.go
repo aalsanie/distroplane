@@ -71,24 +71,32 @@ type packedFile struct {
 }
 
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "build" && os.Args[1] != "verify") {
-		fmt.Fprintln(os.Stderr, "usage: go run ./scripts/release-assets.go build|verify")
-		os.Exit(2)
+	code, err := releaseAssetsCommand(os.Args[1:], os.Getenv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "release assets:", err)
+		os.Exit(code)
 	}
-	out := os.Getenv("OUT_DIR")
+}
+
+// releaseAssetsCommand keeps CLI input validation and failure mapping unit-testable.
+func releaseAssetsCommand(args []string, getenv func(string) string) (int, error) {
+	if len(args) != 1 || (args[0] != "build" && args[0] != "verify") {
+		return 2, fmt.Errorf("usage: go run ./scripts/release-assets.go build|verify")
+	}
+	out := getenv("OUT_DIR")
 	if out == "" {
 		out = "dist"
 	}
 	var err error
-	if os.Args[1] == "build" {
-		err = build(out, os.Getenv("VERSION"), os.Getenv("COMMIT"), os.Getenv("BUILD_DATE"), os.Getenv("GO_VERSION"))
+	if args[0] == "build" {
+		err = build(out, getenv("VERSION"), getenv("COMMIT"), getenv("BUILD_DATE"), getenv("GO_VERSION"))
 	} else {
 		err = verify(out)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "release assets:", err)
-		os.Exit(1)
+		return 1, err
 	}
+	return 0, nil
 }
 func validIdentity(version, commit, date, goVersion string) error {
 	if !regexp.MustCompile(`^(0\.0\.0-dev|[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)$`).MatchString(version) {
