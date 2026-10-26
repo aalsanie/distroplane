@@ -2,8 +2,8 @@ package main
 
 import (
 	"archive/zip"
-	"compress/gzip"
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"encoding/json"
 	"io"
