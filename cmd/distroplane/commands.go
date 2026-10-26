@@ -159,6 +159,11 @@ func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else if !filepath.IsAbs(stateDir) {
 		stateDir = filepath.Join(loaded.BaseDir, stateDir)
 	}
+	// Initialize the durable catalog before writing the first plan. An
+	// orphaned historical plan must never be treated as a fresh release.
+	if err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).Ensure(); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
 	path, err := (planner.Store{Root: stateDir}).Save(plan)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "persist_plan_failed", err)

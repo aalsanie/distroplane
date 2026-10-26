@@ -71,6 +71,27 @@ func (s Store) directory(create bool) (string, error) {
 		return "", fmt.Errorf("catalog must be inside the project .distroplane directory")
 	}
 	catalog := filepath.Join(root, "catalog")
+	marker := filepath.Join(root, ".catalog-required")
+	if info, err := os.Lstat(root); err == nil && info.IsDir() {
+		_, catalogErr := os.Lstat(catalog)
+		_, markerErr := os.Lstat(marker)
+		if errors.Is(catalogErr, os.ErrNotExist) {
+			if markerErr == nil {
+				return "", fmt.Errorf("run catalog disappeared; refusing to create new publication state")
+			}
+			if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
+				return "", markerErr
+			}
+			// A preexisting plan is evidence of release intent. Do not
+			// reconstruct an empty catalog and risk a second publish.
+			plans := filepath.Join(root, "plans")
+			if entries, err := os.ReadDir(plans); err == nil && len(entries) != 0 {
+				return "", fmt.Errorf("saved plans exist without a catalog; explicit recovery required")
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return "", err
+			}
+		}
+	}
 	dirs := []string{root, catalog, filepath.Join(catalog, "plans"), filepath.Join(catalog, "runs")}
 	for i, dir := range dirs {
 		info, err := os.Lstat(dir)
@@ -95,7 +116,27 @@ func (s Store) directory(create bool) (string, error) {
 			return "", fmt.Errorf("catalog directory %q must be private", dir)
 		}
 	}
+	if create {
+		if _, err := os.Lstat(marker); errors.Is(err, os.ErrNotExist) {
+			// A marker outlives accidental catalog removal. It is installed
+			// durably after the directory hierarchy is initialized.
+			temp, err := os.CreateTemp(root, ".catalog-marker-*")
+			if err != nil { return "", err }
+			defer os.Remove(temp.Name())
+			if err := temp.Chmod(0600); err != nil { temp.Close(); return "", err }
+			if _, err := temp.Write([]byte("1\\n")); err != nil { temp.Close(); return "", err }
+			if err := temp.Sync(); err != nil { temp.Close(); return "", err }
+			if err := temp.Close(); err != nil { return "", err }
+			if err := os.Link(temp.Name(), marker); err != nil && !errors.Is(err, os.ErrExist) { return "", err }
+			if err := directorySync(root); err != nil { return "", err }
+		} else if err != nil { return "", err }
+	}
 	return catalog, nil
+}
+
+func (s Store) Ensure() error {
+	_, err := s.directory(true)
+	return err
 }
 
 func canonicalFile(path string, mustExist bool) (string, error) {
