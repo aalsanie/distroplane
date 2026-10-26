@@ -39,7 +39,11 @@ func fixtureProvider(t *testing.T, dir, name, ext string) string {
 	if err := os.WriteFile(path, []byte(name), 0755); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
 }
 
 func TestBundledProviderPrecedesShadowedPath(t *testing.T) {
