@@ -222,9 +222,7 @@ jobs:
         run: |
           $env:DISTROPLANE_RELEASE_SMOKE_VERSION = $env:VERSION
           $env:DISTROPLANE_RELEASE_SMOKE_COMMIT = $env:COMMIT
-          go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI
- -count=1
+          go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI$' -count=1
           if ($LASTEXITCODE -ne 0) { throw 'provider publication smoke failed' }
-          go test ./scripts -run '^TestReleaseArchiveNativeExecutables
- -count=1 -v
+          go test ./scripts -run '^TestReleaseArchiveNativeExecutables$' -count=1 -v
           if ($LASTEXITCODE -ne 0) { throw 'native archive executable smoke failed' }
