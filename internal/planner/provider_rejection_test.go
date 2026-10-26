@@ -88,3 +88,50 @@ func TestBundledProviderSymlinkedCLIRoot(t *testing.T) {
 		t.Fatalf("symlinked CLI picked wrong provider: %q %v", got, err)
 	}
 }
+
+func TestInstalledProviderRejectsSymlinkDirectory(t *testing.T) {
+	r, dir, _, ext := bundledResolver(t)
+	real := filepath.Join(t.TempDir(), "real-libexec")
+	if err := os.Mkdir(real, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, dir); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	fixtureProvider(t, real, "npm", ext)
+	if _, err := r.Resolve("npm", ""); err == nil {
+		t.Fatal("symlinked installation directory accepted")
+	}
+}
+
+func TestProviderCanonicalizationFailureDoesNotFallBack(t *testing.T) {
+	r, _, shadow, ext := bundledResolver(t)
+	path := fixtureProvider(t, shadow, "npm", ext)
+	steps := 0
+	r.abs = func(value string) (string, error) {
+		steps++
+		if steps > 1 {
+			return "", errors.New("canonical path unavailable")
+		}
+		return filepath.Abs(value)
+	}
+	if _, err := r.Resolve("npm", path); err == nil {
+		t.Fatal("failed canonicalization accepted")
+	}
+	if steps != 2 {
+		t.Fatalf("expected second canonicalization attempt, got %d", steps)
+	}
+}
+
+func TestUnresolvableInstalledCLIFailsClosed(t *testing.T) {
+	r, _, _, _ := bundledResolver(t)
+	r.abs = func(string) (string, error) {
+		return "", errors.New("cannot make executable path absolute")
+	}
+	if _, err := r.Resolve("npm", ""); err == nil {
+		t.Fatal("CLI path resolution failure ignored")
+	}
+}
