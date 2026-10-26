@@ -33,7 +33,7 @@ func TestCatalogFilesystemRejection(t *testing.T) {
 				}
 				if runtime.GOOS == "windows" {
 					other := t.TempDir()
-					if err := os.Remove(dir); err != nil {
+					if err := os.RemoveAll(dir); err != nil {
 						t.Fatal(err)
 					}
 					if err := os.Symlink(other, dir); err != nil {
