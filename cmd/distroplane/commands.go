@@ -21,6 +21,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/journal"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
+	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
 type credentialFlags map[domain.CredentialRef]string
@@ -162,6 +163,9 @@ func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "persist_plan_failed", err)
 	}
+	if _, err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).RegisterPlan(path); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
 	output := planOutput{
 		OutputSchemaVersion: outputSchemaVersion,
 		PlanID:              string(plan.ID()),
@@ -233,6 +237,11 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 	runID, err := resolveRunID(journalPath, requestedRun, !reconcileOnly)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_run", err)
+	}
+	// Reserve the immutable plan/run/journal binding before any provider
+	// process is allowed to dispatch an irreversible side effect.
+	if err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).ClaimRun(planPath, journalPath, runID); err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "run_catalog_conflict", err)
 	}
 	writer, err := journal.OpenWriter(journalPath, runID)
 	if err != nil {

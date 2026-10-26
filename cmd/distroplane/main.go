@@ -69,6 +69,8 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runPlanContext(ctx, args[1:], stdout, stderr)
 	case "apply":
 		return runExecutionContext(ctx, args[1:], stdout, stderr, false)
+	case "runs":
+		return runRuns(args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	case "reconcile":
@@ -118,6 +120,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  version [--json]                 print version information")
 	fmt.Fprintln(w, "  validate --config PATH [--json]  validate release configuration")
 	fmt.Fprintln(w, "  plan --config PATH [--json]      build and persist an immutable plan")
+	fmt.Fprintln(w, "  runs --config PATH [--release ID] [--run ID] [--json]")
+	fmt.Fprintln(w, "                                      inventory verified release runs")
 	fmt.Fprintln(w, "  apply --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
 	fmt.Fprintln(w, "                                      execute or resume a plan")
 	fmt.Fprintln(w, "  status --plan PATH --journal PATH [--json]")
