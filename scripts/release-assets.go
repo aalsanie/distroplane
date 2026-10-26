@@ -250,8 +250,7 @@ func verify(root string)error {
 		data,err:=readRegular(filepath.Join(root,a.Name),512<<20)
 		if err!=nil{return fmt.Errorf("missing asset %s: %w",a.Name,err)}
 		if a.Size!=int64(len(data)) || a.SHA256!=hash(data) {return fmt.Errorf("asset integrity mismatch: %s",a.Name)}
-		fmt.Fprintf(&expectedSums,"%s  %s
-",a.SHA256,a.Name)
+		fmt.Fprintf(&expectedSums,"%s  %s\n",a.SHA256,a.Name)
 	}
 	if len(expected)!=0{return fmt.Errorf("missing expected assets")}
 	if string(sums)!=expectedSums.String(){return fmt.Errorf("checksum manifest differs from release metadata")}
