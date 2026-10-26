@@ -18,19 +18,23 @@ func TestRunInventoryCommandErrorsAndTextOutput(t *testing.T) {
 	config := map[string]any{
 		"schemaVersion": "1",
 		"release": map[string]any{
-			"id": "test-release",
+			"id":        "test-release",
 			"artifacts": []map[string]any{{"name": "app", "source": "artifact.bin"}},
 		},
 		"targets": []map[string]any{{
-			"id": "target",
-			"provider": map[string]any{"name": "fake", "executable": provider},
+			"id":            "target",
+			"provider":      map[string]any{"name": "fake", "executable": provider},
 			"configuration": map[string]any{"mode": "published"},
 		}},
 	}
 	encoded, err := json.Marshal(config)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "distroplane.json")
-	if err := os.WriteFile(path, encoded, 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(path, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
 	run := func(want int, args ...string) (string, string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
@@ -49,7 +53,9 @@ func TestRunInventoryCommandErrorsAndTextOutput(t *testing.T) {
 	if stdout, _ := run(exitOK, "runs", "--config", path); stdout != "" {
 		t.Fatalf("unexpected runs in empty catalog: %s", stdout)
 	}
-	var planned struct{ Path string `json:"path"` }
+	var planned struct {
+		Path string `json:"path"`
+	}
 	output, _ := run(exitOK, "plan", "--config", path, "--json")
 	if err := json.Unmarshal([]byte(output), &planned); err != nil || planned.Path == "" {
 		t.Fatalf("plan fixture failed: %s (%v)", output, err)
