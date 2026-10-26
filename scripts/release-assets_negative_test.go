@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -277,5 +278,46 @@ func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 				t.Fatal("invalid TAR archive accepted")
 			}
 		})
+	}
+}
+
+func TestReleaseRejectsMalformedArchiveStreams(t *testing.T) {
+	root := prepareRelease(t)
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validZip, err := makeArchive(want, "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsupported := append([]byte(nil), validZip...)
+	local := bytes.Index(unsupported, []byte{'P', 'K', 3, 4})
+	central := bytes.Index(unsupported, []byte{'P', 'K', 1, 2})
+	if local < 0 || central < 0 {
+		t.Fatal("zip structure missing")
+	}
+	binary.LittleEndian.PutUint16(unsupported[local+8:local+10], 99)
+	binary.LittleEndian.PutUint16(unsupported[central+10:central+12], 99)
+	if err := verifyArchive(unsupported, "windows", want); err == nil {
+		t.Fatal("unsupported ZIP method accepted")
+	}
+
+	corrupted := append([]byte(nil), validZip...)
+	nameLen := int(binary.LittleEndian.Uint16(corrupted[local+26 : local+28]))
+	extraLen := int(binary.LittleEndian.Uint16(corrupted[local+28 : local+30]))
+	start := local + 30 + nameLen + extraLen
+	if start >= len(corrupted) {
+		t.Fatal("invalid local ZIP header")
+	}
+	corrupted[start] ^= 0xff
+	if err := verifyArchive(corrupted, "windows", want); err == nil {
+		t.Fatal("corrupted compressed ZIP contents accepted")
+	}
+
+	unrepresentable := append([]packedFile(nil), want...)
+	unrepresentable[0].name = strings.Repeat("x", 350)
+	if _, err := makeArchive(unrepresentable, "linux"); err == nil {
+		t.Fatal("unrepresentable USTAR entry accepted")
 	}
 }
