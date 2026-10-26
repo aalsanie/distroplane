@@ -217,15 +217,15 @@ func (s Store) ClaimRun(planPath, journalPath string, runID domain.RunID) error 
 	claim := entry{SchemaVersion:schemaVersion, PlanID:string(id), PlanPath:planPath, RunID:string(runID), JournalPath:journalPath}
 	// Never create an alternate publication run if this path contains an
 	// unreadable/invalid historical journal.
-	existing, err := readJournal(claim)
-	if err != nil && !errors.Is(err,os.ErrNotExist) { return err }
+	_, readErr := readJournal(claim)
+	if readErr != nil && !errors.Is(readErr,os.ErrNotExist) { return readErr }
 	base := filepath.Join(dir,"runs")
 	backupName := key(string(id))+".backup"
 	created, err := install(base,backupName,claim)
 	if err != nil { return err }
 	_, err = install(base,key(string(id)),claim)
 	if err != nil { return err }
-	if !created && errors.Is(err,os.ErrNotExist) { return fmt.Errorf("reserved run lacks journal; manual recovery required") }
+	if !created && errors.Is(readErr,os.ErrNotExist) { return fmt.Errorf("reserved run lacks journal; manual recovery required") }
 	return nil
 }
 
@@ -269,27 +269,34 @@ func (s Store) Inventory() ([]Record,error) {
 	if err!=nil{return nil,err}
 	plans,err:=readEntries(filepath.Join(dir,"plans"))
 	if err!=nil{return nil,err}
-	runs,err:=readEntries(filepath.Join(dir,"runs"))
+	// Run entries are redundant; inventory tolerates one damaged copy, but
+	// conflicting valid copies stop selection instead of guessing.
+	runFiles,err:=os.ReadDir(filepath.Join(dir,"runs"))
 	if err!=nil{return nil,err}
-	byPlan:=make(map[string]entry,len(runs))
-	for _,e:=range runs {
+	byPlan:=make(map[string]entry,len(runFiles))
+	for _,file:=range runFiles {
+		name:=file.Name()
+		if strings.HasPrefix(name,".entry-"){continue}
+		if !strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".json.backup") {
+			return nil,fmt.Errorf("unexpected run catalog entry %q",name)
+		}
+		// A backup is always installed before a primary; discover backups
+		// even when the primary record was never written after a crash.
+		if strings.HasSuffix(name,".json") {continue}
+		e,err:=readEntry(filepath.Join(dir,"runs",name))
+		if err!=nil{return nil,err}
+		if key(e.PlanID)+".backup"!=name{return nil,fmt.Errorf("run catalog key mismatch")}
 		confirmed,exists,err:=s.claimEntry(dir,domain.PlanID(e.PlanID))
 		if err!=nil{return nil,err}
-		if !exists || confirmed!=e {return nil,fmt.Errorf("unverified run catalog entry for %q",e.PlanID)}
-		byPlan[e.PlanID]=e
-	}
-	// A crash immediately after the backup claim must still be discoverable.
-	backups,err:=os.ReadDir(filepath.Join(dir,"runs"))
-	if err!=nil{return nil,err}
-	for _,file:=range backups {
-		if !strings.HasSuffix(file.Name(),".json.backup"){continue}
-		e,err:=readEntry(filepath.Join(dir,"runs",file.Name()))
-		if err!=nil{return nil,err}
-		if key(e.PlanID)+".backup"!=file.Name(){return nil,fmt.Errorf("invalid run claim filename")}
-		confirmed,exists,err:=s.claimEntry(dir,domain.PlanID(e.PlanID))
-		if err!=nil{return nil,err}
-		if !exists{return nil,fmt.Errorf("lost run claim")}
+		if !exists{return nil,fmt.Errorf("lost durable run claim")}
 		byPlan[e.PlanID]=confirmed
+	}
+	for _,file:=range runFiles {
+		name:=file.Name()
+		if !strings.HasSuffix(name,".json"){continue}
+		// A valid primary lacking a backup is not a safe reservation.
+		backup:=filepath.Join(dir,"runs",name+".backup")
+		if _,err:=os.Lstat(backup);err!=nil{return nil,fmt.Errorf("run claim missing backup for %q: %w",name,err)}
 	}
 	list:=make([]Record,0,len(plans))
 	for _,e:=range plans {
