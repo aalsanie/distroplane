@@ -40,6 +40,10 @@ type fixedResolver struct{ path string }
 func (f fixedResolver) Resolve(_, _ string) (string, error) { return f.path, nil }
 
 func fixturePlan(t *testing.T, root, payload string) (Store, string, domain.PlanID) {
+	return fixturePlanWithRelease(t, root, payload, "release-1")
+}
+
+func fixturePlanWithRelease(t *testing.T, root, payload, releaseID string) (Store, string, domain.PlanID) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
@@ -58,7 +62,7 @@ func fixturePlan(t *testing.T, root, payload string) (Store, string, domain.Plan
 	}
 	loaded := config.Loaded{BaseDir: root, Config: config.Config{
 		SchemaVersion: "1",
-		Release:       config.Release{ID: "release-1", Artifacts: []config.Artifact{{Name: "app", Source: artifact}}},
+		Release:       config.Release{ID: releaseID, Artifacts: []config.Artifact{{Name: "app", Source: artifact}}},
 		Targets:       []config.Target{{ID: "fake-target", Provider: config.Provider{Name: "fake"}, Configuration: json.RawMessage(`{}`)}},
 	}}
 	plan, err := p.Build(context.Background(), loaded)
