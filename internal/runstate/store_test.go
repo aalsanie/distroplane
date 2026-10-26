@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"errors"
 	"os"
 	"path/filepath"
@@ -149,8 +150,8 @@ func TestCatalogConcurrentClaimIsSingleWinner(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			journalPath := filepath.Join(filepath.Dir(path), "runs", "attempt-"+string(rune('a'+i))+".journal")
-			err := store.ClaimRun(path, journalPath, domain.RunID("run-"+string(rune('a'+i))))
+			journalPath := filepath.Join(filepath.Dir(path), "runs", fmt.Sprintf("attempt-%d.journal", i))
+			err := store.ClaimRun(path, journalPath, domain.RunID(fmt.Sprintf("run-%d", i)))
 			ch <- response{i, err}
 		}(i)
 	}
