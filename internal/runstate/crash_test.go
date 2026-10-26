@@ -45,12 +45,20 @@ func TestCatalogClaimProcessCrash(t *testing.T) {
 func TestCatalogAmbiguousPlansFailClosed(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	store, path1, id1 := fixturePlan(t, root, "first artifact")
-	if _, err := store.RegisterPlan(path1); err != nil { t.Fatal(err) }
+	if _, err := store.RegisterPlan(path1); err != nil {
+		t.Fatal(err)
+	}
 	_, path2, id2 := fixturePlan(t, root, "updated artifact")
-	if _, err := store.RegisterPlan(path2); err != nil { t.Fatal(err) }
-	if id1 == id2 { t.Fatal("changing artifact did not create new intent") }
+	if _, err := store.RegisterPlan(path2); err != nil {
+		t.Fatal(err)
+	}
+	if id1 == id2 {
+		t.Fatal("changing artifact did not create new intent")
+	}
 	records, err := store.Inventory()
-	if err != nil || len(records) != 2 { t.Fatalf("inventory=%+v err=%v", records, err) }
+	if err != nil || len(records) != 2 {
+		t.Fatalf("inventory=%+v err=%v", records, err)
+	}
 	_, err = store.Select("release-1", "")
 	if !errors.Is(err, ErrAmbiguous) || !strings.Contains(err.Error(), string(id1)) || !strings.Contains(err.Error(), string(id2)) {
 		t.Fatalf("ambiguous plan chosen or no candidates displayed: %v", err)
