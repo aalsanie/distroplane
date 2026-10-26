@@ -240,7 +240,7 @@ func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, change := range []struct {
-		name string
+		name   string
 		mutate func([]packedFile)
 	}{
 		{"unsafe path", func(p []packedFile) { p[1].name = "../escape" }},
@@ -253,14 +253,16 @@ func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 			mutated := append([]packedFile(nil), want...)
 			change.mutate(mutated)
 			archive, err := makeArchive(mutated, "windows")
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := verifyArchive(archive, "windows", want); err == nil {
 				t.Fatal("modified archive accepted")
 			}
 		})
 	}
 	for _, tc := range []struct {
-		name string
+		name  string
 		files []packedFile
 	}{
 		{"missing tar entry", want[:len(want)-1]},
@@ -268,7 +270,9 @@ func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			archive, err := makeArchive(tc.files, "linux")
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := verifyArchive(archive, "linux", want); err == nil {
 				t.Fatal("invalid TAR archive accepted")
 			}
