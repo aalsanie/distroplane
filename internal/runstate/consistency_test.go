@@ -15,10 +15,14 @@ func TestCatalogIgnoredTemporaryEntriesAndReleaseOrdering(t *testing.T) {
 	_, _, _ = fixturePlanWithRelease(t, root, "b", "release-a")
 	for _, area := range []string{"plans", "runs"} {
 		path := filepath.Join(store.Root, "catalog", area, ".entry-abandoned")
-		if err := os.WriteFile(path, []byte("uncommitted"), 0600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, []byte("uncommitted"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	records, err := store.Inventory()
-	if err != nil || len(records) != 2 { t.Fatalf("inventory failed: %+v, %v", records, err) }
+	if err != nil || len(records) != 2 {
+		t.Fatalf("inventory failed: %+v, %v", records, err)
+	}
 	if records[0].ReleaseID != "release-a" || records[1].ReleaseID != "release-z" {
 		t.Fatalf("release selection is not deterministic: %+v", records)
 	}
@@ -33,15 +37,19 @@ func TestCatalogMissingAndCorruptPlanClaims(t *testing.T) {
 	})
 	t.Run("invalid plan for claim", func(t *testing.T) {
 		store, plan, _ := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
-		if err := os.WriteFile(plan, []byte("invalid json"), 0600); err != nil { t.Fatal(err) }
-		if err := store.ClaimRun(plan, filepath.Join(store.Root,"run.journal"), "run-one"); err == nil {
+		if err := os.WriteFile(plan, []byte("invalid json"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ClaimRun(plan, filepath.Join(store.Root, "run.journal"), "run-one"); err == nil {
 			t.Fatal("corrupt saved plan accepted by run claim")
 		}
 	})
 	t.Run("corrupted existing primary claim", func(t *testing.T) {
 		store, plan, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
 		path := filepath.Join(store.Root, "catalog", "runs", key(string(id)))
-		if err := os.WriteFile(path, []byte("{bad"), 0600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, []byte("{bad"), 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err := store.ClaimRun(plan, filepath.Join(store.Root, "journal"), "run-one"); err == nil {
 			t.Fatal("corrupt preexisting claim overwritten")
 		}
@@ -64,11 +72,17 @@ func TestCatalogRejectsPlanAliasAndRebinding(t *testing.T) {
 		_, replacement, _ := fixturePlanWithRelease(t, root, "changed", "two")
 		index := filepath.Join(store.Root, "catalog", "plans", key(string(firstID)))
 		e, err := readEntry(index)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		e.PlanPath = replacement
 		raw, err := json.Marshal(e)
-		if err != nil { t.Fatal(err) }
-		if err := os.WriteFile(index, raw, 0600); err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(index, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := store.Inventory(); err == nil {
 			t.Fatal("different plan reused under previous identity")
 		}
@@ -81,11 +95,17 @@ func TestCatalogRejectsPlanAliasAndRebinding(t *testing.T) {
 		}
 		index := filepath.Join(store.Root, "catalog", "plans", key(string(id)))
 		e, err := readEntry(index)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		e.PlanPath = filepath.Join(alias, filepath.Base(plan))
 		raw, err := json.Marshal(e)
-		if err != nil { t.Fatal(err) }
-		if err := os.WriteFile(index, raw, 0600); err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(index, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := store.Inventory(); err == nil {
 			t.Fatal("symlink alias treated as canonical plan path")
 		}
@@ -93,12 +113,18 @@ func TestCatalogRejectsPlanAliasAndRebinding(t *testing.T) {
 }
 
 func TestCatalogJournalReadFailures(t *testing.T) {
-	if runtime.GOOS == "windows" { t.Skip("POSIX permissions") }
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
 	store, plan, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
 	path := filepath.Join(store.Root, "journal.bin")
-	if err := store.ClaimRun(plan, path, "run-one"); err != nil { t.Fatal(err) }
+	if err := store.ClaimRun(plan, path, "run-one"); err != nil {
+		t.Fatal(err)
+	}
 	startJournal(t, path, "run-one", id)
-	if err := os.Chmod(path, 0000); err != nil { t.Fatal(err) }
+	if err := os.Chmod(path, 0000); err != nil {
+		t.Fatal(err)
+	}
 	defer os.Chmod(path, 0600)
 	if _, err := store.Inventory(); err == nil {
 		t.Fatal("unreadable journal was silently ignored")
@@ -106,11 +132,15 @@ func TestCatalogJournalReadFailures(t *testing.T) {
 }
 
 func TestCatalogUnreadableIndexAndDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" { t.Skip("POSIX permissions") }
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
 	t.Run("index read failure", func(t *testing.T) {
 		store, _, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
 		path := filepath.Join(store.Root, "catalog", "plans", key(string(id)))
-		if err := os.Chmod(path, 0000); err != nil { t.Fatal(err) }
+		if err := os.Chmod(path, 0000); err != nil {
+			t.Fatal(err)
+		}
 		defer os.Chmod(path, 0600)
 		if _, err := store.Inventory(); err == nil {
 			t.Fatal("unreadable plan index was accepted")
@@ -119,7 +149,9 @@ func TestCatalogUnreadableIndexAndDirectory(t *testing.T) {
 	t.Run("run directory read failure", func(t *testing.T) {
 		store, _, _ := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
 		path := filepath.Join(store.Root, "catalog", "runs")
-		if err := os.Chmod(path, 0300); err != nil { t.Fatal(err) }
+		if err := os.Chmod(path, 0300); err != nil {
+			t.Fatal(err)
+		}
 		defer os.Chmod(path, 0700)
 		if _, err := store.Inventory(); err == nil {
 			t.Fatal("inaccessible run directory was accepted")
@@ -127,19 +159,27 @@ func TestCatalogUnreadableIndexAndDirectory(t *testing.T) {
 	})
 	t.Run("no permission to create root", func(t *testing.T) {
 		project := t.TempDir()
-		if err := os.Chmod(project, 0500); err != nil { t.Fatal(err) }
+		if err := os.Chmod(project, 0500); err != nil {
+			t.Fatal(err)
+		}
 		defer os.Chmod(project, 0700)
-		if err := (Store{Root:filepath.Join(project, ".distroplane")}).Ensure(); err == nil {
+		if err := (Store{Root: filepath.Join(project, ".distroplane")}).Ensure(); err == nil {
 			t.Fatal("unwritable project accepted catalog creation")
 		}
 	})
 }
 
 func TestCatalogBadJournalPathAndPlanIndex(t *testing.T) {
-	store, plan, id := fixturePlan(t,filepath.Join(t.TempDir(),"project"),"bytes")
-	runPath := filepath.Join(store.Root,"run.journal")
-	if err := store.ClaimRun(plan,runPath,"run-one"); err != nil {t.Fatal(err)}
-	startJournal(t,runPath,"run-one",id)
-	if err := store.ClaimRun(plan,runPath,"run-one"); err != nil {t.Fatal(err)}
-	if _, err := store.Select("release-1","run-one");err != nil {t.Fatal(err)}
+	store, plan, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "bytes")
+	runPath := filepath.Join(store.Root, "run.journal")
+	if err := store.ClaimRun(plan, runPath, "run-one"); err != nil {
+		t.Fatal(err)
+	}
+	startJournal(t, runPath, "run-one", id)
+	if err := store.ClaimRun(plan, runPath, "run-one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Select("release-1", "run-one"); err != nil {
+		t.Fatal(err)
+	}
 }
