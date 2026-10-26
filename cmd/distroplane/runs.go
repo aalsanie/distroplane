@@ -38,8 +38,8 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 	}
 	if jsonMode {
 		return writeJSON(stdout, struct {
-			OutputSchemaVersion string `json:"outputSchemaVersion"`
-			Runs []runstate.Record `json:"runs"`
+			OutputSchemaVersion string            `json:"outputSchemaVersion"`
+			Runs                []runstate.Record `json:"runs"`
 		}{OutputSchemaVersion: outputSchemaVersion, Runs: records})
 	}
 	for _, run := range records {
