@@ -192,3 +192,86 @@ func TestReleaseFileAndJSONReadersFailClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestReleasePackagingEntrypointAndOutputFailures(t *testing.T) {
+	root := t.TempDir()
+	seedExecutables(t, root)
+	t.Setenv("VERSION", "1.0.0")
+	t.Setenv("COMMIT", "0123456789ab")
+	t.Setenv("BUILD_DATE", "2026-10-25T00:00:00Z")
+	t.Setenv("GO_VERSION", "go1.27.1")
+	t.Setenv("OUT_DIR", root)
+	original := os.Args
+	defer func() { os.Args = original }()
+	os.Args = []string{"release-assets", "build"}
+	main()
+	os.Args = []string{"release-assets", "verify"}
+	main()
+
+	for _, blocked := range []string{
+		archiveName("1.0.0", "linux", "amd64"),
+		archiveName("1.0.0", "windows", "amd64"),
+		"RELEASE-METADATA.json",
+		"SHA256SUMS",
+	} {
+		t.Run(blocked, func(t *testing.T) {
+			other := t.TempDir()
+			seedExecutables(t, other)
+			if err := os.Mkdir(filepath.Join(other, blocked), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := build(other, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err == nil {
+				t.Fatal("invalid output destination accepted")
+			}
+		})
+	}
+	if err := writeAtomic(root, []byte("bad")); err == nil {
+		t.Fatal("directory used as output file")
+	}
+	if _, err := jsonFile(make(chan string)); err == nil {
+		t.Fatal("unsupported JSON type accepted")
+	}
+}
+
+func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
+	root := prepareRelease(t)
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		name string
+		mutate func([]packedFile)
+	}{
+		{"unsafe path", func(p []packedFile) { p[1].name = "../escape" }},
+		{"wrong executable mode", func(p []packedFile) { p[1].mode = 0644 }},
+		{"changed bytes of equal size", func(p []packedFile) {
+			p[1].data = bytes.Repeat([]byte("X"), len(p[1].data))
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			mutated := append([]packedFile(nil), want...)
+			change.mutate(mutated)
+			archive, err := makeArchive(mutated, "windows")
+			if err != nil { t.Fatal(err) }
+			if err := verifyArchive(archive, "windows", want); err == nil {
+				t.Fatal("modified archive accepted")
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name string
+		files []packedFile
+	}{
+		{"missing tar entry", want[:len(want)-1]},
+		{"unexpected tar entry", append(append([]packedFile(nil), want...), packedFile{name: "extra", data: []byte("x"), mode: 0644})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			archive, err := makeArchive(tc.files, "linux")
+			if err != nil { t.Fatal(err) }
+			if err := verifyArchive(archive, "linux", want); err == nil {
+				t.Fatal("invalid TAR archive accepted")
+			}
+		})
+	}
+}
