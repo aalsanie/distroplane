@@ -106,9 +106,32 @@ func canonicalFile(path string, mustExist bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
+	parent := filepath.Dir(absolute)
+	var pending []string
+	for {
+		info, statErr := os.Lstat(parent)
+		if statErr == nil {
+			if !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+				return "", fmt.Errorf("journal parent %q is not a directory", parent)
+			}
+			break
+		}
+		if !errors.Is(statErr, os.ErrNotExist) || mustExist {
+			return "", statErr
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", fmt.Errorf("no existing journal parent for %q", absolute)
+		}
+		pending = append([]string{filepath.Base(parent)}, pending...)
+		parent = next
+	}
+	parent, err = filepath.EvalSymlinks(parent)
 	if err != nil {
 		return "", err
+	}
+	for _, name := range pending {
+		parent = filepath.Join(parent, name)
 	}
 	absolute = filepath.Join(parent, filepath.Base(absolute))
 	info, err := os.Lstat(absolute)
