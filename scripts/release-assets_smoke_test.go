@@ -153,11 +153,11 @@ func TestReleaseArchiveNativeExecutables(t *testing.T) {
 	cfg := map[string]any{
 		"schemaVersion": "1",
 		"release": map[string]any{
-			"id": "archive-provider-discovery",
+			"id":        "archive-provider-discovery",
 			"artifacts": []map[string]any{{"name": "app", "source": artifact}},
 		},
 		"targets": []map[string]any{{
-			"id": "sdkman",
+			"id":       "sdkman",
 			"provider": map[string]any{"name": "sdkman"},
 			"configuration": map[string]any{
 				"artifact": "app", "candidate": "example", "version": "1.2.3",
@@ -189,8 +189,8 @@ func TestReleaseArchiveNativeExecutables(t *testing.T) {
 		t.Fatalf("bundled SDKMAN provider was not discovered: %v: %s", err, planned)
 	}
 	var output struct {
-		PlanID string `json:"planId"`
-		Operations int `json:"operations"`
+		PlanID     string `json:"planId"`
+		Operations int    `json:"operations"`
 	}
 	if err := json.Unmarshal(planned, &output); err != nil || output.PlanID == "" || output.Operations != 1 {
 		t.Fatalf("bundled provider plan invalid: %+v %v: %s", output, err, planned)
