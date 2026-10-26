@@ -97,7 +97,7 @@ func TestDefaultProviderUsesPathWhenNoBundleExists(t *testing.T) {
 func TestInvalidInstalledProviderFailsClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		bad func(*testing.T, string, string)
+		bad  func(*testing.T, string, string)
 	}{
 		{"directory", func(t *testing.T, dir, path string) {
 			if err := os.Mkdir(path, 0755); err != nil {
@@ -161,7 +161,7 @@ func TestUntrustedBundleDirectoryIsRejected(t *testing.T) {
 
 func TestBundledExecutableResolveErrorsFailClosed(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name     string
 		override func(*executableResolver)
 	}{
 		{"os-executable", func(r *executableResolver) {

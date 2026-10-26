@@ -39,12 +39,12 @@ type executableResolver struct {
 
 func newExecutableResolver() executableResolver {
 	return executableResolver{
-		lookPath: exec.LookPath,
-		abs: filepath.Abs,
-		stat: os.Stat,
-		lstat: os.Lstat,
+		lookPath:   exec.LookPath,
+		abs:        filepath.Abs,
+		stat:       os.Stat,
+		lstat:      os.Lstat,
 		executable: os.Executable,
-		evalLinks: filepath.EvalSymlinks,
+		evalLinks:  filepath.EvalSymlinks,
 	}
 }
 

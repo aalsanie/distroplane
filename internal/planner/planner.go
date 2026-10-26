@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"strings"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aalsanie/distroplane/internal/canonicaljson"
