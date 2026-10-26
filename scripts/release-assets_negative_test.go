@@ -2,9 +2,11 @@ package main
 
 import (
 	"archive/zip"
+	"compress/gzip"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,5 +321,43 @@ func TestReleaseRejectsMalformedArchiveStreams(t *testing.T) {
 	unrepresentable[0].name = strings.Repeat("x", 350)
 	if _, err := makeArchive(unrepresentable, "linux"); err == nil {
 		t.Fatal("unrepresentable USTAR entry accepted")
+	}
+}
+
+func TestReleaseTarArchiveDetectsChangedPayload(t *testing.T) {
+	root := prepareRelease(t)
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := makeArchive(want, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) <= 512 {
+		t.Fatal("missing TAR payload")
+	}
+	raw[512] ^= 0x01
+	var updated bytes.Buffer
+	writer := gzip.NewWriter(&updated)
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyArchive(updated.Bytes(), "linux", want); err == nil {
+		t.Fatal("TAR data changed without detection")
 	}
 }
