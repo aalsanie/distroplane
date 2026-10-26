@@ -73,7 +73,10 @@ func fixturePlan(t *testing.T, root, payload string) (Store, string, domain.Plan
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Store{Root: filepath.Join(root, ".distroplane")}, path, plan.ID()
+	if _, err := store.RegisterPlan(path); err != nil {
+		t.Fatal(err)
+	}
+	return store, path, plan.ID()
 }
 func startJournal(t *testing.T, path string, id domain.RunID, planID domain.PlanID) {
 	t.Helper()
