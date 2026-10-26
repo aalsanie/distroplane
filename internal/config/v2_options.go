@@ -200,8 +200,8 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 	}
 	switch provider {
 	case "npm":
-		if authMode:=optionString(auth["mode"]);authMode!="token" && authMode!="trusted-publishing" {
-			return nil,fmt.Errorf("%s.authentication.mode: expected token or trusted-publishing",path)
+		if authMode := optionString(auth["mode"]); authMode != "token" && authMode != "trusted-publishing" {
+			return nil, fmt.Errorf("%s.authentication.mode: expected token or trusted-publishing", path)
 		}
 		for _, name := range []string{"mode", "credential"} {
 			if err := requireV2(path, options, "authentication", name); err != nil {

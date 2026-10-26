@@ -20,7 +20,7 @@ type configV2 struct {
 	Destinations  map[string]json.RawMessage `json:"destinations"`
 }
 type releaseV2 struct {
-	ID        string                `json:"id"`
+	ID        string                     `json:"id"`
 	Artifacts map[string]json.RawMessage `json:"artifacts"`
 }
 type artifactV2 struct {

@@ -121,7 +121,7 @@ func TestV2RejectsMalformedAndAmbiguousInputs(t *testing.T) {
 		"unknown core":                 {replace(`"schemaVersion":"2"`, `"schemaVersion":"2","unknown":"field"`), "unknown"},
 		"missing release identity":     {replace(`"id":"v2"`, `"id":""`), "release.id"},
 		"no artifact":                  {replace(`"app":{"source":"dist/package.tgz"}`, ``), "release.artifacts"},
-		"unknown artifact property":      {replace(`"source":"dist/package.tgz"`, `"source":"dist/package.tgz","typo":true`), "release.artifacts.app"},
+		"unknown artifact property":    {replace(`"source":"dist/package.tgz"`, `"source":"dist/package.tgz","typo":true`), "release.artifacts.app"},
 		"unknown artifact":             {replace(`"artifact":"app"`, `"artifact":"missing"`), "artifact"},
 		"unknown destination provider": {replace(`"npm":{`, `"other":{`), "destinations.other"},
 		"duplicate destination":        {`{"schemaVersion":"2","release":{"id":"v2","artifacts":{"app":{"source":"dist/package.tgz"}}},"destinations":{"npm":[{"id":"same","artifact":"app","options":{"packagePath":"dist/package.tgz","registry":"https://registry.npmjs.org/","authentication":{"mode":"token","credential":"ref"}}},{"id":"same","artifact":"app","options":{"packagePath":"dist/package.tgz","registry":"https://registry.npmjs.org/","authentication":{"mode":"token","credential":"ref"}}}]}}`, "destinations.npm[1].id"},
