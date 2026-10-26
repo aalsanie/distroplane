@@ -269,34 +269,24 @@ func (s Store) Inventory() ([]Record,error) {
 	if err!=nil{return nil,err}
 	plans,err:=readEntries(filepath.Join(dir,"plans"))
 	if err!=nil{return nil,err}
-	// Run entries are redundant; inventory tolerates one damaged copy, but
-	// conflicting valid copies stop selection instead of guessing.
-	runFiles,err:=os.ReadDir(filepath.Join(dir,"runs"))
+	// Derive candidates from known plan IDs. A valid backup can restore
+	// discovery even when its primary record is truncated or absent.
+	byPlan:=make(map[string]entry,len(plans))
+	permitted:=make(map[string]struct{},2*len(plans))
+	for _,p:=range plans {
+		name:=key(p.PlanID)
+		permitted[name]=struct{}{}
+		permitted[name+".backup"]=struct{}{}
+		e,exists,err:=s.claimEntry(dir,domain.PlanID(p.PlanID))
+		if err!=nil{return nil,err}
+		if exists {byPlan[p.PlanID]=e}
+	}
+	files,err:=os.ReadDir(filepath.Join(dir,"runs"))
 	if err!=nil{return nil,err}
-	byPlan:=make(map[string]entry,len(runFiles))
-	for _,file:=range runFiles {
+	for _,file:=range files {
 		name:=file.Name()
 		if strings.HasPrefix(name,".entry-"){continue}
-		if !strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".json.backup") {
-			return nil,fmt.Errorf("unexpected run catalog entry %q",name)
-		}
-		// A backup is always installed before a primary; discover backups
-		// even when the primary record was never written after a crash.
-		if strings.HasSuffix(name,".json") {continue}
-		e,err:=readEntry(filepath.Join(dir,"runs",name))
-		if err!=nil{return nil,err}
-		if key(e.PlanID)+".backup"!=name{return nil,fmt.Errorf("run catalog key mismatch")}
-		confirmed,exists,err:=s.claimEntry(dir,domain.PlanID(e.PlanID))
-		if err!=nil{return nil,err}
-		if !exists{return nil,fmt.Errorf("lost durable run claim")}
-		byPlan[e.PlanID]=confirmed
-	}
-	for _,file:=range runFiles {
-		name:=file.Name()
-		if !strings.HasSuffix(name,".json"){continue}
-		// A valid primary lacking a backup is not a safe reservation.
-		backup:=filepath.Join(dir,"runs",name+".backup")
-		if _,err:=os.Lstat(backup);err!=nil{return nil,fmt.Errorf("run claim missing backup for %q: %w",name,err)}
+		if _,ok:=permitted[name];!ok{return nil,fmt.Errorf("orphan or unexpected run catalog record %q",name)}
 	}
 	list:=make([]Record,0,len(plans))
 	for _,e:=range plans {
