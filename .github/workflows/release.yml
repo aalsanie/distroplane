@@ -119,7 +119,8 @@ jobs:
             gh attestation verify "$asset" \
               --repo "$GITHUB_REPOSITORY" \
               --source-digest "$SOURCE_COMMIT" \
-              --source-ref "$GITHUB_REF" >/dev/null
+              --source-ref "$GITHUB_REF" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" >/dev/null
           done
 
       - name: Publish GitHub release
