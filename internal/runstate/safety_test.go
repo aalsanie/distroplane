@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/aalsanie/distroplane/internal/domain"
-	"github.com/aalsanie/distroplane/internal/journal"
 )
 
 func TestMissingCatalogCannotBeSilentlyRecreated(t *testing.T) {
