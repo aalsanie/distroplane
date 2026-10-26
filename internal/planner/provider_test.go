@@ -37,8 +37,8 @@ func TestExecutableResolverConvention(t *testing.T) {
 	if got, err := r.Resolve("fake", file); err != nil || got == "" {
 		t.Fatalf("got=%q err=%v", got, err)
 	}
-	if lookedUp != file {
-		t.Fatalf("configured executable lookup=%q", lookedUp)
+	if lookedUp != "" {
+		t.Fatalf("explicit filesystem path must not invoke PATH lookup: %q", lookedUp)
 	}
 
 	r.lookPath = func(string) (string, error) { return "", errors.New("missing") }

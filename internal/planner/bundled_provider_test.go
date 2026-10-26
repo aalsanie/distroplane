@@ -185,7 +185,11 @@ func TestUnrelatedExecutableDoesNotBecomeTrustedRoot(t *testing.T) {
 	r, trusted, shadow, ext := bundledResolver(t)
 	fixtureProvider(t, trusted, "npm", ext)
 	want := fixtureProvider(t, shadow, "npm", ext)
-	r.executable = func() (string, error) { return filepath.Join(filepath.Dir(trusted), "some-other-tool"+ext), nil }
+	unrelated := filepath.Join(filepath.Dir(trusted), "some-other-tool"+ext)
+	if err := os.WriteFile(unrelated, []byte("other tool"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	r.executable = func() (string, error) { return unrelated, nil }
 	r.lookPath = func(string) (string, error) { return want, nil }
 	if got, err := r.Resolve("npm", ""); err != nil || got != want {
 		t.Fatalf("unrelated process incorrectly trusted installation: %s %v", got, err)
