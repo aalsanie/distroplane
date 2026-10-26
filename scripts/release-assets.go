@@ -120,8 +120,7 @@ func innerName(name, osName string) string {
 func jsonFile(v any) ([]byte, error) {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil { return nil, err }
-	return append(b, '
-'), nil
+	return append(b, 10), nil
 }
 func hash(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 func readRegular(path string, limit int64) ([]byte, error) {
@@ -212,8 +211,7 @@ func build(root,version,commit,date,goVersion string)error {
 	if err!=nil{return err}
 	if err:=writeAtomic(filepath.Join(root,"RELEASE-METADATA.json"),b);err!=nil{return err}
 	var sums strings.Builder
-	for _,asset:=range assets { fmt.Fprintf(&sums,"%s  %s
-",asset.SHA256,asset.Name) }
+	for _,asset:=range assets { fmt.Fprintf(&sums,"%s  %s\n",asset.SHA256,asset.Name) }
 	if err:=writeAtomic(filepath.Join(root,"SHA256SUMS"),[]byte(sums.String()));err!=nil{return err}
 	return verify(root)
 }
