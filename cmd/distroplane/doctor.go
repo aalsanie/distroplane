@@ -263,12 +263,12 @@ func checkDoctorCredentials(target config.Target, configured map[string]string, 
 			continue
 		}
 		if !credentials.ValidEnvironmentName(env) {
-			add("MISSING_CREDENTIAL", "WARN", subject, "configured environment name is invalid", "Correct the credentialSources mapping.")
+			add("MISSING_CREDENTIAL", "FAIL", subject, "configured environment name is invalid", "Correct the credentialSources mapping.")
 			continue
 		}
 		value, ok := os.LookupEnv(env)
 		if !ok || value == "" {
-			add("MISSING_CREDENTIAL", "WARN", subject, "required credential environment variable is absent or empty", "Set the specified environment variable before publication; do not put credential bytes in config.")
+			add("MISSING_CREDENTIAL", "FAIL", subject, "required credential environment variable is absent or empty", "Set the specified environment variable before publication; do not put credential bytes in config.")
 		} else {
 			add("CREDENTIAL_AVAILABLE", "PASS", subject, "credential source environment variable exists; permission was not tested", "")
 		}
