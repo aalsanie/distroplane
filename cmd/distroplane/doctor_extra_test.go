@@ -101,11 +101,17 @@ func TestDoctorUnknownBinaryArchitectureRemainsUnverified(t *testing.T) {
 	}
 	dir, file := publishFixture(t, `{"mode":"published"}`)
 	loaded, err := config.Load(file)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	provider := loaded.Config.Targets[0].Provider.Executable
 	script := filepath.Join(dir, "distroplane-provider-fake")
-	if err := os.Remove(provider); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil { t.Fatal(err) }
+	if err := os.Remove(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	report := doctorRun(t, exitInvalid, "--config", file, "--json")
 	if !hasDoctorCode(report, "ARCH_UNKNOWN", doctorWarn) || !hasDoctorCode(report, "VERSION_MISMATCH", doctorFail) {
 		t.Fatalf("foreign executable incorrectly treated as compatible: %+v", report)
