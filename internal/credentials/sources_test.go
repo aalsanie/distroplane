@@ -40,7 +40,9 @@ func planForSources(t *testing.T, inputs ...sourceUsage) domain.Plan {
 	}
 	targets := map[string]*entry{}
 	for _, input := range inputs {
-		if targets[input.target] == nil { targets[input.target] = &entry{provider: input.provider} }
+		if targets[input.target] == nil {
+			targets[input.target] = &entry{provider: input.provider}
+		}
 		if targets[input.target].provider != input.provider {
 			t.Fatal("invalid fixture provider")
 		}
