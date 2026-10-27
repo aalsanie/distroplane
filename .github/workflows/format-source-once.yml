@@ -1,0 +1,25 @@
+name: Format changed Go sources
+on:
+  push:
+    branches:
+      - feat/guided-configuration-init
+permissions:
+  contents: write
+jobs:
+  gofmt:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Format Go source and commit
+        run: |
+          gofmt -w cmd/distroplane/init.go cmd/distroplane/init_artifacts.go cmd/distroplane/init_test.go cmd/distroplane/init_edges_test.go cmd/distroplane/init_artifact_test.go cmd/distroplane/init_scoped_test.go
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add cmd/distroplane/init.go cmd/distroplane/init_artifacts.go cmd/distroplane/init_test.go cmd/distroplane/init_edges_test.go cmd/distroplane/init_artifact_test.go cmd/distroplane/init_scoped_test.go
+            git commit -m "style: format initializer tests and provider source selectors"
+            git push
+          fi
