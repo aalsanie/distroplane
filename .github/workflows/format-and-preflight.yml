@@ -19,7 +19,7 @@ jobs:
           cache: false
       - name: Format and save changed Go sources
         run: |
-          gofmt -w cmd/distroplane/doctor.go cmd/distroplane/doctor_test.go cmd/distroplane/doctor_edge_test.go cmd/distroplane/diagnostics.go cmd/distroplane/diagnostics_test.go cmd/distroplane/signals_unix.go cmd/distroplane/signals_windows.go cmd/distroplane/signals_unix_test.go
+          gofmt -w cmd/distroplane/doctor.go cmd/distroplane/doctor_test.go cmd/distroplane/doctor_edge_test.go cmd/distroplane/doctor_extra_test.go cmd/distroplane/diagnostics.go cmd/distroplane/diagnostics_test.go cmd/distroplane/signals_unix.go cmd/distroplane/signals_windows.go cmd/distroplane/signals_unix_test.go
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
