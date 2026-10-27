@@ -64,11 +64,14 @@ func Load(path string) (Loaded, error) {
 	defer file.Close()
 	cfg, err := Decode(file)
 	if err != nil {
-		return Loaded{}, err
+		return Loaded{}, fmt.Errorf("config %q: %w", path, err)
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return Loaded{}, err
+	}
+	if err := resolveV2Paths(&cfg, filepath.Dir(absolute)); err != nil {
+		return Loaded{}, fmt.Errorf("config %q: %w", path, err)
 	}
 	return Loaded{Config: cfg, BaseDir: filepath.Dir(absolute)}, nil
 }
@@ -88,6 +91,15 @@ func Decode(reader io.Reader) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
+	var header struct {
+		SchemaVersion string `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(normalized, &header); err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
+	}
+	if header.SchemaVersion == SchemaVersionV2 {
+		return decodeV2(normalized)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(normalized))
 	decoder.DisallowUnknownFields()
 	var cfg Config
@@ -105,7 +117,7 @@ func Decode(reader io.Reader) (Config, error) {
 }
 
 func (c *Config) normalizeAndValidate() error {
-	if c.SchemaVersion != SchemaVersion {
+	if c.SchemaVersion != SchemaVersion && c.SchemaVersion != SchemaVersionV2 {
 		return fmt.Errorf("unsupported config schema version %q", c.SchemaVersion)
 	}
 	if err := validateText("release ID", c.Release.ID, false); err != nil {
