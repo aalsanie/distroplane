@@ -32,6 +32,12 @@ Configuration v1 uses `schemaVersion: "1"` and remains supported without automat
 
 Planning computes artifact SHA-256 digests/sizes and provider executable digests. Provider configuration and operation payloads are persisted in the immutable plan: supply credential **references**, never secret values. For npm, `packagePath` must be an absolute path to the same tarball bytes as the named artifact.
 
+## Generate configuration
+
+`distroplane init --destination npm --release my-package-1.2.3` creates a schema-v2 configuration from a detected recent build artifact. Use `--artifact PATH` to choose explicitly; detection inspects only bounded, nonrecursive `target/`, `build/`, `build/distributions/`, `build/libs/`, and `dist/` directories. Multiple candidates require a choice. Use `--destination` repeatedly for distinct providers and `--set provider.field=value` for required metadata (for example, `--set sdkman.candidate=mytool --set sdkman.version=1.2.3 --set sdkman.url=https://example.com/release.zip`). See `distroplane init --help` for option syntax. Supported layouts are `npm`, `sdkman`, `homebrew:formula`, `homebrew:cask`, `homebrew:jvm`, `winget:msi`, and `winget:zip`. WinGet ZIP nested filenames use `--set winget.nested-files='[{"relativeFilePath":"bin/tool.exe","portableCommandAlias":"tool"}]'` and `--set winget.nested-type=portable`.
+
+Missing metadata is rejected in automation, never fabricated; interactive prompts are available only on a terminal. `--force` preserves an existing config in an exclusive `.bak` file instead of overwriting without recovery. Init is local-only, prints the chosen artifact digest, and never requests or stores secret values. Remote release URLs are configuration assertions and are **not** fetched or verified by init. Both artifact sources and provider URLs must still be verified against publication intent before approval.
+
 ## Configuration v2
 
 Configuration v2 (`"schemaVersion": "2"`) uses a named artifact map and provider-keyed destinations. The destination `artifact` selects a named release artifact; its `options` hold the provider’s existing settings (except `artifact`).

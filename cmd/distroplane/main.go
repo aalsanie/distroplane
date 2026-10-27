@@ -65,6 +65,8 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runVersion(args[1:], stdout, stderr)
 	case "validate":
 		return runValidate(args[1:], stdout, stderr)
+	case "init":
+		return runInitContext(ctx, args[1:], os.Stdin, stdinIsTerminal(), stdout, stderr)
 	case "plan":
 		return runPlanContext(ctx, args[1:], stdout, stderr)
 	case "publish":
@@ -123,6 +125,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  version [--json]                 print version information")
 	fmt.Fprintln(w, "  validate --config PATH [--json]  validate release configuration")
+	fmt.Fprintln(w, "  init --destination PROVIDER --release ID [--artifact PATH] [--set FIELD=VALUE]")
+	fmt.Fprintln(w, "                                      generate a validated schema-v2 config")
 	fmt.Fprintln(w, "  plan --config PATH [--json]      build and persist an immutable plan")
 	fmt.Fprintln(w, "  publish --config PATH [--yes | --confirm-plan ID] [--dry-run] [--json]")
 	fmt.Fprintln(w, "                                      preview, approve, and execute a release")
@@ -141,4 +145,9 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  evidence --plan PATH --journal PATH [--output PATH] [--json]")
 	fmt.Fprintln(w, "                                      export normalized release evidence")
 	fmt.Fprintln(w, "  help                             print this help")
+}
+
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

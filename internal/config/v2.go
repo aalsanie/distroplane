@@ -190,27 +190,56 @@ func resolveV2Paths(cfg *Config, baseDir string) error {
 	}
 	for i := range cfg.Targets {
 		t := &cfg.Targets[i]
-		if t.Provider.Name != "npm" {
+		if t.Provider.Name != "npm" && t.Provider.Name != "winget" {
 			continue
 		}
 		var options map[string]json.RawMessage
 		if err := json.Unmarshal(t.Configuration, &options); err != nil {
 			return err
 		}
-		var packagePath string
-		if err := json.Unmarshal(options["packagePath"], &packagePath); err != nil {
-			return err
-		}
-		if filepath.IsAbs(packagePath) {
-			continue
-		}
-		full, err := filepath.Abs(filepath.Join(baseDir, packagePath))
-		if err != nil {
-			return fmt.Errorf("destinations.npm.options.packagePath: %w", err)
-		}
-		options["packagePath"], err = json.Marshal(full)
-		if err != nil {
-			return err
+		key := "packagePath"
+		if t.Provider.Name == "winget" {
+			key = "installer"
+			var installer map[string]json.RawMessage
+			if err := json.Unmarshal(options[key], &installer); err != nil {
+				return err
+			}
+			var kind string
+			_ = json.Unmarshal(installer["type"], &kind)
+			if kind != "zip" {
+				continue
+			}
+			var archive string
+			if err := json.Unmarshal(installer["archivePath"], &archive); err != nil {
+				return err
+			}
+			if !filepath.IsAbs(archive) {
+				full, err := filepath.Abs(filepath.Join(baseDir, archive))
+				if err != nil {
+					return fmt.Errorf("destinations.winget.options.installer.archivePath: %w", err)
+				}
+				installer["archivePath"], err = json.Marshal(full)
+				if err != nil {
+					return err
+				}
+			}
+			options[key], _ = json.Marshal(installer)
+		} else {
+			var packagePath string
+			if err := json.Unmarshal(options[key], &packagePath); err != nil {
+				return err
+			}
+			if filepath.IsAbs(packagePath) {
+				continue
+			}
+			full, err := filepath.Abs(filepath.Join(baseDir, packagePath))
+			if err != nil {
+				return fmt.Errorf("destinations.npm.options.packagePath: %w", err)
+			}
+			options[key], err = json.Marshal(full)
+			if err != nil {
+				return err
+			}
 		}
 		raw, err := json.Marshal(options)
 		if err != nil {
