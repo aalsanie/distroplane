@@ -75,8 +75,8 @@ func TestExecutionDriverBindingAndCredentialValidation(t *testing.T) {
 	if _, err := executionDriver(loaded, plan, credentialFlags{domain.CredentialRef("release"): "bad-name"}); err == nil {
 		t.Fatal("invalid credential source accepted")
 	}
-	if _, err := executionDriver(loaded, plan, credentialFlags{domain.CredentialRef("release"): "TOKEN"}); err != nil {
-		t.Fatalf("valid credential mapping: %v", err)
+	if _, err := executionDriver(loaded, plan, credentialFlags{domain.CredentialRef("release"): "TOKEN"}); err == nil || !strings.Contains(err.Error(), "not required") {
+		t.Fatalf("unused credential reference must fail: %v", err)
 	}
 
 	flags := credentialFlags{}

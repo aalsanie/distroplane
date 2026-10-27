@@ -13,6 +13,14 @@
     "schemaVersion": {
       "const": "2"
     },
+    "credentialSources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "propertyNames": {"minLength": 1, "maxLength": 256}
+    },
     "release": {
       "type": "object",
       "additionalProperties": false,

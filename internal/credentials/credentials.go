@@ -217,7 +217,10 @@ func validateResolve(ctx context.Context, ref domain.CredentialRef) error {
 	return nil
 }
 
-func validEnvironmentName(value string) bool {
+func validEnvironmentName(value string) bool { return ValidEnvironmentName(value) }
+
+// ValidEnvironmentName checks environment variable names without reading their values.
+func ValidEnvironmentName(value string) bool {
 	if value == "" {
 		return false
 	}

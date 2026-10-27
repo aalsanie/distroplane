@@ -13,9 +13,13 @@ type Provider struct {
 }
 
 type config struct {
-	Mode           string `json:"mode,omitempty"`
-	ReconcileState string `json:"reconcileState,omitempty"`
-	Credential     string `json:"credential,omitempty"`
+	Mode                  string `json:"mode,omitempty"`
+	ReconcileState        string `json:"reconcileState,omitempty"`
+	Credential            string `json:"credential,omitempty"`
+	CredentialEnvironment string `json:"credentialEnvironment,omitempty"`
+	Authentication        struct {
+		Credential string `json:"credential,omitempty"`
+	} `json:"authentication,omitempty"`
 }
 
 func (p Provider) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
@@ -53,9 +57,18 @@ func (Provider) Plan(_ context.Context, request protocol.PlanRequest) (protocol.
 			ProviderPayload: payload,
 		}},
 	}
+	if cfg.Credential == "" && cfg.Authentication.Credential != "" {
+		cfg.Credential = cfg.Authentication.Credential
+		cfg.CredentialEnvironment = "DISTROPLANE_NPM_TOKEN"
+	}
 	if cfg.Credential != "" {
+		environment := cfg.CredentialEnvironment
+		if environment == "" {
+			environment = "DISTROPLANE_FAKE_CREDENTIAL"
+		}
+		metadata, _ := json.Marshal(map[string]string{"environment": environment})
 		response.Requirements = []protocol.Requirement{{
-			Kind: "credential", Name: cfg.Credential, Metadata: json.RawMessage(`{"environment":"DISTROPLANE_FAKE_CREDENTIAL"}`),
+			Kind: "credential", Name: cfg.Credential, Metadata: metadata,
 		}}
 	}
 	return response, nil

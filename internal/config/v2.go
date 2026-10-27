@@ -10,14 +10,17 @@ import (
 	"strings"
 
 	"github.com/aalsanie/distroplane/internal/canonicaljson"
+	"github.com/aalsanie/distroplane/internal/credentials"
+	"github.com/aalsanie/distroplane/internal/domain"
 )
 
 const SchemaVersionV2 = "2"
 
 type configV2 struct {
-	SchemaVersion string                     `json:"schemaVersion"`
-	Release       releaseV2                  `json:"release"`
-	Destinations  map[string]json.RawMessage `json:"destinations"`
+	SchemaVersion     string                     `json:"schemaVersion"`
+	Release           releaseV2                  `json:"release"`
+	Destinations      map[string]json.RawMessage `json:"destinations"`
+	CredentialSources json.RawMessage            `json:"credentialSources,omitempty"`
 }
 type releaseV2 struct {
 	ID        string                     `json:"id"`
@@ -62,6 +65,24 @@ func decodeV2(raw []byte) (Config, error) {
 		return Config{}, fmt.Errorf("destinations: expected at least one provider")
 	}
 	out := Config{SchemaVersion: SchemaVersionV2, Release: Release{ID: input.Release.ID}}
+	if len(input.CredentialSources) != 0 {
+		if input.CredentialSources[0] != '{' {
+			return Config{}, fmt.Errorf("credentialSources: expected object of environment variable names")
+		}
+		var sources map[string]string
+		if err := json.Unmarshal(input.CredentialSources, &sources); err != nil {
+			return Config{}, fmt.Errorf("credentialSources: expected object of strings")
+		}
+		for ref, source := range sources {
+			if _, err := domain.NewCredentialRef(ref); err != nil {
+				return Config{}, fmt.Errorf("credentialSources: invalid credential reference")
+			}
+			if !credentials.ValidEnvironmentName(source) {
+				return Config{}, fmt.Errorf("credentialSources.%s: invalid environment variable name", ref)
+			}
+		}
+		out.CredentialSources = sources
+	}
 	names := make([]string, 0, len(input.Release.Artifacts))
 	for name := range input.Release.Artifacts {
 		names = append(names, name)

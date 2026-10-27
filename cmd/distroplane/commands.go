@@ -330,6 +330,7 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 		targetConfig[target.ID] = target
 	}
 	bindingByProvider := make(map[domain.ProviderRef]string)
+	trustedDefaults := make(map[string]bool)
 	for _, target := range plan.Targets() {
 		configured, ok := targetConfig[string(target.ID())]
 		if !ok {
@@ -346,6 +347,13 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 			return nil, fmt.Errorf("provider %q@%q resolves to multiple executables", target.Provider().Name(), target.Provider().Version())
 		}
 		bindingByProvider[target.Provider()] = executable
+		// Explicit binaries and PATH fallbacks never receive ambient defaults.
+		trusted := configured.Provider.Executable == "" && planner.IsTrustedInstalledProvider(configured.Provider.Name, executable)
+		if previous, seen := trustedDefaults[configured.Provider.Name]; seen {
+			trustedDefaults[configured.Provider.Name] = previous && trusted
+		} else {
+			trustedDefaults[configured.Provider.Name] = trusted
+		}
 	}
 	providers := make([]domain.ProviderRef, 0, len(bindingByProvider))
 	for provider := range bindingByProvider {
@@ -365,12 +373,12 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 	if err != nil {
 		return nil, err
 	}
-	if len(mappings) == 0 {
-		return providerhost.NewDriver(client, bindings)
+	sources, err := credentials.SelectSources(plan, loaded.Config.CredentialSources, mappings, trustedDefaults)
+	if err != nil {
+		return nil, err
 	}
-	sources := make(map[domain.CredentialRef]string, len(mappings))
-	for ref, environment := range mappings {
-		sources[ref] = environment
+	if len(sources) == 0 {
+		return providerhost.NewDriver(client, bindings)
 	}
 	resolver, err := credentials.NewEnvironmentResolver(sources)
 	if err != nil {
