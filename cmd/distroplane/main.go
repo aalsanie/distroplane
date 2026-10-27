@@ -35,7 +35,7 @@ type versionInfo struct {
 }
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
 	os.Exit(executeContext(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -65,6 +65,8 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runVersion(args[1:], stdout, stderr)
 	case "validate":
 		return runValidate(args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctorContext(ctx, args[1:], stdout, stderr)
 	case "init":
 		return runInitContext(ctx, args[1:], os.Stdin, stdinIsTerminal(), stdout, stderr)
 	case "plan":
@@ -125,6 +127,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  version [--json]                 print version information")
 	fmt.Fprintln(w, "  validate --config PATH [--json]  validate release configuration")
+	fmt.Fprintln(w, "  doctor --config PATH [--plan PATH] [--remote] [--json]")
+	fmt.Fprintln(w, "                                      check local readiness and opt-in network connectivity")
 	fmt.Fprintln(w, "  init --destination PROVIDER --release ID [--artifact PATH] [--set FIELD=VALUE]")
 	fmt.Fprintln(w, "                                      generate a validated schema-v2 config")
 	fmt.Fprintln(w, "  plan --config PATH [--json]      build and persist an immutable plan")
