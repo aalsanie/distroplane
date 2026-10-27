@@ -273,9 +273,27 @@ func snapshot(source, target string, expected domain.Digest) error {
 	return writeCopiedExecutable(in, target, expected)
 }
 
+type temporaryFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Chmod(os.FileMode) error
+	Close() error
+}
+
+type tempFactory func(string, string) (temporaryFile, error)
+
+func defaultTempFactory(dir, pattern string) (temporaryFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
 func writeCopiedExecutable(source io.Reader, target string, expected domain.Digest) error {
+	return writeCopiedExecutableWith(source, target, expected, defaultTempFactory, os.Link)
+}
+
+func writeCopiedExecutableWith(source io.Reader, target string, expected domain.Digest, create tempFactory, link func(string, string) error) error {
 	dir := filepath.Dir(target)
-	tmp, err := os.CreateTemp(dir, ".provider-*")
+	tmp, err := create(dir, ".provider-*")
 	if err != nil {
 		return err
 	}
@@ -302,7 +320,7 @@ func writeCopiedExecutable(source io.Reader, target string, expected domain.Dige
 	if err := verifyExecutable(tmp.Name(), info, expected); err != nil {
 		return err
 	}
-	if err := os.Link(tmp.Name(), target); err != nil {
+	if err := link(tmp.Name(), target); err != nil {
 		if existing, statErr := os.Lstat(target); statErr == nil {
 			return verifyExecutable(target, existing, expected)
 		}
@@ -312,6 +330,10 @@ func writeCopiedExecutable(source io.Reader, target string, expected domain.Dige
 }
 
 func immutableWrite(path string, data []byte, permissions os.FileMode) error {
+	return immutableWriteWith(path, data, permissions, defaultTempFactory, os.Link)
+}
+
+func immutableWriteWith(path string, data []byte, permissions os.FileMode, create tempFactory, link func(string, string) error) error {
 	if existing, err := os.Lstat(path); err == nil {
 		if !existing.Mode().IsRegular() {
 			return fmt.Errorf("existing provider receipt is not regular")
@@ -327,7 +349,7 @@ func immutableWrite(path string, data []byte, permissions os.FileMode) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".receipt-*")
+	temp, err := create(filepath.Dir(path), ".receipt-*")
 	if err != nil {
 		return err
 	}
@@ -347,7 +369,7 @@ func immutableWrite(path string, data []byte, permissions os.FileMode) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Link(temp.Name(), path); err != nil {
+	if err := link(temp.Name(), path); err != nil {
 		actual, readErr := os.ReadFile(path)
 		if readErr == nil && bytes.Equal(actual, data) {
 			return nil
