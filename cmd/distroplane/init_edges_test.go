@@ -223,7 +223,7 @@ func TestInitEarlyOutputAndInputErrors(t *testing.T) {
 		{"directory output", dir, nil, exitInvalid, "unsafe_output"},
 		{"unknown metadata provider", filepath.Join(dir, "new1.json"), []string{"--set", "other.secret=VALUE"}, exitUsage, "unknown_option"},
 		{"bad option syntax", filepath.Join(dir, "new2.json"), []string{"--set", "nonempty"}, exitUsage, "invalid_option"},
-		{"invalid release ID", filepath.Join(dir, "new3.json"), []string{"--release", "bad id"}, exitUsage, "missing_release"},
+		{"invalid release ID", filepath.Join(dir, "new3.json"), []string{"--release", ""}, exitUsage, "missing_release"},
 		{"missing specified artifact", filepath.Join(dir, "new4.json"), []string{"--artifact", "missing.zip"}, exitInvalid, "invalid_artifact"},
 		{"unknown provider", filepath.Join(dir, "new5.json"), []string{"--destination", "not-supported"}, exitUsage, "invalid_destination"},
 		{"invalid external URL", filepath.Join(dir, "new6.json"), []string{"--set", "npm.registry=http://insecure.example/"}, exitInvalid, "invalid_template"},

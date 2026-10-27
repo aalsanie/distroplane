@@ -290,6 +290,13 @@ func TestInitRejectsMissingMetadataInvalidInputsAndSecrets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, _ := createInitProject(t)
 			args := append([]string{"--output", filepath.Join(dir, "distroplane.json"), "--json"}, tc.extra...)
+			if tc.name == "missing winget metadata" {
+				installer := filepath.Join(dir, "target", "installer.msi")
+				if err := os.WriteFile(installer, []byte("installer"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--artifact", installer)
+			}
 			_, diagnostic := invokeInit(t, map[bool]int{true: exitUsage, false: exitInvalid}[tc.fragment == "invalid_destination" || tc.fragment == "missing_release" || tc.fragment == "invalid_option" || tc.fragment == "unknown_option" || tc.fragment == "usage"], "", false, args...)
 			if !strings.Contains(diagnostic, tc.fragment) {
 				t.Fatalf("diagnostic %q did not include %q", diagnostic, tc.fragment)
