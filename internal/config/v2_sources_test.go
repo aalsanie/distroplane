@@ -10,11 +10,17 @@ const credentialSourcesFixture = `{"schemaVersion":"2","release":{"id":"release"
 
 func TestV2CredentialSourcesOnlyCarryEnvironmentNames(t *testing.T) {
 	without, err := Decode(strings.NewReader(credentialSourcesFixture))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	with, err := Decode(strings.NewReader(strings.Replace(credentialSourcesFixture,
 		`"destinations":`, `"credentialSources":{"npm-publish":"RELEASE_TOKEN"},"destinations":`, 1)))
-	if err != nil { t.Fatal(err) }
-	if with.CredentialSources["npm-publish"] != "RELEASE_TOKEN" { t.Fatalf("sources=%v", with.CredentialSources) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if with.CredentialSources["npm-publish"] != "RELEASE_TOKEN" {
+		t.Fatalf("sources=%v", with.CredentialSources)
+	}
 	if !reflect.DeepEqual(with.Release, without.Release) || !reflect.DeepEqual(with.Targets, without.Targets) {
 		t.Fatal("environment source changed semantic release intent")
 	}

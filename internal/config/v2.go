@@ -17,10 +17,10 @@ import (
 const SchemaVersionV2 = "2"
 
 type configV2 struct {
-	SchemaVersion string                     `json:"schemaVersion"`
-	Release       releaseV2                  `json:"release"`
-	Destinations  map[string]json.RawMessage `json:"destinations"`
-	CredentialSources json.RawMessage `json:"credentialSources,omitempty"`
+	SchemaVersion     string                     `json:"schemaVersion"`
+	Release           releaseV2                  `json:"release"`
+	Destinations      map[string]json.RawMessage `json:"destinations"`
+	CredentialSources json.RawMessage            `json:"credentialSources,omitempty"`
 }
 type releaseV2 struct {
 	ID        string                     `json:"id"`

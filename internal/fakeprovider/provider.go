@@ -13,11 +13,13 @@ type Provider struct {
 }
 
 type config struct {
-	Mode           string `json:"mode,omitempty"`
-	ReconcileState string `json:"reconcileState,omitempty"`
-	Credential     string `json:"credential,omitempty"`
+	Mode                  string `json:"mode,omitempty"`
+	ReconcileState        string `json:"reconcileState,omitempty"`
+	Credential            string `json:"credential,omitempty"`
 	CredentialEnvironment string `json:"credentialEnvironment,omitempty"`
-	Authentication struct { Credential string `json:"credential,omitempty"` } `json:"authentication,omitempty"`
+	Authentication        struct {
+		Credential string `json:"credential,omitempty"`
+	} `json:"authentication,omitempty"`
 }
 
 func (p Provider) Describe(context.Context, protocol.DescribeRequest) (protocol.DescribeResponse, *protocol.ProviderError) {
