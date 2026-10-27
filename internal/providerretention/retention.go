@@ -167,6 +167,10 @@ func Resolve(root string, provider domain.ProviderRef, digest domain.Digest) (st
 	if err := decoder.Decode(&found); err != nil {
 		return "", false, fmt.Errorf("invalid retained provider receipt: %w", err)
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", false, fmt.Errorf("retained provider receipt has trailing data")
+	}
 	if found.SchemaVersion != schemaVersion || found.Name != string(provider.Name()) ||
 		found.Version != string(provider.Version()) || found.Digest != digest.String() {
 		return "", false, fmt.Errorf("retained provider receipt disagrees with immutable plan; %s", repair)
