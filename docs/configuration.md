@@ -80,6 +80,14 @@ distroplane apply --plan PLAN.json --journal run.journal --credential npm-publis
 
 The host resolves only declared references and passes only the invoked provider's credentials. The equivalent Action input is `credential-mappings`. See the [CLI recovery guide](cli.md) for what happens when a credential is missing.
 
+For schema v2, `credentialSources` optionally maps a declared credential reference to an **environment variable name**, never a credential value:
+
+```json
+"credentialSources": {"npm-publish": "MY_NPM_TOKEN"}
+```
+
+The source precedence is `--credential REF=ENV`, then `credentialSources`, then a purpose-specific default. A single destination per provider can use `NPM_TOKEN` for npm token mode; `SDKMAN_VENDOR_EMAIL` and `SDKMAN_VENDOR_PASSWORD` for SDKMAN State API; `SDKMAN_CONSUMER_KEY` and `SDKMAN_CONSUMER_TOKEN` for SDKMAN legacy; `HOMEBREW_GITHUB_TOKEN` for Homebrew; and `WINGET_GITHUB_TOKEN` for WinGet. Multiple destinations for a provider must explicitly map separate references for separate accounts. There is no implicit `GITHUB_TOKEN`/`GH_TOKEN` access or local npm trusted-publishing OIDC acquisition. Missing credentials remain blocked before dispatch. No credential values are saved in config, plan, journal, or evidence.
+
 ## Validation
 
 `validate` checks core structure. `plan` also checks artifacts, provider identity/capabilities, and provider-specific configuration. Neither publishes.

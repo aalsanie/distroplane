@@ -21,9 +21,10 @@ const (
 )
 
 type Config struct {
-	SchemaVersion string   `json:"schemaVersion"`
-	Release       Release  `json:"release"`
-	Targets       []Target `json:"targets"`
+	SchemaVersion     string            `json:"schemaVersion"`
+	Release           Release           `json:"release"`
+	Targets           []Target          `json:"targets"`
+	CredentialSources map[string]string `json:"-"`
 }
 
 type Release struct {
