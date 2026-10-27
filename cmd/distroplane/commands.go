@@ -278,17 +278,30 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
-	var planPath, journalPath string
+	var configPath, releaseID, runID, planPath, journalPath string
 	var jsonMode bool
 	fs := commandFlags("status")
+	fs.StringVar(&configPath, "config", "distroplane.json", "")
+	fs.StringVar(&releaseID, "release", "", "")
+	fs.StringVar(&runID, "run", "", "")
 	fs.StringVar(&planPath, "plan", "", "")
 	fs.StringVar(&journalPath, "journal", "", "")
 	fs.BoolVar(&jsonMode, "json", false, "")
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
-	if planPath == "" || journalPath == "" {
-		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--plan and --journal are required"))
+	if (planPath == "") != (journalPath == "") {
+		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--plan and --journal must be supplied together"))
+	}
+	if planPath != "" && (releaseID != "" || runID != "") {
+		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("explicit plan and journal cannot be combined with catalog selectors"))
+	}
+	if planPath == "" {
+		record, err := selectRecordedRun(configPath, releaseID, runID)
+		if err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "run_selection_failed", err)
+		}
+		planPath, journalPath = record.PlanPath, record.JournalPath
 	}
 	persisted, err := planner.Load(planPath)
 	if err != nil {

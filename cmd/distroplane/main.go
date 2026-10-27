@@ -69,6 +69,8 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runPlanContext(ctx, args[1:], stdout, stderr)
 	case "publish":
 		return runPublishContext(ctx, args[1:], os.Stdin, stdout, stderr)
+	case "resume":
+		return runResumeContext(ctx, args[1:], stdout, stderr)
 	case "apply":
 		return runExecutionContext(ctx, args[1:], stdout, stderr, false)
 	case "runs":
@@ -128,8 +130,10 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "                                      inventory verified release runs")
 	fmt.Fprintln(w, "  apply --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
 	fmt.Fprintln(w, "                                      execute or resume a plan")
-	fmt.Fprintln(w, "  status --plan PATH --journal PATH [--json]")
-	fmt.Fprintln(w, "                                      inspect journal-derived state")
+	fmt.Fprintln(w, "  resume --config PATH [--release ID] [--run ID] [--reconcile-only] [--json]")
+	fmt.Fprintln(w, "                                      recover a cataloged publication run")
+	fmt.Fprintln(w, "  status [--config PATH] [--release ID] [--run ID] [--json]")
+	fmt.Fprintln(w, "                                      inspect selected journal-derived state")
 	fmt.Fprintln(w, "  reconcile --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
 	fmt.Fprintln(w, "                                      reconcile external state only")
 	fmt.Fprintln(w, "  retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk")
