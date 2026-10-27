@@ -21,8 +21,8 @@ import (
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/credentials"
 	"github.com/aalsanie/distroplane/internal/planner"
-	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/protocol"
+	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -198,13 +198,15 @@ func diagnose(ctx context.Context, path string, probeNetwork bool, probe doctorP
 		probe = publicDoctorProbe
 	}
 	known := map[string]string{
-		"npm": "https://registry.npmjs.org/",
-		"sdkman": "https://state.sdkman.io/",
+		"npm":      "https://registry.npmjs.org/",
+		"sdkman":   "https://state.sdkman.io/",
 		"homebrew": "https://api.github.com/",
-		"winget": "https://api.github.com/",
+		"winget":   "https://api.github.com/",
 	}
 	names := make([]string, 0, len(providers))
-	for p := range providers { names = append(names, p) }
+	for p := range providers {
+		names = append(names, p)
+	}
 	sort.Strings(names)
 	seen := make(map[string]bool)
 	for _, name := range names {
@@ -213,7 +215,9 @@ func diagnose(ctx context.Context, path string, probeNetwork bool, probe doctorP
 			add("NETWORK_UNSUPPORTED", "SKIP", "network:"+name, "no supported public endpoint probe", "")
 			continue
 		}
-		if seen[endpoint] { continue }
+		if seen[endpoint] {
+			continue
+		}
 		seen[endpoint] = true
 		if err := probe(ctx, endpoint); err != nil {
 			add("NETWORK_UNREACHABLE", "WARN", "network:"+name, "public endpoint did not respond; repository-specific access unverified", "Check network policy, DNS, or proxy; rerun doctor --network.")
@@ -236,17 +240,19 @@ func checkDoctorCredentials(target config.Target, configured map[string]string, 
 	}
 	fields := []string{"credential", "emailCredential", "passwordCredential", "consumerKeyCredential", "consumerTokenCredential"}
 	defaults := map[string]string{
-		"npm/credential": "NPM_TOKEN",
-		"sdkman/emailCredential": "SDKMAN_VENDOR_EMAIL",
-		"sdkman/passwordCredential": "SDKMAN_VENDOR_PASSWORD",
-		"sdkman/consumerKeyCredential": "SDKMAN_CONSUMER_KEY",
+		"npm/credential":                 "NPM_TOKEN",
+		"sdkman/emailCredential":         "SDKMAN_VENDOR_EMAIL",
+		"sdkman/passwordCredential":      "SDKMAN_VENDOR_PASSWORD",
+		"sdkman/consumerKeyCredential":   "SDKMAN_CONSUMER_KEY",
 		"sdkman/consumerTokenCredential": "SDKMAN_CONSUMER_TOKEN",
-		"homebrew/credential": "HOMEBREW_GITHUB_TOKEN",
-		"winget/credential": "WINGET_GITHUB_TOKEN",
+		"homebrew/credential":            "HOMEBREW_GITHUB_TOKEN",
+		"winget/credential":              "WINGET_GITHUB_TOKEN",
 	}
 	for _, field := range fields {
 		ref, _ := auth[field].(string)
-		if ref == "" { continue }
+		if ref == "" {
+			continue
+		}
 		env := configured[ref]
 		if env == "" {
 			env = defaults[target.Provider.Name+"/"+field]
@@ -289,21 +295,27 @@ func publicDoctorProbe(ctx context.Context, endpoint string) error {
 	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(bounded, http.MethodHead, endpoint, nil)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	client := &http.Client{
-		Timeout: 3*time.Second,
+		Timeout:       3 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{Timeout: 2*time.Second}).DialContext,
-			TLSHandshakeTimeout: 2*time.Second,
-			DisableKeepAlives: true,
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         (&net.Dialer{Timeout: 2 * time.Second}).DialContext,
+			TLSHandshakeTimeout: 2 * time.Second,
+			DisableKeepAlives:   true,
 		},
 	}
 	resp, err := client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 { return fmt.Errorf("remote endpoint unavailable") }
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("remote endpoint unavailable")
+	}
 	return nil
 }
 

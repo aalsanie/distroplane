@@ -218,32 +218,42 @@ func TestDoctorCredentialAvailabilityWithoutSecretExposure(t *testing.T) {
 
 func TestDoctorCredentialModesFailClosed(t *testing.T) {
 	cases := []struct {
-		name string
-		provider string
-		auth map[string]any
-		sources map[string]string
+		name       string
+		provider   string
+		auth       map[string]any
+		sources    map[string]string
 		credential bool
-		want string
+		want       string
 	}{
-		{"npm token missing", "npm", map[string]any{"credential":"ref","mode":"token"},nil,false,"MISSING_CREDENTIAL"},
-		{"npm OIDC no default", "npm",map[string]any{"credential":"ref","mode":"trusted-publishing"},nil,false,"MISSING_CREDENTIAL"},
-		{"sdkman state", "sdkman",map[string]any{"emailCredential":"email","passwordCredential":"password","mode":"state"}, map[string]string{"email":"EMAIL_ENV","password":"PASSWORD_ENV"},true,"CREDENTIAL_AVAILABLE"},
-		{"homebrew", "homebrew",map[string]any{"credential":"ref"},map[string]string{"ref":"HOMEBREW_ENV"},true,"CREDENTIAL_AVAILABLE"},
-		{"winget", "winget",map[string]any{"credential":"ref"},map[string]string{"ref":"WINGET_ENV"},true,"CREDENTIAL_AVAILABLE"},
+		{"npm token missing", "npm", map[string]any{"credential": "ref", "mode": "token"}, nil, false, "MISSING_CREDENTIAL"},
+		{"npm OIDC no default", "npm", map[string]any{"credential": "ref", "mode": "trusted-publishing"}, nil, false, "MISSING_CREDENTIAL"},
+		{"sdkman state", "sdkman", map[string]any{"emailCredential": "email", "passwordCredential": "password", "mode": "state"}, map[string]string{"email": "EMAIL_ENV", "password": "PASSWORD_ENV"}, true, "CREDENTIAL_AVAILABLE"},
+		{"homebrew", "homebrew", map[string]any{"credential": "ref"}, map[string]string{"ref": "HOMEBREW_ENV"}, true, "CREDENTIAL_AVAILABLE"},
+		{"winget", "winget", map[string]any{"credential": "ref"}, map[string]string{"ref": "WINGET_ENV"}, true, "CREDENTIAL_AVAILABLE"},
 	}
 	for _, tt := range cases {
-		t.Run(tt.name,func(t *testing.T) {
-			for _, env := range tt.sources { t.Setenv(env,"fixture-secret") }
-			if tt.name=="npm token missing" { t.Setenv("NPM_TOKEN","") }
-			options,_ := json.Marshal(map[string]any{"authentication":tt.auth})
-			target:=config.Target{ID:"one",Provider:config.Provider{Name:tt.provider},Configuration:options}
+		t.Run(tt.name, func(t *testing.T) {
+			for _, env := range tt.sources {
+				t.Setenv(env, "fixture-secret")
+			}
+			if tt.name == "npm token missing" {
+				t.Setenv("NPM_TOKEN", "")
+			}
+			options, _ := json.Marshal(map[string]any{"authentication": tt.auth})
+			target := config.Target{ID: "one", Provider: config.Provider{Name: tt.provider}, Configuration: options}
 			var checks []doctorCheck
-			checkDoctorCredentials(target,tt.sources,func(id,severity,subject,message,fix string) {
-				checks=append(checks,doctorCheck{ID:id,Severity:severity,Subject:subject,Message:message,Fix:fix})
+			checkDoctorCredentials(target, tt.sources, func(id, severity, subject, message, fix string) {
+				checks = append(checks, doctorCheck{ID: id, Severity: severity, Subject: subject, Message: message, Fix: fix})
 			})
-			found:=false
-			for _, check:=range checks { if check.ID==tt.want {found=true} }
-			if !found {t.Fatalf("missing %s: %+v",tt.want,checks)}
+			found := false
+			for _, check := range checks {
+				if check.ID == tt.want {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing %s: %+v", tt.want, checks)
+			}
 		})
 	}
 }
@@ -251,129 +261,164 @@ func TestDoctorCredentialModesFailClosed(t *testing.T) {
 func TestDoctorNetworkOptInIsDeterministicAndDoesNotUseCredentials(t *testing.T) {
 	dir, path := doctorFixture(t, `{"mode":"published"}`)
 	var requests []string
-	result := diagnose(context.Background(),path,false,func(_ context.Context,endpoint string)error{
-		requests=append(requests,endpoint)
+	result := diagnose(context.Background(), path, false, func(_ context.Context, endpoint string) error {
+		requests = append(requests, endpoint)
 		return nil
 	})
-	if len(requests)!=0 || !hasDoctorCheck(result,"NETWORK_NOT_CHECKED","SKIP") {
-		t.Fatalf("network contacted without consent: %+v calls=%v",result,requests)
+	if len(requests) != 0 || !hasDoctorCheck(result, "NETWORK_NOT_CHECKED", "SKIP") {
+		t.Fatalf("network contacted without consent: %+v calls=%v", result, requests)
 	}
 	// Custom v1 providers have no implicit public endpoint.
-	result=diagnose(context.Background(),path,true,func(_ context.Context,endpoint string)error{
-		requests=append(requests,endpoint)
+	result = diagnose(context.Background(), path, true, func(_ context.Context, endpoint string) error {
+		requests = append(requests, endpoint)
 		return nil
 	})
-	if len(requests)!=0 || !hasDoctorCheck(result,"NETWORK_UNSUPPORTED","SKIP") {
-		t.Fatalf("unsafe arbitrary endpoint accessed: %+v %v",result,requests)
+	if len(requests) != 0 || !hasDoctorCheck(result, "NETWORK_UNSUPPORTED", "SKIP") {
+		t.Fatalf("unsafe arbitrary endpoint accessed: %+v %v", result, requests)
 	}
-	if _,err:=os.Stat(filepath.Join(dir,".distroplane"));!os.IsNotExist(err) {
-		t.Fatalf("network doctor mutated state: %v",err)
+	if _, err := os.Stat(filepath.Join(dir, ".distroplane")); !os.IsNotExist(err) {
+		t.Fatalf("network doctor mutated state: %v", err)
 	}
 }
 
 func TestDoctorKnownRemoteProbeChecksAndErrors(t *testing.T) {
-	for _, tc := range []struct{
+	for _, tc := range []struct {
 		provider string
-		kind string
-		err error
+		kind     string
+		err      error
 	}{
-		{"npm","NETWORK_REACHABLE",nil},
-		{"npm","NETWORK_UNREACHABLE",errors.New("simulated offline")},
-		{"sdkman","NETWORK_REACHABLE",nil},
-		{"homebrew","NETWORK_REACHABLE",nil},
-		{"winget","NETWORK_UNREACHABLE",errors.New("offline")},
+		{"npm", "NETWORK_REACHABLE", nil},
+		{"npm", "NETWORK_UNREACHABLE", errors.New("simulated offline")},
+		{"sdkman", "NETWORK_REACHABLE", nil},
+		{"homebrew", "NETWORK_REACHABLE", nil},
+		{"winget", "NETWORK_UNREACHABLE", errors.New("offline")},
 	} {
-		t.Run(tc.provider+"-"+tc.kind,func(t *testing.T) {
-			dir,_:=doctorFixture(t,`{"mode":"published"}`)
-			cfg:=filepath.Join(dir,"distroplane.json")
-			raw,err:=os.ReadFile(cfg)
-			if err!=nil {t.Fatal(err)}
+		t.Run(tc.provider+"-"+tc.kind, func(t *testing.T) {
+			dir, _ := doctorFixture(t, `{"mode":"published"}`)
+			cfg := filepath.Join(dir, "distroplane.json")
+			raw, err := os.ReadFile(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
 			var doc map[string]any
-			if err:=json.Unmarshal(raw,&doc);err!=nil {t.Fatal(err)}
-			target:=doc["targets"].([]any)[0].(map[string]any)
-			target["provider"].(map[string]any)["name"]=tc.provider
-			newRaw,err:=json.Marshal(doc)
-			if err!=nil {t.Fatal(err)}
-			if err:=os.WriteFile(cfg,newRaw,0600);err!=nil {t.Fatal(err)}
-			calls:=0
-			report:=diagnose(context.Background(),cfg,true,func(ctx context.Context,url string)error {
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			target := doc["targets"].([]any)[0].(map[string]any)
+			target["provider"].(map[string]any)["name"] = tc.provider
+			newRaw, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cfg, newRaw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			report := diagnose(context.Background(), cfg, true, func(ctx context.Context, url string) error {
 				calls++
-				if !strings.HasPrefix(url,"https://") {t.Fatal("insecure probe")}
+				if !strings.HasPrefix(url, "https://") {
+					t.Fatal("insecure probe")
+				}
 				return tc.err
 			})
-			if calls!=1 || !hasDoctorCheck(report,tc.kind,map[bool]string{true:"WARN",false:"PASS"}[tc.err!=nil]) {
-				t.Fatalf("probe not classified: %+v calls=%d",report,calls)
+			if calls != 1 || !hasDoctorCheck(report, tc.kind, map[bool]string{true: "WARN", false: "PASS"}[tc.err != nil]) {
+				t.Fatalf("probe not classified: %+v calls=%d", report, calls)
 			}
 		})
 	}
 }
 
 func TestDoctorPublicProbeRejectsUnapprovedEndpoints(t *testing.T) {
-	for _, addr:=range []string{"http://registry.npmjs.org/","https://localhost/","https://127.0.0.1/","https://user:pass@api.github.com/","https://example.invalid/"} {
-		if err:=publicDoctorProbe(context.Background(),addr);err==nil {
-			t.Fatalf("unsafe diagnostic endpoint accepted: %s",addr)
+	for _, addr := range []string{"http://registry.npmjs.org/", "https://localhost/", "https://127.0.0.1/", "https://user:pass@api.github.com/", "https://example.invalid/"} {
+		if err := publicDoctorProbe(context.Background(), addr); err == nil {
+			t.Fatalf("unsafe diagnostic endpoint accepted: %s", addr)
 		}
 	}
-	ctx,cancel:=context.WithCancel(context.Background());cancel()
-	if err:=publicDoctorProbe(ctx,"https://api.github.com/");err==nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := publicDoctorProbe(ctx, "https://api.github.com/"); err == nil {
 		t.Fatal("cancelled network probe succeeded")
 	}
 }
 
 func TestDoctorCLIOutputIsOneParseableDocument(t *testing.T) {
-	_,path:=doctorFixture(t,`{"mode":"published"}`)
-	var out,errOut bytes.Buffer
-	if code:=runDoctorContext(context.Background(),[]string{"--config",path,"--json"},&out,&errOut);code!=exitOK {
-		t.Fatalf("doctor: code=%d stderr=%s",code,errOut.String())
+	_, path := doctorFixture(t, `{"mode":"published"}`)
+	var out, errOut bytes.Buffer
+	if code := runDoctorContext(context.Background(), []string{"--config", path, "--json"}, &out, &errOut); code != exitOK {
+		t.Fatalf("doctor: code=%d stderr=%s", code, errOut.String())
 	}
 	var single doctorOutput
-	d:=json.NewDecoder(&out)
-	if err:=d.Decode(&single);err!=nil {t.Fatal(err)}
+	d := json.NewDecoder(&out)
+	if err := d.Decode(&single); err != nil {
+		t.Fatal(err)
+	}
 	var extra any
-	if err:=d.Decode(&extra);!errors.Is(err,io.EOF) {
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
 		t.Fatal("extra JSON document")
 	}
-	if errOut.Len()!=0 {t.Fatalf("valid doctor emitted stderr: %s",errOut.String())}
+	if errOut.Len() != 0 {
+		t.Fatalf("valid doctor emitted stderr: %s", errOut.String())
+	}
 }
 
 func TestDoctorPlatformAndSchemaVersionStillReadable(t *testing.T) {
-	if runtime.GOOS=="" || runtime.GOARCH=="" {t.Fatal("missing runtime architecture")}
+	if runtime.GOOS == "" || runtime.GOARCH == "" {
+		t.Fatal("missing runtime architecture")
+	}
 }
 
 func TestDoctorProviderIdentityAndProtocolDiagnostics(t *testing.T) {
 	dir, configPath := doctorFixture(t, `{"mode":"published"}`)
 	raw, err := os.ReadFile(configPath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
 	target := doc["targets"].([]any)[0].(map[string]any)
 	target["provider"].(map[string]any)["name"] = "wrong-name"
 	updated, err := json.Marshal(doc)
-	if err != nil { t.Fatal(err) }
-	if err := os.WriteFile(configPath, updated, 0600); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, updated, 0600); err != nil {
+		t.Fatal(err)
+	}
 	report := runDoctorTest(t, exitInvalid, "--config", configPath)
-	if !hasDoctorCheck(report,"VERSION_MISMATCH","FAIL") {
+	if !hasDoctorCheck(report, "VERSION_MISMATCH", "FAIL") {
 		t.Fatalf("wrong provider executable identity allowed: %+v", report)
 	}
-	if _, err := os.Stat(filepath.Join(dir,".distroplane")); !os.IsNotExist(err) {
-		t.Fatalf("doctor saved state: %v",err)
+	if _, err := os.Stat(filepath.Join(dir, ".distroplane")); !os.IsNotExist(err) {
+		t.Fatalf("doctor saved state: %v", err)
 	}
 }
 
 func TestDoctorNamedProviderHandshakeError(t *testing.T) {
-	dir, path := doctorFixture(t,`{"mode":"published"}`)
+	dir, path := doctorFixture(t, `{"mode":"published"}`)
 	file := filepath.Join(dir, "bad-provider")
-	if err := os.WriteFile(file, []byte("not a valid executable"),0700); err != nil {t.Fatal(err)}
+	if err := os.WriteFile(file, []byte("not a valid executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(path)
-	if err != nil {t.Fatal(err)}
+	if err != nil {
+		t.Fatal(err)
+	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw,&doc);err!=nil {t.Fatal(err)}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
 	doc["targets"].([]any)[0].(map[string]any)["provider"].(map[string]any)["executable"] = file
 	raw, err = json.Marshal(doc)
-	if err != nil {t.Fatal(err)}
-	if err := os.WriteFile(path,raw,0600);err!=nil {t.Fatal(err)}
-	report := runDoctorTest(t,exitInvalid,"--config",path)
-	if !hasDoctorCheck(report,"PROVIDER_UNAVAILABLE","FAIL") {
-		t.Fatalf("unexecutable provider not detected: %+v",report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctorTest(t, exitInvalid, "--config", path)
+	if !hasDoctorCheck(report, "PROVIDER_UNAVAILABLE", "FAIL") {
+		t.Fatalf("unexecutable provider not detected: %+v", report)
 	}
 }
