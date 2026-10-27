@@ -311,14 +311,14 @@ func TestDoctorRemoteURLsAndEndpointSafety(t *testing.T) {
 	for _, tc := range []struct{ value, result string }{
 		{"https://registry.npmjs.org/", "registry.npmjs.org:443"},
 		{"https://example.com:8443/health", "example.com:8443"},
-		{"https://[::1]:444/path", "[::1]:444"},
+		{"https://8.8.8.8:444/path", "8.8.8.8:444"},
 	} {
 		address, err := doctorRemoteAddress(tc.value)
 		if err != nil || address != tc.result {
 			t.Fatalf("URL %q -> %q %v", tc.value, address, err)
 		}
 	}
-	for _, value := range []string{"http://example.com", "https://", "ftp://example.com", "https://user:pass@example.com"} {
+	for _, value := range []string{"http://example.com", "https://", "ftp://example.com", "https://user:pass@example.com", "https://[::1]:444/path", "https://localhost/", "https://127.0.0.1/", "https://169.254.169.254/latest/meta-data", "https://10.1.1.1/"} {
 		if _, err := doctorRemoteAddress(value); err == nil {
 			t.Fatalf("unsafe remote accepted: %q", value)
 		}

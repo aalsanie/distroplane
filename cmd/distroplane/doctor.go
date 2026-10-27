@@ -22,6 +22,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
+	"github.com/aalsanie/distroplane/internal/protocol"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -104,8 +105,7 @@ func runDoctorContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	if err := ctx.Err(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
 	}
-	dialer := &net.Dialer{Timeout: timeout}
-	probe := doctorProbe{remote: remote, timeout: timeout, planPath: planPath, credentials: mappings, dial: dialer.DialContext}
+	probe := doctorProbe{remote: remote, timeout: timeout, planPath: planPath, credentials: mappings, dial: doctorSafeDial}
 	report := inspectDoctor(ctx, configPath, probe)
 	report.output.Healthy = !report.localBad && !report.remoteBad
 	if jsonMode {
@@ -164,7 +164,11 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			d.add("MISSING_ARTIFACT", doctorFail, a.Name, "artifact is missing, empty, or not a regular file", "Rebuild or select an existing regular artifact source")
 			continue
 		}
-		d.add("ARTIFACT_READABLE", doctorPass, a.Name, "local artifact is present and nonempty", "")
+		if _, _, err := (planner.FileHasher{}).Hash(path); err != nil {
+			d.add("ARTIFACT_HASH_FAILED", doctorFail, a.Name, "artifact bytes cannot be hashed consistently", "Rebuild the artifact and verify file access")
+		} else {
+			d.add("ARTIFACT_READABLE", doctorPass, a.Name, "local artifact is present, nonempty, and hashable", "")
+		}
 	}
 	providerCounts := map[string]int{}
 	for _, target := range loaded.Config.Targets {
@@ -228,8 +232,10 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider Describe protocol failed or timed out", "Install a compatible provider binary")
 				} else if describe.Provider.Name != target.Provider.Name || describe.Provider.Version == "" {
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider identity or version is incompatible", "Install the matching provider version")
+				} else if !doctorSupportsProtocol(describe.ProtocolVersions) {
+					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider does not advertise the required protocol version", "Install a provider compatible with the CLI protocol")
 				} else {
-					d.add("PROVIDER_VERSION", doctorPass, target.ID, "provider reports version "+describe.Provider.Version, "")
+					d.add("PROVIDER_VERSION", doctorPass, target.ID, "provider identity and protocol verified; version "+describe.Provider.Version, "")
 				}
 			}
 		}
@@ -267,6 +273,16 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 	}
 	if options.planPath == "" {
 		records, err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).Inventory()
+		if err == nil {
+			for _, record := range records {
+				if record.State == "RESERVED" {
+					d.add("RUN_RESERVED", doctorWarn, record.RunID, "a claimed run has no durable journal", "Investigate the run and preserve its original state; never create a replacement publication")
+				}
+				if record.ReconcileRequired {
+					d.add("RECONCILE_REQUIRED", doctorWarn, record.RunID, "external reconciliation is required before retrying publication", "Use distroplane resume --reconcile-only for this exact run")
+				}
+			}
+		}
 		if err != nil {
 			d.add("STATE_CORRUPT", doctorFail, "catalog", "saved plan or journal catalog verification failed", "Restore the original plan, provider binaries, and journal")
 		} else if len(records) == 1 && records[0].ReleaseID == loaded.Config.Release.ID {
@@ -296,7 +312,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 	}
 	if options.remote {
 		if options.dial == nil {
-			options.dial = (&net.Dialer{Timeout: options.timeout}).DialContext
+			options.dial = doctorSafeDial
 		}
 		urls := doctorRemoteURLs(loaded)
 		if len(urls) == 0 {
@@ -440,12 +456,21 @@ func doctorRemoteURLs(loaded config.Loaded) []string {
 
 func doctorRemoteAddress(raw string) (string, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
-		return "", fmt.Errorf("invalid HTTPS endpoint")
+	if err != nil || u.Scheme != "https" || !doctorPublicHost(u.Hostname()) || u.User != nil {
+		return "", fmt.Errorf("invalid or non-public HTTPS endpoint")
 	}
 	port := u.Port()
 	if port == "" {
 		port = "443"
 	}
 	return net.JoinHostPort(u.Hostname(), port), nil
+}
+
+func doctorSupportsProtocol(versions []string) bool {
+	for _, version := range versions {
+		if version == protocol.Version {
+			return true
+		}
+	}
+	return false
 }
