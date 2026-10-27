@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/aalsanie/distroplane/internal/config"
