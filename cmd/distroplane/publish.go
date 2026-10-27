@@ -110,8 +110,10 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	}
 	planned := planOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		PlanID: string(plan.ID()), Path: path,
-		Targets: len(plan.Targets()), Operations: len(plan.Operations()),
+		PlanID:              string(plan.ID()),
+		Path:                path,
+		Targets:             len(plan.Targets()),
+		Operations:          len(plan.Operations()),
 	}
 
 	if !jsonMode {
