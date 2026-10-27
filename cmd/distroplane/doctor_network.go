@@ -56,6 +56,10 @@ func doctorPublicIP(ip net.IP) bool {
 }
 
 func doctorSafeDial(ctx context.Context, network, address string) (net.Conn, error) {
+	return doctorSafeDialWith(ctx, network, address, net.DefaultResolver.LookupIPAddr, (&net.Dialer{}).DialContext)
+}
+
+func doctorSafeDialWith(ctx context.Context, network, address string, resolve func(context.Context, string) ([]net.IPAddr, error), dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -73,7 +77,7 @@ func doctorSafeDial(ctx context.Context, network, address string) (net.Conn, err
 	if ip := net.ParseIP(host); ip != nil {
 		addresses = []net.IPAddr{{IP: ip}}
 	} else {
-		addresses, err = net.DefaultResolver.LookupIPAddr(ctx, host)
+		addresses, err = resolve(ctx, host)
 		if err != nil {
 			return nil, fmt.Errorf("resolve diagnostic endpoint: %w", err)
 		}
@@ -83,7 +87,7 @@ func doctorSafeDial(ctx context.Context, network, address string) (net.Conn, err
 		if !doctorPublicIP(addr.IP) {
 			continue
 		}
-		conn, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(addr.IP.String(), port))
+		conn, dialErr := dial(ctx, "tcp", net.JoinHostPort(addr.IP.String(), port))
 		if dialErr == nil {
 			return conn, nil
 		}
