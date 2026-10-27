@@ -86,7 +86,7 @@ For schema v2, `credentialSources` optionally maps a declared credential referen
 "credentialSources": {"npm-publish": "MY_NPM_TOKEN"}
 ```
 
-The source precedence is `--credential REF=ENV`, then `credentialSources`, then a purpose-specific default. A single destination per provider can use `NPM_TOKEN` for npm token mode; `SDKMAN_VENDOR_EMAIL` and `SDKMAN_VENDOR_PASSWORD` for SDKMAN State API; `SDKMAN_CONSUMER_KEY` and `SDKMAN_CONSUMER_TOKEN` for SDKMAN legacy; `HOMEBREW_GITHUB_TOKEN` for Homebrew; and `WINGET_GITHUB_TOKEN` for WinGet. Multiple destinations for a provider must explicitly map separate references for separate accounts. There is no implicit `GITHUB_TOKEN`/`GH_TOKEN` access or local npm trusted-publishing OIDC acquisition. Missing credentials remain blocked before dispatch. No credential values are saved in config, plan, journal, or evidence.
+The source precedence is `--credential REF=ENV`, then `credentialSources`, then a purpose-specific default. With a trusted CLI-associated installed provider executable, a single destination per provider can use `NPM_TOKEN` for npm token mode; `SDKMAN_VENDOR_EMAIL` and `SDKMAN_VENDOR_PASSWORD` for SDKMAN State API; `SDKMAN_CONSUMER_KEY` and `SDKMAN_CONSUMER_TOKEN` for SDKMAN legacy; `HOMEBREW_GITHUB_TOKEN` for Homebrew; and `WINGET_GITHUB_TOKEN` for WinGet. Multiple destinations for a provider must explicitly map separate references for separate accounts. There is no implicit `GITHUB_TOKEN`/`GH_TOKEN` access or local npm trusted-publishing OIDC acquisition. Missing credentials remain blocked before dispatch. No credential values are saved in config, plan, journal, or evidence.
 
 ## Validation
 
