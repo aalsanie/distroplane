@@ -72,7 +72,23 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			dir, _ := createInitProject(t)
+			dir, artifactPath := createInitProject(t)
+			extension := ""
+			switch test.name {
+			case "homebrew:jvm", "winget:zip":
+				extension = ".zip"
+			case "winget:msi":
+				extension = ".msi"
+			}
+			if extension != "" {
+				if err := os.Remove(artifactPath); err != nil {
+					t.Fatal(err)
+				}
+				artifactPath = filepath.Join(dir, "target", "release"+extension)
+				if err := os.WriteFile(artifactPath, []byte("archive-fixture"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			args := append(initArgs(dir, test.name), optionFlags(test.fields...)...)
 			result, _ := invokeInit(t, exitOK, "", false, args...)
 			if result.OutputSchemaVersion != outputSchemaVersion || result.Artifact.SHA256 == "" || len(result.Destinations) != 1 {

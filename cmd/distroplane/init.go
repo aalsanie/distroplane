@@ -44,19 +44,20 @@ type initOutput struct {
 	OutputSchemaVersion string       `json:"outputSchemaVersion"`
 	ConfigPath          string       `json:"configPath"`
 	BackupPath          string       `json:"backupPath,omitempty"`
-	Artifact            initArtifact `json:"artifact"`
-	Destinations        []string     `json:"destinations"`
+	Artifact            initArtifact            `json:"artifact"`
+	Artifacts           map[string]initArtifact `json:"artifacts"`
+	Destinations        []string                `json:"destinations"`
 }
 
 // runInitContext never starts a provider or performs a network request. Only a
 // real terminal session can enter interactive mode; automation must supply data.
 func runInitContext(ctx context.Context, args []string, input io.Reader, interactive bool, stdout, stderr io.Writer) int {
-	var releaseID, artifactPath, outputPath string
+	var releaseID, outputPath string
 	var force, jsonMode, noninteractive bool
-	var destinations, options repeatedFlag
+	var destinations, options, artifacts repeatedFlag
 	fs := commandFlags("init")
 	fs.StringVar(&releaseID, "release", "", "")
-	fs.StringVar(&artifactPath, "artifact", "", "")
+	fs.Var(&artifacts, "artifact", "")
 	fs.StringVar(&outputPath, "output", "distroplane.json", "")
 	fs.BoolVar(&force, "force", false, "")
 	fs.BoolVar(&jsonMode, "json", false, "")
@@ -121,47 +122,55 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		}
 		fields[k] = v
 	}
-	if artifactPath == "" {
-		candidates, err := discoverArtifacts(baseDir)
-		if err != nil {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "artifact_discovery_failed", err)
-		}
-		switch len(candidates) {
-		case 0:
-			if !allowPrompt {
-				return writeCommandError(stderr, jsonMode, exitInvalid, "missing_artifact", fmt.Errorf("no recent build artifacts in target/, build/, or dist/; specify --artifact"))
-			}
-		case 1:
-			artifactPath = candidates[0]
-		default:
-			if !allowPrompt {
-				return writeCommandError(stderr, jsonMode, exitInvalid, "ambiguous_artifact", fmt.Errorf("%d build artifacts found; choose one with --artifact (candidates: %s)", len(candidates), strings.Join(candidates, ", ")))
-			}
-			fmt.Fprintf(stderr, "Artifact candidates: %s\n", strings.Join(candidates, ", "))
-		}
-		if artifactPath == "" && allowPrompt {
-			artifactPath, err = promptInit(reader, stderr, "artifact path")
-			if err != nil {
-				return writeCommandError(stderr, jsonMode, exitUsage, "missing_artifact", err)
-			}
-		}
-	}
-	artifact, source, err := inspectInitArtifact(baseDir, artifactPath)
+	paths, err := initArtifactPaths(destinations, artifacts, baseDir, allowPrompt, reader, stderr)
 	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
+		kind := "invalid_artifact"
+		if strings.Contains(err.Error(), "no recent build artifacts") {
+			kind = "missing_artifact"
+		} else if strings.Contains(err.Error(), "build artifacts found") {
+			kind = "ambiguous_artifact"
+		} else if strings.Contains(err.Error(), "too many") {
+			kind = "artifact_discovery_failed"
+		}
+		return writeCommandError(stderr, jsonMode, exitInvalid, kind, err)
 	}
-	if !jsonMode {
-		fmt.Fprintf(stderr, "Artifact %s\nSHA-256 %s\nSize %d bytes\n", artifact.Path, artifact.SHA256, artifact.Size)
+	artifactsByProvider := make(map[string]initArtifact, len(destinations))
+	sources := make(map[string]string, len(destinations))
+	allSame := true
+	firstPath := ""
+	for _, variant := range destinations {
+		provider, _, _ := strings.Cut(variant, ":")
+		artifact, source, err := inspectInitArtifact(baseDir, paths[provider])
+		if err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
+		}
+		if err := validateInitArtifactKind(variant, source); err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
+		}
+		artifactsByProvider[provider] = artifact
+		sources[provider] = source
+		if firstPath == "" {
+			firstPath = artifact.Path
+		} else if firstPath != artifact.Path {
+			allSame = false
+		}
+		if !jsonMode {
+			fmt.Fprintf(stderr, "Artifact %s: %s\nSHA-256 %s\nSize %d bytes\n", provider, artifact.Path, artifact.SHA256, artifact.Size)
+		}
 	}
 	b := initBuilder{fields: fields, reader: reader, prompts: allowPrompt, stderr: stderr}
 	dest := make(map[string]any)
 	for _, variant := range destinations {
 		provider, _, _ := strings.Cut(variant, ":")
-		options, err := b.providerOptions(variant, source)
+		options, err := b.providerOptions(variant, sources[provider])
 		if err != nil {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "missing_metadata", err)
 		}
-		dest[provider] = map[string]any{"artifact": "release", "options": options}
+		artifactName := "release"
+		if !allSame {
+			artifactName = provider
+		}
+		dest[provider] = map[string]any{"artifact": artifactName, "options": options}
 	}
 	if len(b.fields) != 0 {
 		keys := make([]string, 0, len(b.fields))
@@ -171,9 +180,18 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		sort.Strings(keys)
 		return writeCommandError(stderr, jsonMode, exitUsage, "unknown_option", fmt.Errorf("unknown --set field %q", keys[0]))
 	}
+	declaredArtifacts := make(map[string]any, len(destinations))
+	for _, variant := range destinations {
+		provider, _, _ := strings.Cut(variant, ":")
+		name := "release"
+		if !allSame {
+			name = provider
+		}
+		declaredArtifacts[name] = map[string]any{"source": sources[provider]}
+	}
 	document := map[string]any{
 		"schemaVersion": "2",
-		"release":       map[string]any{"id": releaseID, "artifacts": map[string]any{"release": map[string]any{"source": source}}},
+		"release":       map[string]any{"id": releaseID, "artifacts": declaredArtifacts},
 		"destinations":  dest,
 	}
 	data, err := json.MarshalIndent(document, "", "  ")
@@ -190,7 +208,15 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "write_failed", err)
 	}
-	result := initOutput{OutputSchemaVersion: outputSchemaVersion, ConfigPath: outputPath, BackupPath: backup, Artifact: artifact, Destinations: destinations}
+	first, _, _ := strings.Cut(destinations[0], ":")
+	result := initOutput{
+		OutputSchemaVersion: outputSchemaVersion,
+		ConfigPath: outputPath,
+		BackupPath: backup,
+		Artifact: artifactsByProvider[first],
+		Artifacts: artifactsByProvider,
+		Destinations: destinations,
+	}
 	if jsonMode {
 		return writeJSON(stdout, result)
 	}
