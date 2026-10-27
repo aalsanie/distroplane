@@ -112,7 +112,7 @@ func TestCLIUsageAndInvalidInputs(t *testing.T) {
 		{"validate", "extra"},
 		{"plan", "--unknown"},
 		{"apply"},
-		{"status"},
+		{"status", "--plan", "only-plan"},
 		{"reconcile"},
 		{"apply", "--plan", "p", "--journal", "j", "--concurrency", "-1"},
 	}

@@ -26,6 +26,22 @@ distroplane apply --config distroplane.json --plan PLAN.json --journal run.journ
 
 Review the plan before applying. `apply` rechecks artifact and provider digests, then executes or resumes the journaled run. The execution configuration must retain the planned target IDs and matching provider selections. `--credential REF=ENV` resolves a declared credential from an environment variable at execution time; do not put secret values in a plan.
 
+## Resume and automatic status
+
+```sh
+distroplane status --config distroplane.json --json
+distroplane status --config distroplane.json --release RELEASE_ID --run RUN_ID --json
+distroplane resume --config distroplane.json --json
+distroplane resume --config distroplane.json --release RELEASE_ID --credential REF=ENV
+distroplane resume --config distroplane.json --reconcile-only --json
+```
+
+`status` selects a **uniquely identified, already-started run** from the durable catalog without contacting providers. It does not require the original configuration or release artifacts, provided the retained catalog, plan, journal, and planned provider executable remain available. The explicit `--plan` / `--journal` form remains supported. A selection with no run, multiple matches, an unreadable catalog, a reserved run without its journal, or a corrupt journal fails closed; it never chooses the newest run.
+
+`resume` selects the same immutable plan, run ID, and journal and invokes the existing executor. It never rebuilds a plan, creates a new publication run, or grants an ambiguous retry. Dispatched/uncertain operations follow the existing reconciliation policy. Use `--reconcile-only` to inspect external state without starting any undispatched publication. A completed run is reported read-only. A normal resume still verifies artifact and provider-executable integrity before performing work. Missing or changed artifacts block execution; reconciliation-only can remain available for an existing run.
+
+**Retention policy:** Distroplane does not automatically delete plans, run catalogs, journals, release artifacts, or provider binaries—at completion, after failure, or on resume. Keep all of them until external settlement and the operator's independent retention decision; retain unresolved, ambiguous, cancelled, and pending runs for recovery. Do not manually remove or replace a journal to restart publication: a reserved run with missing durable history requires explicit manual investigation. All recovery commands preserve the original plan/run identity.
+
 ## Inspect and reconcile
 
 ```sh
