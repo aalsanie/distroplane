@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"bytes"
+	"errors"
+	"io"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -97,5 +100,100 @@ func TestDoctorVersionAndCancellationPaths(t *testing.T) {
 	})
 	if len(checks)!=1 || checks[0].ID!="PROVIDER_UNAVAILABLE" || checks[0].Severity!="FAIL" {
 		t.Fatalf("cancelled provider probe did not fail closed: %+v",checks)
+	}
+}
+
+type failedDoctorWriter struct{}
+
+func (failedDoctorWriter) Write([]byte) (int,error) { return 0,errors.New("broken output") }
+
+func TestDoctorJSONWriterFailureAndTextualSuggestions(t *testing.T) {
+	_,path:=doctorFixture(t,`{"mode":"published"}`)
+	var stderr bytes.Buffer
+	if code:=runDoctorContext(context.Background(),[]string{"--config",path,"--json"},failedDoctorWriter{},&stderr);code!=exitOperational {
+		t.Fatalf("output failure code=%d",code)
+	}
+	var stdout bytes.Buffer
+	if code:=runDoctorContext(context.Background(),[]string{"--config",path},&stdout,io.Discard);code!=exitOK {
+		t.Fatalf("unexpected human doctor failure: %d",code)
+	}
+	if !strings.Contains(stdout.String(),"Next:") {
+		t.Fatalf("warning missing suggested action: %s",stdout.String())
+	}
+}
+
+func TestDoctorConfiguredGitProviderReportsInstalledGit(t *testing.T) {
+	_,path:=doctorFixture(t,`{"mode":"published"}`)
+	raw,err:=os.ReadFile(path)
+	if err!=nil {t.Fatal(err)}
+	var doc map[string]any
+	if err:=json.Unmarshal(raw,&doc);err!=nil {t.Fatal(err)}
+	doc["targets"].([]any)[0].(map[string]any)["provider"].(map[string]any)["name"]="homebrew"
+	raw,err=json.Marshal(doc)
+	if err!=nil {t.Fatal(err)}
+	if err:=os.WriteFile(path,raw,0600);err!=nil {t.Fatal(err)}
+	report:=diagnose(context.Background(),path,false,nil)
+	if !hasDoctorCheck(report,"GIT_FOUND","PASS") {
+		t.Fatalf("Git availability not checked: %+v",report)
+	}
+}
+
+func TestDoctorInvalidCredentialMetadataAndAliases(t *testing.T) {
+	for _,tc:=range []struct{
+		name string
+		options string
+		configured map[string]string
+		want string
+	}{
+		{"invalid config",`{"authentication":` ,nil,"CREDENTIAL_UNKNOWN"},
+		{"no auth",`{"tag":"stable"}`,nil,""},
+		{"null auth",`{"authentication":null}`,nil,""},
+		{"invalid variable name",`{"authentication":{"credential":"ref"}}`,map[string]string{"ref":"BAD-NAME"},"MISSING_CREDENTIAL"},
+		{"consumer key missing",`{"authentication":{"consumerKeyCredential":"key","consumerTokenCredential":"token"}}`,nil,"MISSING_CREDENTIAL"},
+		{"email missing",`{"authentication":{"emailCredential":"email","passwordCredential":"password"}}`,nil,"MISSING_CREDENTIAL"},
+	}{
+		t.Run(tc.name,func(t *testing.T){
+			target:=config.Target{ID:"example",Provider:config.Provider{Name:"sdkman"},Configuration:json.RawMessage(tc.options)}
+			var checks []doctorCheck
+			checkDoctorCredentials(target,tc.configured,func(id,severity,subject,message,fix string){
+				checks=append(checks,doctorCheck{ID:id,Severity:severity,Subject:subject,Message:message,Fix:fix})
+			})
+			found:=false
+			for _,check:=range checks { if check.ID==tc.want {found=true} }
+			if tc.want=="" && len(checks)==0 {found=true}
+			if !found {t.Fatalf("expected %q: %+v",tc.want,checks)}
+		})
+	}
+}
+
+func TestDoctorNetworkEndpointDeduplicatesGitProviders(t *testing.T) {
+	dir,path:=doctorFixture(t,`{"mode":"published"}`)
+	raw,err:=os.ReadFile(path)
+	if err!=nil {t.Fatal(err)}
+	var doc map[string]any
+	if err:=json.Unmarshal(raw,&doc);err!=nil {t.Fatal(err)}
+	target:=doc["targets"].([]any)[0].(map[string]any)
+	target["provider"].(map[string]any)["name"]="homebrew"
+	target["id"]="tap"
+	other:=map[string]any{
+		"id":"winget",
+		"provider": map[string]any{"name":"winget","executable":target["provider"].(map[string]any)["executable"]},
+		"configuration":map[string]any{"mode":"published"},
+	}
+	doc["targets"]=[]any{target,other}
+	raw,err=json.Marshal(doc)
+	if err!=nil {t.Fatal(err)}
+	if err:=os.WriteFile(path,raw,0600);err!=nil {t.Fatal(err)}
+	calls:=0
+	report:=diagnose(context.Background(),path,true,func(_ context.Context,endpoint string)error {
+		if endpoint!="https://api.github.com/" {t.Fatalf("unapproved endpoint %s",endpoint)}
+		calls++
+		return nil
+	})
+	if calls!=1 || !hasDoctorCheck(report,"NETWORK_REACHABLE","PASS") {
+		t.Fatalf("unexpected GitHub probe fanout: calls=%d %+v",calls,report)
+	}
+	if _,err:=os.Stat(filepath.Join(dir,".distroplane"));!os.IsNotExist(err) {
+		t.Fatalf("doctor created state: %v",err)
 	}
 }
