@@ -63,6 +63,22 @@ jobs:
           if ($result.planId -ne $env:PLAN_ID -or $result.targets -ne 1 -or $result.operations -ne 1) {
             throw 'plan result outputs are inconsistent'
           }
+      - name: Stage verified provider snapshots for cross-job recovery
+        shell: pwsh
+        env:
+          CONFIG_PATH: ${{ steps.fixture.outputs.config }}
+        run: |
+          $root = Split-Path -Parent $env:CONFIG_PATH
+          $providers = Join-Path $root '.distroplane/providers'
+          if (-not (Test-Path -LiteralPath $providers -PathType Container)) {
+            throw 'retained provider directory is missing after plan creation'
+          }
+          $handoff = Join-Path $root 'handoff'
+          New-Item -ItemType Directory -Path $handoff -Force | Out-Null
+          Copy-Item -LiteralPath $providers -Destination $handoff -Recurse -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $handoff 'providers') -PathType Container)) {
+            throw 'retained provider snapshot handoff was not staged'
+          }
       - name: Upload runtime handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -108,6 +124,31 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'failed to restore executable permissions' }
           }
           $configPath = (Resolve-Path 'smoke/distroplane.json').Path
+          $project = Split-Path -Parent $configPath
+          $handoff = Join-Path $project 'handoff/providers'
+          if (-not (Test-Path -LiteralPath $handoff -PathType Container)) {
+            throw 'cross-job handoff is missing the original provider snapshots'
+          }
+          $stateRoot = Join-Path $project '.distroplane'
+          New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+          Copy-Item -LiteralPath $handoff -Destination $stateRoot -Recurse -Force
+          $snapshotRoot = Join-Path $stateRoot 'providers'
+          $receipts = @(Get-ChildItem -LiteralPath $snapshotRoot -Recurse -File -Filter 'binding.json')
+          if ($receipts.Count -lt 1) { throw 'provider snapshot receipt was not preserved across jobs' }
+          if (-not $IsWindows) {
+            & chmod 700 $snapshotRoot
+            Get-ChildItem -LiteralPath $snapshotRoot -Recurse -Directory | ForEach-Object {
+              & chmod 700 $_.FullName
+            }
+            Get-ChildItem -LiteralPath $snapshotRoot -Recurse -File | ForEach-Object {
+              if ($_.Name -eq 'binding.json') {
+                & chmod 600 $_.FullName
+              } else {
+                & chmod 500 $_.FullName
+              }
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'failed to restore provider snapshot permissions' }
+          }
           $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
           $config.targets[0].provider.executable = $provider
           $config | ConvertTo-Json -Depth 12 -Compress | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
