@@ -74,11 +74,11 @@ func TestInitProviderScopedArtifactsCreateDistinctSources(t *testing.T) {
 func TestInitProviderScopedArtifactMustMatchDestination(t *testing.T) {
 	dir, npm := createInitProject(t)
 	for _, tc := range []struct {
-		flags []string
+		flags   []string
 		message string
 	}{
-		{[]string{"--artifact", "winget="+npm}, "was not selected"},
-		{[]string{"--artifact", "npm="+npm, "--artifact", "npm="+npm}, "duplicate"},
+		{[]string{"--artifact", "winget=" + npm}, "was not selected"},
+		{[]string{"--artifact", "npm=" + npm, "--artifact", "npm=" + npm}, "duplicate"},
 		{[]string{"--artifact", npm, "--artifact", npm}, "multiple shared"},
 		{[]string{"--artifact", "npm="}, "empty"},
 	} {

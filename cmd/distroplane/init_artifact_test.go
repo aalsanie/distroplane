@@ -12,7 +12,7 @@ import (
 func TestInitRejectsMismatchedArtifactTypeBeforeWriting(t *testing.T) {
 	cases := []struct {
 		destination string
-		artifact string
+		artifact    string
 	}{
 		{"npm", "tool.zip"},
 		{"homebrew:jvm", "tool.tgz"},
@@ -43,9 +43,9 @@ func TestInitRejectsMismatchedArtifactTypeBeforeWriting(t *testing.T) {
 }
 
 func TestInitArtifactKindPreservesOtherProviderFormats(t *testing.T) {
-	for _, tc := range []struct{
+	for _, tc := range []struct {
 		destination string
-		source string
+		source      string
 	}{
 		{"npm", "release.tgz"},
 		{"npm", "release.tar.gz"},

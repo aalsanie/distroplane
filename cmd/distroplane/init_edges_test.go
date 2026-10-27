@@ -130,9 +130,9 @@ func TestInitPromptSafetyErrorsAndEOF(t *testing.T) {
 	dir, _ := createInitProject(t)
 	args := []string{"--output", filepath.Join(dir, "distroplane.json")}
 	for _, tc := range []struct {
-		name string
+		name  string
 		input io.Reader
-		kind string
+		kind  string
 	}{
 		{"unreadable destination", initErrorReader{}, "missing_destinations"},
 		{"empty destination", strings.NewReader("\n"), "missing_destinations"},
@@ -213,11 +213,11 @@ func TestInitDiscoveryCandidateBoundsAndIgnoredEntries(t *testing.T) {
 func TestInitEarlyOutputAndInputErrors(t *testing.T) {
 	dir, _ := createInitProject(t)
 	cases := []struct {
-		name string
+		name   string
 		output string
-		extra []string
-		want int
-		kind string
+		extra  []string
+		want   int
+		kind   string
 	}{
 		{"empty output", "", nil, exitUsage, "usage"},
 		{"directory output", dir, nil, exitInvalid, "unsafe_output"},

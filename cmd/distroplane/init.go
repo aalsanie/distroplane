@@ -41,9 +41,9 @@ type initArtifact struct {
 }
 
 type initOutput struct {
-	OutputSchemaVersion string       `json:"outputSchemaVersion"`
-	ConfigPath          string       `json:"configPath"`
-	BackupPath          string       `json:"backupPath,omitempty"`
+	OutputSchemaVersion string                  `json:"outputSchemaVersion"`
+	ConfigPath          string                  `json:"configPath"`
+	BackupPath          string                  `json:"backupPath,omitempty"`
 	Artifact            initArtifact            `json:"artifact"`
 	Artifacts           map[string]initArtifact `json:"artifacts"`
 	Destinations        []string                `json:"destinations"`
@@ -211,11 +211,11 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	first, _, _ := strings.Cut(destinations[0], ":")
 	result := initOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		ConfigPath: outputPath,
-		BackupPath: backup,
-		Artifact: artifactsByProvider[first],
-		Artifacts: artifactsByProvider,
-		Destinations: destinations,
+		ConfigPath:          outputPath,
+		BackupPath:          backup,
+		Artifact:            artifactsByProvider[first],
+		Artifacts:           artifactsByProvider,
+		Destinations:        destinations,
 	}
 	if jsonMode {
 		return writeJSON(stdout, result)
