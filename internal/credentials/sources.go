@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 )
@@ -81,11 +82,14 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 		if source == "" {
 			continue // Driver preparation blocks missing credentials before side effects.
 		}
-		if other, exists := owners[source]; exists && other != ref {
+		// Windows environment variables are case-insensitive. Reject case-only
+		// aliases on all hosts to keep cross-platform source selection safe.
+		key := strings.ToUpper(source)
+		if other, exists := owners[key]; exists && other != ref {
 			return nil, fmt.Errorf("%w: references %q and %q select the same environment source", ErrAmbiguousSource, other, ref)
 		}
 		sources[ref] = source
-		owners[source] = ref
+		owners[key] = ref
 	}
 	return sources, nil
 }

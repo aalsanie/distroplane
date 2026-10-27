@@ -156,6 +156,10 @@ func TestSelectSourcesMultiAccountIsolation(t *testing.T) {
 	if !errors.Is(err, ErrAmbiguousSource) {
 		t.Fatalf("shared source accepted: %v", err)
 	}
+	_, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_TOKEN", "npm-secondary": "npm_token"}, nil, installedDefaults)
+	if !errors.Is(err, ErrAmbiguousSource) {
+		t.Fatalf("case-aliased source accepted: %v", err)
+	}
 }
 
 func TestSelectSourcesCrossProviderCollisionsAndExplicitOverrides(t *testing.T) {
