@@ -148,7 +148,7 @@ func TestDoctorRejectsArtifactAndProviderFailures(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(cfg, []byte(strings.Replace(string(source), provider, mismatch, 1)), 0600); err != nil {
+				if err := os.WriteFile(cfg, []byte(strings.Replace(string(source), jsonString(provider), jsonString(mismatch), 1)), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -257,7 +257,7 @@ func TestDoctorGitCheckHonorsActualPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	revised := strings.ReplaceAll(string(data), `"name":"fake"`, `"name":"homebrew"`)
-	revised = strings.Replace(revised, provider, newPath, 1)
+	revised = strings.Replace(revised, jsonString(provider), jsonString(newPath), 1)
 	if err := os.WriteFile(cfg, []byte(revised), 0600); err != nil {
 		t.Fatal(err)
 	}
