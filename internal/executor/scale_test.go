@@ -90,10 +90,16 @@ func TestCancellationStormDoesNotRedispatchSideEffects(t *testing.T) {
 		done <- err
 	}()
 
+	startDeadline := 3 * time.Second
+	if runtime.GOOS == "windows" {
+		// Starting the journaled batch can require substantially more fsyncs
+		// on Windows; preserve the bounded startup and cancellation checks.
+		startDeadline = 15 * time.Second
+	}
 	for i := 0; i < maxConcurrency; i++ {
 		select {
 		case <-started:
-		case <-time.After(3 * time.Second):
+		case <-time.After(startDeadline):
 			cancel()
 			t.Fatal("initial execution batch did not start")
 		}
