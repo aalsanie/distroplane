@@ -37,19 +37,19 @@ func TestStableCommandOutputAndExitContract(t *testing.T) {
 	if code := execute([]string{"help"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("help code=%d", code)
 	}
-	for _, command := range []string{"validate", "plan", "apply", "status", "reconcile", "retry", "evidence"} {
+	for _, command := range []string{"validate", "plan", "publish", "resume", "apply", "status", "reconcile", "retry", "evidence"} {
 		if !strings.Contains(stdout.String(), "  "+command+" ") {
 			t.Fatalf("help no longer documents %q", command)
 		}
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := execute([]string{"status", "--json"}, &stdout, &stderr); code != exitUsage {
-		t.Fatalf("missing explicit paths changed code: %d", code)
+	if code := execute([]string{"status", "--json"}, &stdout, &stderr); code != exitInvalid {
+		t.Fatalf("status without catalog must reject selection: %d", code)
 	}
 	var diagnostic errorOutput
 	if err := json.Unmarshal(stderr.Bytes(), &diagnostic); err != nil ||
-		diagnostic.OutputSchemaVersion != "1" || diagnostic.Error.Kind != "usage" {
+		diagnostic.OutputSchemaVersion != "1" || diagnostic.Error.Kind != "run_selection_failed" {
 		t.Fatalf("unexpected JSON error: %+v (%v)", diagnostic, err)
 	}
 }
