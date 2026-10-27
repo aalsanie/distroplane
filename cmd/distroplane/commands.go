@@ -367,6 +367,9 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 			if err != nil {
 				return nil, err
 			}
+			// Cache provenance cannot grant ambient credentials to explicitly
+			// configured executables, even when the bytes are identical.
+			trusted = trusted && configured.Provider.Executable == ""
 		} else {
 			executable, err = planner.ResolveExecutable(loaded.BaseDir, configured.Provider.Name, configured.Provider.Executable)
 			if err != nil {
