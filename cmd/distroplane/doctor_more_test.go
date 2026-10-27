@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"bytes"
+	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/runstate"
 	"errors"
 	"io"
 	"encoding/json"
@@ -195,5 +197,47 @@ func TestDoctorNetworkEndpointDeduplicatesGitProviders(t *testing.T) {
 	}
 	if _,err:=os.Stat(filepath.Join(dir,".distroplane"));!os.IsNotExist(err) {
 		t.Fatalf("doctor created state: %v",err)
+	}
+}
+
+func TestDoctorWarnsForReservedRunWithoutJournal(t *testing.T) {
+	dir, path := doctorFixture(t, `{"mode":"published"}`)
+	var stdout, stderr bytes.Buffer
+	if code := runPlanContext(context.Background(), []string{"--config",path,"--json"}, &stdout,&stderr);code!=exitOK {
+		t.Fatalf("plan fixture failed: %d %s",code,stderr.String())
+	}
+	var planned planOutput
+	if err := json.Unmarshal(stdout.Bytes(),&planned);err!=nil {t.Fatal(err)}
+	store:=runstate.Store{Root:filepath.Join(dir,".distroplane")}
+	journalPath:=filepath.Join(dir,"reserved.journal")
+	if err:=store.ClaimRun(planned.Path,journalPath,domain.RunID("run-pending-diagnostics"));err!=nil {
+		t.Fatal(err)
+	}
+	report:=diagnose(context.Background(),path,false,nil)
+	if !hasDoctorCheck(report,"RUN_RESERVED","WARN") || !hasDoctorCheck(report,"STATE_VALID","PASS") {
+		t.Fatalf("reserved run was not distinguished: %+v",report)
+	}
+	if _,err:=os.Stat(journalPath);!os.IsNotExist(err) {
+		t.Fatalf("doctor re-created missing journal: %v",err)
+	}
+}
+
+func TestDoctorInspectsExistingPendingRunWithoutMutation(t *testing.T) {
+	_,path:=doctorFixture(t,`{"mode":"waiting_external","reconcileState":"published"}`)
+	var out,stderr bytes.Buffer
+	if code:=runPublishContext(context.Background(),[]string{"--config",path,"--yes","--json"},nil,&out,&stderr);code!=exitPending {
+		t.Fatalf("pending fixture failed: %d %s",code,stderr.String())
+	}
+	var result publishOutput
+	if err:=json.Unmarshal(out.Bytes(),&result);err!=nil {t.Fatal(err)}
+	before,err:=os.ReadFile(result.JournalPath)
+	if err!=nil {t.Fatal(err)}
+	report:=diagnose(context.Background(),path,false,nil)
+	if !hasDoctorCheck(report,"STATE_VALID","PASS") {
+		t.Fatalf("pending run not inspected: %+v",report)
+	}
+	after,err:=os.ReadFile(result.JournalPath)
+	if err!=nil || !bytes.Equal(before,after) {
+		t.Fatalf("doctor modified pending journal: %v",err)
 	}
 }
