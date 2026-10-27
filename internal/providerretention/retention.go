@@ -120,10 +120,10 @@ func retainOne(root string, provider domain.ProviderRef, source sourceBinding) e
 	}
 	expected := receipt{
 		SchemaVersion: schemaVersion,
-		Name: string(provider.Name()),
-		Version: string(provider.Version()),
-		Digest: source.digest.String(),
-		Trusted: source.trusted,
+		Name:          string(provider.Name()),
+		Version:       string(provider.Version()),
+		Digest:        source.digest.String(),
+		Trusted:       source.trusted,
 	}
 	data, err := json.Marshal(expected)
 	if err != nil {

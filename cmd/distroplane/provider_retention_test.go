@@ -30,12 +30,18 @@ func snapshotFixture(t *testing.T) (string, string, publishOutput) {
 func retainedFixturePath(t *testing.T, dir string, published publishOutput) string {
 	t.Helper()
 	plan, err := planner.Load(published.Plan.Path)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	targets := plan.Plan().Targets()
-	if len(targets) != 1 { t.Fatalf("unexpected targets: %d", len(targets)) }
+	if len(targets) != 1 {
+		t.Fatalf("unexpected targets: %d", len(targets))
+	}
 	ref := targets[0].Provider()
 	cache, _, err := providerretention.Resolve(filepath.Join(dir, ".distroplane"), ref, plan.ProviderDigests()[ref])
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	return cache
 }
 
@@ -43,11 +49,19 @@ func TestResumeAfterProviderUpgradeUsesOriginalImmutableBytes(t *testing.T) {
 	dir, cfg, published := snapshotFixture(t)
 	cache := retainedFixturePath(t, dir, published)
 	original, err := os.ReadFile(cache)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	installed := filepath.Join(dir, executableName("distroplane-provider-fake"))
-	if err := os.Remove(installed); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(installed, []byte("upgraded incompatible executable"), 0700); err != nil { t.Fatal(err) }
-	if err := os.Remove(installed); err != nil { t.Fatal(err) }
+	if err := os.Remove(installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("upgraded incompatible executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(installed); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if code := runResumeContext(context.Background(), []string{"--config", cfg, "--reconcile-only", "--json"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("resume after uninstall code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
@@ -65,9 +79,13 @@ func TestResumeAfterProviderUpgradeUsesOriginalImmutableBytes(t *testing.T) {
 func TestMissingRetainedProviderBlocksResumeBeforeChangingJournal(t *testing.T) {
 	dir, cfg, published := snapshotFixture(t)
 	cache := retainedFixturePath(t, dir, published)
-	if err := os.Remove(cache); err != nil { t.Fatal(err) }
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadFile(published.JournalPath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, flags := range [][]string{{"--config", cfg, "--json"}, {"--config", cfg, "--reconcile-only", "--json"}} {
 		var stdout, stderr bytes.Buffer
 		if code := runResumeContext(context.Background(), flags, &stdout, &stderr); code != exitOperational {
@@ -86,10 +104,16 @@ func TestMissingRetainedProviderBlocksResumeBeforeChangingJournal(t *testing.T) 
 func TestTamperedRetainedProviderNeverFallsBackToInstalledBinary(t *testing.T) {
 	dir, cfg, published := snapshotFixture(t)
 	cache := retainedFixturePath(t, dir, published)
-	if err := os.Chmod(cache, 0700); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(cache, []byte("modified retained binary"), 0700); err != nil { t.Fatal(err) }
+	if err := os.Chmod(cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache, []byte("modified retained binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadFile(published.JournalPath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if code := runResumeContext(context.Background(), []string{"--config", cfg, "--reconcile-only", "--json"}, &stdout, &stderr); code != exitOperational {
 		t.Fatalf("tampered retained binary accepted: %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
@@ -98,13 +122,17 @@ func TestTamperedRetainedProviderNeverFallsBackToInstalledBinary(t *testing.T) {
 		t.Fatalf("missing retention diagnostic: %s", stderr.String())
 	}
 	after, err := os.ReadFile(published.JournalPath)
-	if err != nil || !bytes.Equal(before, after) { t.Fatalf("journal altered: %v", err) }
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("journal altered: %v", err)
+	}
 }
 
 func TestMissingProviderAtPlanningNeverWritesPlan(t *testing.T) {
 	dir, cfg := publishFixture(t, `{"mode":"published"}`)
 	binary := filepath.Join(dir, executableName("distroplane-provider-fake"))
-	if err := os.Remove(binary); err != nil { t.Fatal(err) }
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if code := runPlanContext(context.Background(), []string{"--config", cfg, "--json"}, &stdout, &stderr); code != exitOperational {
 		t.Fatalf("missing provider executable was accepted: %d, %s", code, stderr.String())

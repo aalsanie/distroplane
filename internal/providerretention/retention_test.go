@@ -23,9 +23,9 @@ type retentionClient struct{}
 
 func (retentionClient) Describe(context.Context, planner.Endpoint) (protocol.DescribeResponse, error) {
 	return protocol.DescribeResponse{
-		Provider: protocol.ProviderIdentity{Name: "fake", Version: "1.2.3"},
+		Provider:         protocol.ProviderIdentity{Name: "fake", Version: "1.2.3"},
 		ProtocolVersions: []string{protocol.Version},
-		Capabilities: []protocol.Capability{protocol.CapabilityPlan, protocol.CapabilityApply, protocol.CapabilityReconcile},
+		Capabilities:     []protocol.Capability{protocol.CapabilityPlan, protocol.CapabilityApply, protocol.CapabilityReconcile},
 	}, nil
 }
 
@@ -240,8 +240,8 @@ func TestRetentionPathValidationAndPermissions(t *testing.T) {
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	digest := plan.ProviderDigests()[ref]
 	for _, tc := range []struct {
-		root string
-		name domain.ProviderName
+		root   string
+		name   domain.ProviderName
 		digest domain.Digest
 	}{
 		{"", ref.Name(), digest},
@@ -310,50 +310,87 @@ func TestSnapshotDigestAndExclusiveReceiptFailures(t *testing.T) {
 }
 
 type failingReader struct{}
+
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("reader crashed") }
 
 func TestRetentionFailsOnIOErrorsAndSpecialSources(t *testing.T) {
 	loaded, plan, ref, source := retentionFixture(t)
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	dir, executable, receipt, err := retentionPaths(root, ref.Name(), plan.ProviderDigests()[ref])
-	if err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, true); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, true); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeCopiedExecutable(failingReader{}, executable, plan.ProviderDigests()[ref]); err == nil {
 		t.Fatal("failed read accepted")
 	}
-	if err := os.Remove(source); err != nil { t.Fatal(err) }
-	if err := os.Mkdir(source, 0700); err != nil { t.Fatal(err) }
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := snapshot(source, executable, plan.ProviderDigests()[ref]); err == nil {
 		t.Fatal("directory source accepted")
 	}
-	if err := immutableWrite(receipt, []byte("test"), 0600); err != nil { t.Fatal(err) }
-	if err := os.Remove(receipt); err != nil { t.Fatal(err) }
-	if err := os.Mkdir(receipt, 0700); err != nil { t.Fatal(err) }
+	if err := immutableWrite(receipt, []byte("test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(receipt, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := immutableWrite(receipt, []byte("test"), 0600); err == nil {
 		t.Fatal("directory receipt accepted")
 	}
 }
 
 func TestProviderRetentionSymlinkAndPublicDirectoryRejection(t *testing.T) {
-	if runtime.GOOS == "windows" { t.Skip("POSIX permissions and symlinks") }
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions and symlinks")
+	}
 	loaded, plan, ref, _ := retentionFixture(t)
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	dir, _, _, err := retentionPaths(root, ref.Name(), plan.ProviderDigests()[ref])
-	if err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, true); err != nil { t.Fatal(err) }
-	if err := os.Chmod(filepath.Join(root, "providers"), 0777); err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, false); err == nil { t.Fatal("public cache accepted") }
-	if err := os.Chmod(filepath.Join(root, "providers"), 0700); err != nil { t.Fatal(err) }
-	if err := os.Remove(dir); err != nil { t.Fatal(err) }
-	if err := os.Symlink(loaded.BaseDir, dir); err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, false); err == nil { t.Fatal("linked cache accepted") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, "providers"), 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, false); err == nil {
+		t.Fatal("public cache accepted")
+	}
+	if err := os.Chmod(filepath.Join(root, "providers"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(loaded.BaseDir, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, false); err == nil {
+		t.Fatal("linked cache accepted")
+	}
 }
 
 func TestRetainRejectsUnapprovedProviderBinarySource(t *testing.T) {
 	loaded, plan, ref, source := retentionFixture(t)
-	if err := os.Remove(source); err != nil { t.Fatal(err) }
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(filepath.Join(loaded.BaseDir, "artifact.zip"), source); err != nil {
-		if runtime.GOOS == "windows" { t.Skipf("symlink privileges unavailable: %v", err) }
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink privileges unavailable: %v", err)
+		}
 		t.Fatal(err)
 	}
 	if err := retainOne(filepath.Join(loaded.BaseDir, ".distroplane"), ref, sourceBinding{path: source, digest: plan.ProviderDigests()[ref]}); err == nil {
