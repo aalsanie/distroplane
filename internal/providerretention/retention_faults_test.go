@@ -68,8 +68,12 @@ func TestProviderSnapshotHandlesInjectedFilesystemFailures(t *testing.T) {
 	digest := plan.ProviderDigests()[ref]
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	dir, target, _, err := retentionPaths(root, ref.Name(), digest)
-	if err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, true); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, true); err != nil {
+		t.Fatal(err)
+	}
 	for _, stage := range []string{"create", "write", "sync", "chmod", "close", "stat"} {
 		t.Run(stage, func(t *testing.T) {
 			if err := writeCopiedExecutableWith(bytes.NewBufferString("provider-build-A"), target, digest, injectedFactory(stage), os.Link); err == nil {
@@ -87,11 +91,15 @@ func TestProviderSnapshotLinkConflictsAreVerifiedWithoutOverwrite(t *testing.T) 
 	digest := plan.ProviderDigests()[ref]
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	dir, target, _, err := retentionPaths(root, ref.Name(), digest)
-	if err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, true); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, true); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
-		name string
-		existing string
+		name      string
+		existing  string
 		wantError bool
 	}{
 		{"identical concurrent copy", "provider-build-A", false},
@@ -101,7 +109,9 @@ func TestProviderSnapshotLinkConflictsAreVerifiedWithoutOverwrite(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			os.Remove(target)
 			if tc.existing != "" {
-				if err := os.WriteFile(target, []byte(tc.existing), 0700); err != nil { t.Fatal(err) }
+				if err := os.WriteFile(target, []byte(tc.existing), 0700); err != nil {
+					t.Fatal(err)
+				}
 			}
 			err := writeCopiedExecutableWith(bytes.NewBufferString("provider-build-A"), target, digest, defaultTempFactory, func(_, _ string) error {
 				return os.ErrExist
@@ -132,8 +142,8 @@ func TestImmutableReceiptLinkConflictsFailClosed(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("immutable receipt")
 	for _, tc := range []struct {
-		name string
-		existing []byte
+		name      string
+		existing  []byte
 		wantError bool
 	}{
 		{"same bytes concurrent writer", data, false},
@@ -143,7 +153,9 @@ func TestImmutableReceiptLinkConflictsFailClosed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			target := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "_"))
 			if tc.existing != nil {
-				if err := os.WriteFile(target, tc.existing, 0600); err != nil { t.Fatal(err) }
+				if err := os.WriteFile(target, tc.existing, 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			err := immutableWriteWith(target, data, 0600, defaultTempFactory, func(_, _ string) error {
 				return os.ErrExist
@@ -164,7 +176,7 @@ func TestImmutableReceiptAndSnapshotRejectInvalidPathInputs(t *testing.T) {
 	if err := immutableWriteWith(filepath.Join(dir, "not-a-directory", "binding.json"), []byte("receipt"), 0600, defaultTempFactory, os.Link); err == nil {
 		t.Fatal("missing receipt parent accepted")
 	}
-	if err := writeCopiedExecutableWith(bytes.NewReader([]byte("not a provider")), filepath.Join(dir,"nonexisting","provider"), digest, defaultTempFactory, os.Link); err == nil {
+	if err := writeCopiedExecutableWith(bytes.NewReader([]byte("not a provider")), filepath.Join(dir, "nonexisting", "provider"), digest, defaultTempFactory, os.Link); err == nil {
 		t.Fatal("missing snapshot directory accepted")
 	}
 }
@@ -173,9 +185,15 @@ func TestRetainedSnapshotPreservesExclusiveInstallation(t *testing.T) {
 	loaded, plan, ref, _ := retentionFixture(t)
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	dir, path, _, err := retentionPaths(root, ref.Name(), plan.ProviderDigests()[ref])
-	if err != nil { t.Fatal(err) }
-	if err := privateDirs(root, dir, true); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(path, []byte("preexisting executable"), 0700); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateDirs(root, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("preexisting executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeCopiedExecutableWith(bytes.NewBufferString("provider-build-A"), path, plan.ProviderDigests()[ref], defaultTempFactory, os.Link); err == nil {
 		t.Fatal("snapshot overwrote preexisting incorrect bytes")
 	}
@@ -190,11 +208,17 @@ func TestReceiptReadFailureAndProviderDirectorySafety(t *testing.T) {
 		t.Skip("permissions are enforced differently on Windows")
 	}
 	loaded, plan, ref, _ := retentionFixture(t)
-	if err := Retain(loaded, plan); err != nil { t.Fatal(err) }
+	if err := Retain(loaded, plan); err != nil {
+		t.Fatal(err)
+	}
 	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	_, _, receipt, err := retentionPaths(root, ref.Name(), plan.ProviderDigests()[ref])
-	if err != nil { t.Fatal(err) }
-	if err := os.Chmod(receipt, 0000); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(receipt, 0000); err != nil {
+		t.Fatal(err)
+	}
 	defer os.Chmod(receipt, 0600)
 	if _, _, err := Resolve(root, ref, plan.ProviderDigests()[ref]); err == nil {
 		t.Fatal("unreadable receipt was accepted")
