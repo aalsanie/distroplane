@@ -78,4 +78,3 @@ func runResumeContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 	return runExecutionContext(ctx, operation, stdout, stderr, reconcileOnly)
 }
-
