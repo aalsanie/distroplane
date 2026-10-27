@@ -13,8 +13,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
+	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -57,49 +59,63 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
 	}
 
-	// Reuse the existing plan pipeline and persist the immutable plan before
-	// approval. This performs no publication side effects.
-	var plannedJSON bytes.Buffer
-	if code := runPlanContext(ctx, []string{"--config", configPath, "--json"}, &plannedJSON, stderr); code != exitOK {
-		return code
+	// Compute the exact immutable plan in memory. Check the existing release
+	// before persisting it: a rejected replan must not pollute the run catalog.
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
-	var planned planOutput
-	if err := json.Unmarshal(plannedJSON.Bytes(), &planned); err != nil {
+	client, err := providerhost.New(providerhost.Options{})
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "runtime", err)
+	}
+	builder, err := planner.New(client, planner.Options{})
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "runtime", err)
+	}
+	distribution, err := builder.Build(ctx, loaded)
+	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "plan_failed", err)
 	}
-	persisted, err := planner.Load(planned.Path)
-	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
-	}
-	// The run catalog is rooted at the configuration directory, not the
-	// current working directory or a caller-controlled journal path.
-	absoluteConfig, err := filepath.Abs(configPath)
-	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitOperational, "invalid_config", err)
-	}
-	root := filepath.Join(filepath.Dir(absoluteConfig), ".distroplane")
+	plan := distribution.Plan()
+	root := filepath.Join(loaded.BaseDir, ".distroplane")
 	catalog := runstate.Store{Root: root}
 	records, err := catalog.Inventory()
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "catalog_invalid", err)
 	}
 	for _, record := range records {
-		if record.ReleaseID != string(persisted.Plan().Release().ID()) {
+		if record.ReleaseID != string(plan.Release().ID()) {
 			continue
 		}
-		if record.PlanID != planned.PlanID {
+		if record.PlanID != string(plan.ID()) {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "release_conflict", fmt.Errorf("release %q has a different saved plan; inspect its existing runs", record.ReleaseID))
 		}
 		if record.RunID != "" {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "run_already_exists", fmt.Errorf("plan %q already has run %q; inspect its status rather than creating another publication", record.PlanID, record.RunID))
 		}
 	}
-	if confirmPlan != "" && confirmPlan != planned.PlanID {
+	if confirmPlan != "" && confirmPlan != string(plan.ID()) {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("confirmed plan ID does not match the current immutable plan"))
+	}
+	if err := catalog.Ensure(); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
+	path, err := (planner.Store{Root: root}).Save(distribution)
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "persist_plan_failed", err)
+	}
+	if _, err := catalog.RegisterPlan(path); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
+	planned := planOutput{
+		OutputSchemaVersion: outputSchemaVersion,
+		PlanID: string(plan.ID()), Path: path,
+		Targets: len(plan.Targets()), Operations: len(plan.Operations()),
 	}
 
 	if !jsonMode {
-		printPublishPreview(stderr, persisted.Plan(), planned.Path)
+		printPublishPreview(stderr, plan, planned.Path)
 	}
 	if dryRun {
 		out := publishOutput{OutputSchemaVersion: outputSchemaVersion, Plan: planned}

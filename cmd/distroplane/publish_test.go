@@ -238,6 +238,10 @@ func TestPublishDifferentPlanForSameReleaseFailsClosed(t *testing.T) {
 	if !strings.Contains(diagnostic.String(), "release_conflict") {
 		t.Fatalf("different plan not blocked: %s", diagnostic.String())
 	}
+	records, err := (runstate.Store{Root: filepath.Join(dir, ".distroplane")}).Inventory()
+	if err != nil || len(records) != 1 {
+		t.Fatalf("rejected release polluted catalog: records=%+v err=%v", records, err)
+	}
 }
 
 func TestPublishCancelledBeforePlanning(t *testing.T) {
@@ -279,5 +283,48 @@ func TestPublishOutputUsesPlanAndJournalIdentity(t *testing.T) {
 	}
 	if result.Run == nil || result.Run.PlanID != result.Plan.PlanID {
 		t.Fatalf("plan/run identity mismatch: %+v", result)
+	}
+}
+
+func TestPublishConflictingPreviewDoesNotPoisonCatalog(t *testing.T) {
+	dir, path := publishFixture(t, `{"mode":"published"}`)
+	var out, diagnostic bytes.Buffer
+	previewArgs := []string{"--config", path, "--dry-run", "--json"}
+	if code := runPublishContext(context.Background(), previewArgs, nil, &out, &diagnostic); code != exitOK {
+		t.Fatalf("initial preview code=%d stderr=%s", code, diagnostic.String())
+	}
+	var first publishOutput
+	if err := json.Unmarshal(out.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.bin"), []byte("changed-artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	diagnostic.Reset()
+	if code := runPublishContext(context.Background(), previewArgs, nil, &out, &diagnostic); code != exitInvalid {
+		t.Fatalf("changed preview code=%d stderr=%s", code, diagnostic.String())
+	}
+	if !strings.Contains(diagnostic.String(), "release_conflict") {
+		t.Fatalf("missing plan-conflict diagnostic: %s", diagnostic.String())
+	}
+	records, err := (runstate.Store{Root: filepath.Join(dir, ".distroplane")}).Inventory()
+	if err != nil || len(records) != 1 || records[0].PlanID != first.Plan.PlanID || records[0].RunID != "" {
+		t.Fatalf("conflicting preview corrupted catalog: records=%+v err=%v", records, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.bin"), []byte("first-artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	diagnostic.Reset()
+	if code := runPublishContext(context.Background(), []string{"--config", path, "--yes", "--json"}, nil, &out, &diagnostic); code != exitOK {
+		t.Fatalf("original plan cannot be published: code=%d stderr=%s", code, diagnostic.String())
+	}
+	var completed publishOutput
+	if err := json.Unmarshal(out.Bytes(), &completed); err != nil {
+		t.Fatal(err)
+	}
+	if !completed.Approved || completed.Run == nil || !completed.Run.Completed || completed.Plan.PlanID != first.Plan.PlanID {
+		t.Fatalf("original publication invalid: %+v", completed)
 	}
 }
