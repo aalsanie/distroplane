@@ -24,7 +24,7 @@ func TestTerminationSignalCancelsCLIRuntime(t *testing.T) {
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(os.Stdout, "CANCELLED")
-		case <-time.After(5*time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("process ignored signal")
 		}
 		return
@@ -34,8 +34,12 @@ func TestTerminationSignalCancelsCLIRuntime(t *testing.T) {
 	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestTerminationSignalCancelsCLIRuntime$")
 	child.Env = append(os.Environ(), marker+"=1")
 	stdout, err := child.StdoutPipe()
-	if err != nil { t.Fatal(err) }
-	if err := child.Start(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
 	lines := bufio.NewScanner(stdout)
 	if !lines.Scan() || strings.TrimSpace(lines.Text()) != "READY" {
 		_ = child.Process.Kill()
@@ -49,5 +53,7 @@ func TestTerminationSignalCancelsCLIRuntime(t *testing.T) {
 		_ = child.Process.Kill()
 		t.Fatal("SIGTERM did not cancel the process context")
 	}
-	if err := child.Wait(); err != nil { t.Fatalf("signal handler exited unexpectedly: %v", err) }
+	if err := child.Wait(); err != nil {
+		t.Fatalf("signal handler exited unexpectedly: %v", err)
+	}
 }

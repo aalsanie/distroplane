@@ -13,7 +13,7 @@ import (
 func TestDiagnosticGuidanceStableCodes(t *testing.T) {
 	cases := []struct {
 		kind string
-		err error
+		err  error
 		want string
 	}{
 		{"invalid_config", os.ErrNotExist, "MISSING_CONFIG"},

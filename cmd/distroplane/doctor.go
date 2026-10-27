@@ -47,8 +47,8 @@ type doctorOutput struct {
 }
 
 type doctorChecks struct {
-	output   doctorOutput
-	localBad bool
+	output    doctorOutput
+	localBad  bool
 	remoteBad bool
 }
 
@@ -76,11 +76,11 @@ func (d *doctorChecks) exit() int {
 }
 
 type doctorProbe struct {
-	remote bool
-	timeout time.Duration
-	planPath string
+	remote      bool
+	timeout     time.Duration
+	planPath    string
 	credentials credentialFlags
-	dial func(context.Context, string, string) (net.Conn, error)
+	dial        func(context.Context, string, string) (net.Conn, error)
 }
 
 func runDoctorContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -199,8 +199,12 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 		if build, err := buildinfo.ReadFile(executable); err == nil {
 			var osValue, arch string
 			for _, setting := range build.Settings {
-				if setting.Key == "GOOS" { osValue = setting.Value }
-				if setting.Key == "GOARCH" { arch = setting.Value }
+				if setting.Key == "GOOS" {
+					osValue = setting.Value
+				}
+				if setting.Key == "GOARCH" {
+					arch = setting.Value
+				}
 			}
 			if osValue == "" || arch == "" {
 				d.add("ARCH_UNKNOWN", doctorWarn, target.ID, "provider architecture metadata is incomplete", "Verify host architecture compatibility")
@@ -325,15 +329,19 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 }
 
 type doctorCredential struct {
-	ref string
+	ref         string
 	environment string
 }
 
 func doctorCredentialRefs(target config.Target) []doctorCredential {
 	var root map[string]json.RawMessage
-	if err := json.Unmarshal(target.Configuration, &root); err != nil { return nil }
+	if err := json.Unmarshal(target.Configuration, &root); err != nil {
+		return nil
+	}
 	var auth map[string]json.RawMessage
-	if err := json.Unmarshal(root["authentication"], &auth); err != nil { return nil }
+	if err := json.Unmarshal(root["authentication"], &auth); err != nil {
+		return nil
+	}
 	var mode string
 	_ = json.Unmarshal(auth["mode"], &mode)
 	var names []doctorCredential
@@ -345,34 +353,55 @@ func doctorCredentialRefs(target config.Target) []doctorCredential {
 				switch target.Provider.Name + "/" + key {
 				case "npm/credential":
 					environment = "DISTROPLANE_NPM_TOKEN"
-					if mode == "trusted-publishing" { environment = "DISTROPLANE_NPM_ID_TOKEN" }
-				case "homebrew/credential": environment = "DISTROPLANE_HOMEBREW_TOKEN"
-				case "winget/credential": environment = "DISTROPLANE_WINGET_TOKEN"
-				case "sdkman/emailCredential": environment = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
-				case "sdkman/passwordCredential": environment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
-				case "sdkman/consumerKeyCredential": environment = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
-				case "sdkman/consumerTokenCredential": environment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
+					if mode == "trusted-publishing" {
+						environment = "DISTROPLANE_NPM_ID_TOKEN"
+					}
+				case "homebrew/credential":
+					environment = "DISTROPLANE_HOMEBREW_TOKEN"
+				case "winget/credential":
+					environment = "DISTROPLANE_WINGET_TOKEN"
+				case "sdkman/emailCredential":
+					environment = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
+				case "sdkman/passwordCredential":
+					environment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
+				case "sdkman/consumerKeyCredential":
+					environment = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
+				case "sdkman/consumerTokenCredential":
+					environment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
 				}
-				names = append(names, doctorCredential{ref:name, environment:environment})
+				names = append(names, doctorCredential{ref: name, environment: environment})
 			}
 		}
 	}
-	sort.Slice(names, func(i,j int) bool {return names[i].ref<names[j].ref})
+	sort.Slice(names, func(i, j int) bool { return names[i].ref < names[j].ref })
 	return names
 }
 
 func doctorCredentialSource(ref, provider, environment string, configured map[string]string, explicit credentialFlags, trusted bool) string {
-	if value := explicit[domain.CredentialRef(ref)]; value != "" && credentials.ValidEnvironmentName(value) { return value }
-	if value := configured[ref]; value != "" && credentials.ValidEnvironmentName(value) { return value }
-	if !trusted { return "" }
+	if value := explicit[domain.CredentialRef(ref)]; value != "" && credentials.ValidEnvironmentName(value) {
+		return value
+	}
+	if value := configured[ref]; value != "" && credentials.ValidEnvironmentName(value) {
+		return value
+	}
+	if !trusted {
+		return ""
+	}
 	switch provider + "/" + environment {
-	case "npm/DISTROPLANE_NPM_TOKEN": return "NPM_TOKEN"
-	case "homebrew/DISTROPLANE_HOMEBREW_TOKEN": return "HOMEBREW_GITHUB_TOKEN"
-	case "winget/DISTROPLANE_WINGET_TOKEN": return "WINGET_GITHUB_TOKEN"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_EMAIL": return "SDKMAN_VENDOR_EMAIL"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_PASSWORD": return "SDKMAN_VENDOR_PASSWORD"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_KEY": return "SDKMAN_CONSUMER_KEY"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_TOKEN": return "SDKMAN_CONSUMER_TOKEN"
+	case "npm/DISTROPLANE_NPM_TOKEN":
+		return "NPM_TOKEN"
+	case "homebrew/DISTROPLANE_HOMEBREW_TOKEN":
+		return "HOMEBREW_GITHUB_TOKEN"
+	case "winget/DISTROPLANE_WINGET_TOKEN":
+		return "WINGET_GITHUB_TOKEN"
+	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_EMAIL":
+		return "SDKMAN_VENDOR_EMAIL"
+	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_PASSWORD":
+		return "SDKMAN_VENDOR_PASSWORD"
+	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_KEY":
+		return "SDKMAN_CONSUMER_KEY"
+	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_TOKEN":
+		return "SDKMAN_CONSUMER_TOKEN"
 	}
 	return ""
 }
@@ -381,7 +410,9 @@ func doctorRemoteURLs(loaded config.Loaded) []string {
 	seen := make(map[string]bool)
 	for _, target := range loaded.Config.Targets {
 		var options map[string]json.RawMessage
-		if json.Unmarshal(target.Configuration, &options) != nil { continue }
+		if json.Unmarshal(target.Configuration, &options) != nil {
+			continue
+		}
 		for _, key := range []string{"registry", "url", "api", "stateApi", "repository"} {
 			var value string
 			if json.Unmarshal(options[key], &value) == nil && strings.HasPrefix(value, "https://") {
@@ -390,7 +421,9 @@ func doctorRemoteURLs(loaded config.Loaded) []string {
 		}
 		for _, key := range []string{"manifest", "installer"} {
 			var nested map[string]json.RawMessage
-			if json.Unmarshal(options[key], &nested) != nil { continue }
+			if json.Unmarshal(options[key], &nested) != nil {
+				continue
+			}
 			var value string
 			if json.Unmarshal(nested["url"], &value) == nil && strings.HasPrefix(value, "https://") {
 				seen[value] = true
@@ -398,7 +431,9 @@ func doctorRemoteURLs(loaded config.Loaded) []string {
 		}
 	}
 	urls := make([]string, 0, len(seen))
-	for remote := range seen { urls = append(urls, remote) }
+	for remote := range seen {
+		urls = append(urls, remote)
+	}
 	sort.Strings(urls)
 	return urls
 }
@@ -409,7 +444,8 @@ func doctorRemoteAddress(raw string) (string, error) {
 		return "", fmt.Errorf("invalid HTTPS endpoint")
 	}
 	port := u.Port()
-	if port == "" { port = "443" }
+	if port == "" {
+		port = "443"
+	}
 	return net.JoinHostPort(u.Hostname(), port), nil
 }
-
