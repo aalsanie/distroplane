@@ -45,13 +45,13 @@ func TestExecuteContextRejectsNilContext(t *testing.T) {
 
 func TestExecuteUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := execute([]string{"publish"}, &stdout, &stderr); code != 2 {
+	if code := execute([]string{"not-a-command"}, &stdout, &stderr); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if got := stderr.String(); !strings.Contains(got, `unknown command "publish"`) || !strings.Contains(got, "distroplane help") {
+	if got := stderr.String(); !strings.Contains(got, `unknown command "not-a-command"`) || !strings.Contains(got, "distroplane help") {
 		t.Fatalf("stderr = %q", got)
 	}
 }

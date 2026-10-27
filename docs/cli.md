@@ -2,6 +2,18 @@
 
 Build artifacts first, install the CLI and matching provider binaries, then create a [configuration](configuration.md).
 
+## One-command publish
+
+```sh
+distroplane publish --config distroplane.json
+distroplane publish --config distroplane.json --yes --json
+distroplane publish --config distroplane.json --dry-run --json
+```
+
+`publish` creates and persists the immutable plan, shows its ID, artifacts, digests, targets, and operation count, then requires an exact interactive `publish PLAN_ID` confirmation before any provider operation is dispatched. Noninteractive automation must pass `--yes` or `--confirm-plan PLAN_ID`. `--dry-run` produces a preview and saved plan but never claims a run or publishes. Credential mappings (`--credential REF=ENV`) and `--concurrency` are forwarded to the existing executor. JSON output contains `plan`, `approved`, `journalPath`, and `run` (the latter two after execution).
+
+Each immutable plan is bound to a single durable journal under `.distroplane/runs/`. Reissuing `publish` for an already claimed run, or for a changed plan with the same release ID, fails closed rather than starting another publication. Inspect the journal with `status` and use the existing `reconcile`/`apply` recovery commands as appropriate; `publish` does not silently resume or authorize retries. No credentials are embedded in the persisted plan.
+
 ## Publish
 
 ```sh
