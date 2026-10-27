@@ -118,3 +118,81 @@ func TestInitArtifactSelectsOnlyRegularNonemptyFiles(t *testing.T) {
 		t.Fatal("nonexistent artifact selected")
 	}
 }
+
+func TestInitArtifactSelectionPromptsOnAmbiguousCandidates(t *testing.T) {
+	dir := t.TempDir()
+	dist := filepath.Join(dir, "dist")
+	if err := os.MkdirAll(dist, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"first.tgz", "second.tgz"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var prompt bytes.Buffer
+	selected, err := initArtifactPaths([]string{"npm"}, nil, dir, true,
+		bufio.NewReader(strings.NewReader("dist/second.tgz\n")), &prompt)
+	if err != nil || selected["npm"] != filepath.Join(dir, "dist", "second.tgz") {
+		t.Fatalf("explicit prompt selection failed: %+v %v", selected, err)
+	}
+	if !strings.Contains(prompt.String(), "first.tgz") || !strings.Contains(prompt.String(), "second.tgz") {
+		t.Fatalf("ambiguous choices were hidden: %s", prompt.String())
+	}
+}
+
+func TestInitRejectsMissingWizardMetadataBeforeWriting(t *testing.T) {
+	dir, _ := createInitProject(t)
+	var output, stderr bytes.Buffer
+	args := []string{"--output", filepath.Join(dir, "distroplane.json"),
+		"--destination", "sdkman", "--release", "release"}
+	if code := runInitContext(context.Background(), args, strings.NewReader("\n"), true, &output, &stderr); code != exitInvalid {
+		t.Fatalf("incomplete metadata accepted: code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "sdkman.candidate") {
+		t.Fatalf("missing required metadata was not identified: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "distroplane.json")); !os.IsNotExist(err) {
+		t.Fatalf("incomplete wizard persisted config: %v", err)
+	}
+}
+
+func TestInitDiscoveryIgnoresSymlinkAndEmptyArtifact(t *testing.T) {
+	dir := t.TempDir()
+	dist := filepath.Join(dir, "dist")
+	if err := os.MkdirAll(dist, 0700); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dist, "actual.zip")
+	if err := os.WriteFile(archive, []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "empty.zip"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(archive, filepath.Join(dist, "alias.zip")); err != nil && runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
+	candidates, err := discoverArtifacts(dir)
+	if err != nil || len(candidates) != 1 || candidates[0] != "dist/actual.zip" {
+		t.Fatalf("unsafe candidate surfaced: %+v %v", candidates, err)
+	}
+}
+
+func TestInitDirectWriteRefusesSymlinkParent(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.MkdirAll(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "linked")
+	if err := os.Symlink(real, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink not available: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if _, err := writeInitConfig(filepath.Join(link, "config.json"), []byte("{}"), false); err == nil {
+		t.Fatal("linked parent was accepted for config installation")
+	}
+}
