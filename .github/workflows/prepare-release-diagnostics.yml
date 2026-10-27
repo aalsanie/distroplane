@@ -1,0 +1,36 @@
+name: Prepare release diagnostics
+on:
+  push:
+    branches: [feat/release-readiness-diagnostics]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Format and test affected packages
+        run: |
+          gofmt -w cmd/distroplane/doctor.go cmd/distroplane/doctor_test.go cmd/distroplane/doctor_more_test.go cmd/distroplane/main.go
+          go vet ./cmd/distroplane ./internal/config
+          go test -count=1 ./cmd/distroplane ./internal/config
+          go test -count=1 -coverprofile=/tmp/doctor-coverage.out ./cmd/distroplane
+          go tool cover -func=/tmp/doctor-coverage.out | tail -1
+          awk 'BEGIN { good = 0 } /total:/ { p = $(NF-0); sub("%", "", p); if (p + 0 >= 90.0) good=1 } END { if (!good) exit 1 }' <(go tool cover -func=/tmp/doctor-coverage.out)
+      - name: Commit formatting after tests pass
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add cmd/distroplane/doctor.go cmd/distroplane/doctor_test.go cmd/distroplane/doctor_more_test.go cmd/distroplane/main.go
+            git commit -m "style: format release readiness sources"
+            git push
+          fi

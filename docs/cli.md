@@ -1,5 +1,15 @@
 # CLI and recovery
 
+## Local readiness checks
+
+Run `distroplane doctor --config distroplane.json` before planning or publishing. The command reads configuration, local artifact bytes, provider executables, credential environment **presence** (not values), Git availability where needed, and the existing run catalog. Every result has a stable check ID and `PASS`, `WARN`, `FAIL`, or `SKIP` severity and an actionable next step. Use `--json` for one machine-readable document; failures use exit code 3 and warnings alone do not block publication. The optional `--network` only checks connectivity to fixed public registry endpoints; it never sends tokens, verifies account permissions, or publishes. Without this flag remote access is explicitly `SKIP`.
+
+Configuration schema v1 continues to be supported by existing low-level and high-level commands; there is no implicit migration or rewrite. Schema v2 is recommended for new configurations. Generate a separate new file with `init --output PATH` and compare its target intent before adopting it. Unsupported custom-provider options cannot be converted automatically and must be reviewed explicitly.
+
+## Diagnose and recover
+
+Exit codes remain 0 success, 1 operational error, 2 usage error, 3 invalid input or selection, 4 pending external work, 5 rejected, and 6 failed or cancelled. JSON diagnostics use the unchanged `outputSchemaVersion` and `error.kind` fields and are written to stderr. An interrupted publication can have already dispatched an external side effect: inspect `status` and `resume --reconcile-only` before allowing another attempt.
+
 Build artifacts first, install the CLI and matching provider binaries, then create a [configuration](configuration.md).
 
 ## One-command publish
