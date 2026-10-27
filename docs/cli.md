@@ -32,6 +32,12 @@ distroplane apply --config distroplane.json --plan PLAN.json --journal run.journ
 
 Review the plan before applying. `apply` rechecks artifact and provider digests, then executes or resumes the journaled run. The execution configuration must retain the planned target IDs and matching provider selections. `--credential REF=ENV` resolves a declared credential from an environment variable at execution time; do not put secret values in a plan.
 
+## Retained provider executables
+
+Every newly saved plan pins verified provider executable bytes under the project's `.distroplane/providers/` directory, keyed by provider name and SHA-256. Plan creation completes retention before the plan is registered. Apply, resume, and reconciliation use only that digest-verified retained executable, even after a CLI or installed-provider upgrade, downgrade, reinstall, or uninstall. They never fall back to a different installed or PATH provider and never fetch a binary from the network. Missing, tampered, or unsafe retained bytes block publication **before the run is claimed or the journal is modified**, with the exact digest and restoration location in the diagnostic. Restore the original bytes from a trusted backup; do not start another publication.
+
+Installed CLI and bundled provider binaries are **package-manager-owned** and may be replaced or removed on upgrade or uninstall. `.distroplane/` is **project-owned release state**, not an installer directory: it contains plans, journals, the catalog, and exact provider snapshots. Neither installation, upgrade, uninstall, nor any Distroplane command should automatically prune this directory. Retain these files alongside required artifact bytes until every dependent run has settled and recovery is no longer needed; do not copy only the plan to another runner and assume it is portable.
+
 ## Resume and automatic status
 
 ```sh

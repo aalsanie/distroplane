@@ -21,6 +21,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/journal"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
+	"github.com/aalsanie/distroplane/internal/providerretention"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -165,6 +166,9 @@ func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	// orphaned historical plan must never be treated as a fresh release.
 	if err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).Ensure(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
+	if err := providerretention.Retain(loaded, plan); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "provider_retention_failed", err)
 	}
 	path, err := (planner.Store{Root: stateDir}).Save(plan)
 	if err != nil {
@@ -354,16 +358,27 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 		if configured.Provider.Name != string(target.Provider().Name()) {
 			return nil, fmt.Errorf("plan target %q provider is %q, config has %q", target.ID(), target.Provider().Name(), configured.Provider.Name)
 		}
-		executable, err := planner.ResolveExecutable(loaded.BaseDir, configured.Provider.Name, configured.Provider.Executable)
-		if err != nil {
-			return nil, err
+		var executable string
+		var trusted bool
+		var err error
+		if providerDigests != nil {
+			digest := providerDigests[target.Provider()]
+			executable, trusted, err = providerretention.Resolve(filepath.Join(loaded.BaseDir, ".distroplane"), target.Provider(), digest)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			executable, err = planner.ResolveExecutable(loaded.BaseDir, configured.Provider.Name, configured.Provider.Executable)
+			if err != nil {
+				return nil, err
+			}
+			// No digest-less production plan can authorize publication.
+			trusted = configured.Provider.Executable == "" && planner.IsTrustedInstalledProvider(configured.Provider.Name, executable)
 		}
 		if existing, exists := bindingByProvider[target.Provider()]; exists && existing != executable {
 			return nil, fmt.Errorf("provider %q@%q resolves to multiple executables", target.Provider().Name(), target.Provider().Version())
 		}
 		bindingByProvider[target.Provider()] = executable
-		// Explicit binaries and PATH fallbacks never receive ambient defaults.
-		trusted := configured.Provider.Executable == "" && planner.IsTrustedInstalledProvider(configured.Provider.Name, executable)
 		if previous, seen := trustedDefaults[configured.Provider.Name]; seen {
 			trustedDefaults[configured.Provider.Name] = previous && trusted
 		} else {

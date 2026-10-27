@@ -1,0 +1,40 @@
+name: Verify provider retention
+on:
+  push:
+    branches: [feat/retained-provider-execution]
+permissions:
+  contents: write
+jobs:
+  focused:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Normalize changed Go files
+        run: |
+          gofmt -w internal/providerretention/retention.go internal/providerretention/retention_test.go cmd/distroplane/commands.go cmd/distroplane/publish.go cmd/distroplane/provider_retention_test.go
+      - name: Verify affected packages
+        run: |
+          go vet ./internal/providerretention ./cmd/distroplane
+          go test -count=1 ./internal/providerretention ./cmd/distroplane
+          go test -count=1 -coverprofile=/tmp/provider-coverage.out ./internal/providerretention
+          go tool cover -func=/tmp/provider-coverage.out | tail -1
+          go test -count=1 -coverprofile=/tmp/cli-coverage.out ./cmd/distroplane
+          go tool cover -func=/tmp/cli-coverage.out | tail -1
+      - name: Commit formatting
+        if: success()
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal/providerretention/retention.go internal/providerretention/retention_test.go cmd/distroplane/commands.go cmd/distroplane/publish.go cmd/distroplane/provider_retention_test.go
+            git commit -m "style: format provider retention implementation"
+            git push
+          fi
