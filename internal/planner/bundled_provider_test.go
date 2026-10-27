@@ -228,3 +228,23 @@ func TestSideBySideProviderInstallation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTrustedInstalledProviderSource(t *testing.T) {
+	r, trusted, shadow, ext := bundledResolver(t)
+	installed := fixtureProvider(t, trusted, "npm", ext)
+	untrusted := fixtureProvider(t, shadow, "npm", ext)
+	if !isTrustedInstalledProvider(r, "npm", installed) {
+		t.Fatal("installed provider was not trusted")
+	}
+	for _, path := range []string{untrusted, "", installed + ".other"} {
+		if isTrustedInstalledProvider(r, "npm", path) {
+			t.Fatalf("unverified provider was trusted: %q", path)
+		}
+	}
+	if isTrustedInstalledProvider(r, "missing", installed) {
+		t.Fatal("provider name did not constrain trust")
+	}
+	if IsTrustedInstalledProvider("npm", installed) {
+		t.Fatal("unrelated test process incorrectly granted installed provider trust")
+	}
+}

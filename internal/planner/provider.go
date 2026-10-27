@@ -251,10 +251,14 @@ func (r executableResolver) validateTrustedDirectory(dir string) error {
 // verified CLI-associated installed provider rather than a PATH or custom
 // executable. Automatic ambient credential discovery uses only this route.
 func IsTrustedInstalledProvider(name, executable string) bool {
+	return isTrustedInstalledProvider(newExecutableResolver(), name, executable)
+}
+
+func isTrustedInstalledProvider(r executableResolver, name, executable string) bool {
 	candidate := providerExecutablePrefix + name
 	if runtime.GOOS == "windows" {
 		candidate += ".exe"
 	}
-	resolved, found, err := newExecutableResolver().trustedCandidate(candidate)
+	resolved, found, err := r.trustedCandidate(candidate)
 	return found && err == nil && resolved == executable
 }
