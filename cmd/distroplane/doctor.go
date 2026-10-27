@@ -21,8 +21,8 @@ import (
 	"github.com/aalsanie/distroplane/internal/credentials"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
-	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/protocol"
+	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
