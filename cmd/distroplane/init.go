@@ -659,3 +659,22 @@ func writeInitConfig(path string, data []byte, force bool) (string, error) {
 	}
 	return backup, nil
 }
+
+func validateInitArtifactKind(destination, source string) error {
+	name := strings.ToLower(source)
+	switch destination {
+	case "npm":
+		if !strings.HasSuffix(name, ".tgz") && !strings.HasSuffix(name, ".tar.gz") {
+			return fmt.Errorf("npm requires a .tgz or .tar.gz package; choose a matching --artifact")
+		}
+	case "homebrew:jvm", "winget:zip":
+		if !strings.HasSuffix(name, ".zip") {
+			return fmt.Errorf("%s requires a .zip artifact; choose a matching --artifact", destination)
+		}
+	case "winget:msi":
+		if !strings.HasSuffix(name, ".msi") {
+			return fmt.Errorf("winget:msi requires a .msi installer; choose a matching --artifact")
+		}
+	}
+	return nil
+}
