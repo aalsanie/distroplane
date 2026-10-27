@@ -2,6 +2,12 @@
 
 Build artifacts first, install the CLI and matching provider binaries, then create a [configuration](configuration.md).
 
+## Diagnose local release readiness
+
+`distroplane doctor --config distroplane.json --json` verifies strict configuration, release artifacts, local provider executables, provider identity and architecture where available, Git prerequisites, and the presence of mapped credential environment values without printing secrets. Use `--plan PATH` to compare a saved immutable plan with current artifact and provider digests. Local checks do not publish or alter configuration and journal state. `--remote --timeout 3s` opts into bounded HTTPS endpoint TCP probes; reachability is **not** proof of remote authentication, publication, or acceptance.
+
+Check severities are `PASS`, `WARN`, `FAIL`, and `SKIP`. JSON uses `outputSchemaVersion`, `healthy`, and `checks` with stable `code`, `severity`, `subject`, `message`, and optional `fix`; CLI errors also provide additive `error.code` and `error.hint`. Exit 0 means no failing check, 3 means a local readiness failure, and 1 means only optional remote checks failed. Existing CLI exit codes 0–6 remain unchanged. Schema 1 continues to work; `doctor` never rewrites existing configuration.
+
 ## One-command publish
 
 ```sh

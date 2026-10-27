@@ -37,7 +37,7 @@ func TestStableCommandOutputAndExitContract(t *testing.T) {
 	if code := execute([]string{"help"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("help code=%d", code)
 	}
-	for _, command := range []string{"validate", "plan", "publish", "resume", "apply", "status", "reconcile", "retry", "evidence"} {
+	for _, command := range []string{"validate", "doctor", "plan", "publish", "resume", "apply", "status", "reconcile", "retry", "evidence"} {
 		if !strings.Contains(stdout.String(), "  "+command+" ") {
 			t.Fatalf("help no longer documents %q", command)
 		}

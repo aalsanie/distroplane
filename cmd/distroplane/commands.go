@@ -94,7 +94,9 @@ type errorOutput struct {
 	OutputSchemaVersion string `json:"outputSchemaVersion"`
 	Error               struct {
 		Kind    string `json:"kind"`
+		Code    string `json:"code,omitempty"`
 		Message string `json:"message"`
+		Hint    string `json:"hint,omitempty"`
 	} `json:"error"`
 }
 
@@ -535,17 +537,23 @@ func hasJSON(args []string) bool {
 }
 
 func writeCommandError(w io.Writer, jsonMode bool, code int, kind string, err error) int {
+	diagnosticCode, hint := diagnosticGuidance(kind, err)
 	if jsonMode {
 		var output errorOutput
 		output.OutputSchemaVersion = outputSchemaVersion
 		output.Error.Kind = kind
+		output.Error.Code = diagnosticCode
 		output.Error.Message = err.Error()
+		output.Error.Hint = hint
 		if writeJSON(w, output) != exitOK {
 			return exitOperational
 		}
 		return code
 	}
 	fmt.Fprintf(w, "%s: %v\n", kind, err)
+	if hint != "" {
+		fmt.Fprintf(w, "Next: %s\n", hint)
+	}
 	return code
 }
 
