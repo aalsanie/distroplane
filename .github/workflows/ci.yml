@@ -92,6 +92,18 @@ jobs:
       - name: Journal reducer
         run: go test ./internal/journal -run '^$' -fuzz '^FuzzReduce$' -fuzztime 2s
 
+  linux-installer-arm64:
+    name: Linux installer (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test direct Linux installer on ARM64
+        run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
+
   benchmark:
     name: Benchmark record
     runs-on: ubuntu-latest
