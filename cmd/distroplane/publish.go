@@ -17,6 +17,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
+	"github.com/aalsanie/distroplane/internal/providerretention"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -100,6 +101,9 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	}
 	if err := catalog.Ensure(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "catalog_failed", err)
+	}
+	if err := providerretention.Retain(loaded, distribution); err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "provider_retention_failed", err)
 	}
 	path, err := (planner.Store{Root: root}).Save(distribution)
 	if err != nil {
