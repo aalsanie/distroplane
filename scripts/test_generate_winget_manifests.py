@@ -23,6 +23,12 @@ class WinGetManifestTests(unittest.TestCase):
     def test_exact_installer_hashes_and_four_field_identifiers(self):
         docs = module.generate(self.path, "1.2.3", "Aalsanie.Distroplane", "Aalsanie")
         self.assertEqual(len(docs), 3)
+        for filename, yaml in docs.items():
+            kind = "installer" if ".installer." in filename else (
+                "defaultLocale" if ".locale." in filename else "version")
+            self.assertTrue(yaml.startswith(
+                f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.10.0.schema.json\\n".replace("\\\\n", "\\n")
+            ), filename)
         content = docs["Aalsanie.Distroplane.installer.yaml"]
         self.assertEqual(content.count("InstallerUrl:"), 2)
         self.assertIn("Architecture: x64", content)
