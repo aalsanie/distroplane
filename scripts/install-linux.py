@@ -258,33 +258,35 @@ def install(args):
         commit, blob = release_inventory(directory, args.version, archive_name)
         versions.mkdir(parents=True, exist_ok=True, mode=0o755)
         link.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-        if destination.is_symlink():
-            fail("installed version directory must not be a symlink")
-        if destination.exists():
-            # Existing immutable releases are checked byte-for-byte before reuse.
-            if not destination.is_dir():
-                fail("installed version is not a directory")
-            with tempfile.TemporaryDirectory(dir=versions, prefix=".check-") as tmp:
-                expected = Path(tmp)
-                verify_and_stage(blob, args.version, commit, arch, expected)
-                for file in expected.rglob("*"):
-                    if file.is_file():
-                        counterpart = destination / file.relative_to(expected)
-                        if (counterpart.is_symlink() or not counterpart.is_file()
-                                or read_regular(counterpart, MAX_BINARY) != file.read_bytes()):
-                            fail("installed release differs from verified published bytes")
-            smoke(destination, args.version)
-        else:
-            staging = Path(tempfile.mkdtemp(dir=versions, prefix=".install-"))
-            try:
-                staging.chmod(0o755)
-                verify_and_stage(blob, args.version, commit, arch, staging)
-                smoke(staging, args.version)
-                os.replace(staging, destination)
-            finally:
-                if staging.exists():
-                    shutil.rmtree(staging)
-        replace_owned_link(link, versions, destination)
+        with (versions.parent / "install.lock").open("a+b") as file_lock:
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
+            if destination.is_symlink():
+                fail("installed version directory must not be a symlink")
+            if destination.exists():
+                # Existing immutable releases are checked byte-for-byte before reuse.
+                if not destination.is_dir():
+                    fail("installed version is not a directory")
+                with tempfile.TemporaryDirectory(dir=versions, prefix=".check-") as tmp:
+                    expected = Path(tmp)
+                    verify_and_stage(blob, args.version, commit, arch, expected)
+                    for file in expected.rglob("*"):
+                        if file.is_file():
+                            counterpart = destination / file.relative_to(expected)
+                            if (counterpart.is_symlink() or not counterpart.is_file()
+                                    or read_regular(counterpart, MAX_BINARY) != file.read_bytes()):
+                                fail("installed release differs from verified published bytes")
+                smoke(destination, args.version)
+            else:
+                staging = Path(tempfile.mkdtemp(dir=versions, prefix=".install-"))
+                try:
+                    staging.chmod(0o755)
+                    verify_and_stage(blob, args.version, commit, arch, staging)
+                    smoke(staging, args.version)
+                    os.replace(staging, destination)
+                finally:
+                    if staging.exists():
+                        shutil.rmtree(staging)
+            replace_owned_link(link, versions, destination)
     print(f"Installed Distroplane {args.version} at {link}")
 
 
