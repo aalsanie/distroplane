@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Distroplane"
+           Manufacturer="Aalsanie"
+           Version="$(var.ProductVersion)"
+           Language="1033"
+           Scope="perMachine"
+           UpgradeCode="$(var.UpgradeCode)"
+           Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer Distroplane version is already installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="DistroplaneDir" Name="Distroplane">
+        <Directory Id="DistroplaneBin" Name="bin">
+          <Component Id="DistroplaneCLI" Guid="*">
+            <File Id="CLI" Source="$(var.PayloadDir)\bin\distroplane.exe" KeyPath="yes" />
+            <Environment Id="DistroplanePath" Name="PATH" Action="set"
+                         Part="last" System="yes" Value="[DistroplaneBin]" />
+          </Component>
+        </Directory>
+        <Directory Id="DistroplaneProviders" Name="libexec">
+          <Component Id="ProviderNpm" Guid="*">
+            <File Id="Npm" Source="$(var.PayloadDir)\libexec\distroplane-provider-npm.exe" KeyPath="yes" />
+          </Component>
+          <Component Id="ProviderSdkman" Guid="*">
+            <File Id="Sdkman" Source="$(var.PayloadDir)\libexec\distroplane-provider-sdkman.exe" KeyPath="yes" />
+          </Component>
+          <Component Id="ProviderHomebrew" Guid="*">
+            <File Id="Homebrew" Source="$(var.PayloadDir)\libexec\distroplane-provider-homebrew.exe" KeyPath="yes" />
+          </Component>
+          <Component Id="ProviderWinget" Guid="*">
+            <File Id="Winget" Source="$(var.PayloadDir)\libexec\distroplane-provider-winget.exe" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Complete" Title="Distroplane" Level="1" AllowAdvertise="no">
+      <ComponentRef Id="DistroplaneCLI" />
+      <ComponentRef Id="ProviderNpm" />
+      <ComponentRef Id="ProviderSdkman" />
+      <ComponentRef Id="ProviderHomebrew" />
+      <ComponentRef Id="ProviderWinget" />
+    </Feature>
+  </Package>
+</Wix>
