@@ -76,6 +76,7 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(rendered.count("on_arm do"), 2)
         self.assertEqual(rendered.count("on_intel do"), 2)
         self.assertEqual(rendered.count("sha256 "), 4)
+        self.assertNotIn('  version "', rendered)
         self.assertIn('libexec.install Dir["libexec/distroplane-provider-*"]', rendered)
         self.assertIn('bin.install "bin/distroplane"', rendered)
         self.assertEqual(rendered, formula.generate(self.directory, "1.2.3"))
@@ -291,7 +292,8 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         state = json.loads(state_path.read_text())
         self.assertEqual(len(state["prs"]), 1)
-        self.assertIn('version "1.2.3"', state["branch_formula"])
+        self.assertNotIn('  version "1.2.3"', state["branch_formula"])
+        self.assertIn('distroplane_1.2.3_linux_amd64.tar.gz', state["branch_formula"])
         self.assertIn("on_linux do", state["branch_formula"])
         second = run()
         self.assertEqual(second.returncode, 0, second.stderr)
@@ -306,6 +308,17 @@ class FormulaTests(unittest.TestCase):
         already_published = run()
         self.assertEqual(already_published.returncode, 0, already_published.stderr)
         self.assertEqual(json.loads(state_path.read_text()), state)
+        state["main_formula"] = state["branch_formula"] + "\n# upstream edit\n"
+        state_path.write_text(json.dumps(state))
+        changed = run()
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn("refusing downgrade or overwrite", changed.stderr)
+        state["main_formula"] = state["branch_formula"].replace("v1.2.3", "v9.9.9").replace(
+            "distroplane_1.2.3", "distroplane_9.9.9")
+        state_path.write_text(json.dumps(state))
+        newer = run()
+        self.assertNotEqual(newer.returncode, 0)
+        self.assertIn("refusing downgrade or overwrite", newer.stderr)
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,11 +60,20 @@ if [[ -n "$main_record" ]]; then
   python3 - "$work/current.rb" "$work/distroplane.rb" <<'PY'
 import pathlib, re, sys
 old, new = [pathlib.Path(a).read_text(encoding='utf-8') for a in sys.argv[1:]]
-match = re.search(r'^  version "([0-9]+\.[0-9]+\.[0-9]+)"$', old, re.M)
-newmatch = re.search(r'^  version "([0-9]+\.[0-9]+\.[0-9]+)"$', new, re.M)
-if not match or not newmatch:
-    raise SystemExit('existing tap formula has unrecognized version; review required')
-old_v, new_v = (tuple(int(n) for n in m.group(1).split('.')) for m in (match, newmatch))
+def formula_version(source):
+    pattern = (r'^\s*url "https://github\.com/aalsanie/distroplane/releases/download/'
+               r'v([0-9]+\.[0-9]+\.[0-9]+)/distroplane_\1_(darwin|linux)_(arm64|amd64)\.tar\.gz"$')
+    matches = re.findall(pattern, source, re.M)
+    targets = {(system, arch) for _, system, arch in matches}
+    if (len(matches) != 4 or len(re.findall(r'^\s*url ', source, re.M)) != 4
+            or targets != {('darwin', 'arm64'), ('darwin', 'amd64'),
+                           ('linux', 'arm64'), ('linux', 'amd64')}):
+        raise SystemExit('tap formula has unrecognized release URLs; review required')
+    versions = {version for version, _, _ in matches}
+    if len(versions) != 1:
+        raise SystemExit('tap formula has inconsistent archive versions; review required')
+    return tuple(int(n) for n in versions.pop().split('.'))
+old_v, new_v = formula_version(old), formula_version(new)
 if old_v > new_v or (old_v == new_v and old != new):
     raise SystemExit('tap formula differs at same/newer version; refusing downgrade or overwrite')
 PY
