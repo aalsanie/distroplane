@@ -1,6 +1,6 @@
 # Installation and release verification
 
-This document describes the **v0.9.0 release procedure and expected artifacts**. Until the stable tag is published, install a version from [GitHub releases](https://github.com/aalsanie/distroplane/releases); documentation on `main` does not imply `v0.9.0` binaries are already available.
+This document describes release integrity checks and installation paths for releases built from the current source. Check [GitHub releases](https://github.com/aalsanie/distroplane/releases) for the version and actual downloadable assets. An unreleased source revision does not imply that its binaries or Homebrew formula are available.
 
 ## Release assets
 
@@ -20,7 +20,19 @@ Asset names are `distroplane_<version>_<os>_<arch>` and `distroplane-provider-<n
 
 A stable tagged release proposes a change to `aalsanie/homebrew-tap` **after** the release is published. This requires the repository secret `HOMEBREW_TAP_TOKEN` with permission to create branches and pull requests in the tap. The update uses published `RELEASE-METADATA.json`, `SHA256SUMS`, and the four macOS/Linux unified archives; it verifies their bytes, embedded CLI/provider digests, and tagged source commit. An absent archive or incomplete release blocks the update. Existing formula edits, closed review PRs, and downgrades are never overwritten. A successful proposal is **not** an installed or approved release: the tap formula must pass macOS Intel/ARM and Linuxbrew audit/install/test/uninstall checks before a maintainer merges its PR.
 
-The currently published `v0.9.0` predates unified archives and is not eligible for an archive-backed tap formula. Do not advertise `brew install aalsanie/tap/distroplane` until the first reviewed, tested formula is merged into the tap.
+The `v0.9.0` release predates unified archives and is not eligible for an archive-backed tap formula. A stable release with these archives may propose a formula, but that proposal does not publish the formula. Do not advertise `brew install aalsanie/tap/distroplane` until the first reviewed, tested formula is merged into the tap.
+
+## Direct Linux installation
+
+For a released version with unified archives, download the versioned installer script from the matching source tag and run it without Go or Homebrew. For example, after `v0.9.1` is published:
+
+```sh
+curl --fail --location --show-error https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.1/scripts/install-linux.py -o install-linux.py
+python3 install-linux.py --version 0.9.1
+$HOME/.local/bin/distroplane version
+```
+
+The installer verifies release metadata, checksums, package file digests, and native provider startup before atomically switching the managed CLI link. To install without downloading packages, supply `--offline-dir DIR` containing `RELEASE-METADATA.json`, `SHA256SUMS`, and the matching Linux unified archive; `--prefix /usr/local` is available for explicitly authorized system installs. The installed provider binaries remain available under the versioned prefix on uninstall for run recovery. Release-local checksums are not an independent trust anchor.
 
 ## Manual installation
 
@@ -57,9 +69,9 @@ go build -trimpath -o bin/ ./cmd/...
 
 This builds the development fake provider too. An ordinary source build reports `0.0.0-dev` unless version information is injected through linker flags; it does not infer the version from `VERSION`. Production release layouts are built by `scripts/build.sh` or `scripts/build.ps1` with `VERSION`, `COMMIT`, and `BUILD_DATE`.
 
-## Publishing v0.9.0
+## Publishing a stable release
 
-Confirm `VERSION` is `0.9.0` and the checked-in [v0.9.0 release notes](releases/v0.9.0.md) have passed `scripts/check-release-notes.sh`. Merge the release-preparation changes into `main`, then verify the **exact intended commit** has successful main-branch CI and GitHub Action smoke runs; review the provider integration results. Tag **that same commit** as `v0.9.0`. The release workflow rejects a tag that differs from `VERSION`, lacks valid versioned release notes, lacks the required successful workflow runs for its commit, or already has a published release. It rebuilds assets, checks checksums and metadata, runs a release-artifact smoke test, and publishes the GitHub release with the checked-in notes. Merging preparation changes does not tag or publish a release.
+Confirm `VERSION` matches the intended stable release and its checked-in versioned release notes pass `scripts/check-release-notes.sh`. Merge release-preparation changes into `main`, then verify that **the exact intended commit** has successful main-branch CI and GitHub Action smoke runs; review the provider integration results. Tag **that same commit** with the matching `v`-prefixed version. The release workflow rejects a tag that differs from `VERSION`, lacks valid versioned release notes, lacks the required successful workflow runs for its commit, or already has a published release. It rebuilds assets, checks checksums and metadata, runs a release-artifact smoke test, and publishes the GitHub release with the checked-in notes. Merging preparation changes does not tag or publish a release.
 
 ## Compatibility with release candidates
 

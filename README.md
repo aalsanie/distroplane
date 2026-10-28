@@ -23,15 +23,15 @@ Use the path printed by `plan` in place of `PLAN.json`. `--credential REF=ENV` n
 
 ## GitHub Actions
 
-Once the `v0.9.0` release tag is published, an npm target with credential reference `npm-publish` can use:
+For the `v0.9.1` release, an npm target with credential reference `npm-publish` can use:
 
 ```yaml
 - id: plan
-  uses: aalsanie/distroplane@v0.9.0
+  uses: aalsanie/distroplane@v0.9.1
   with:
     command: plan
 
-- uses: aalsanie/distroplane@v0.9.0
+- uses: aalsanie/distroplane@v0.9.1
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
