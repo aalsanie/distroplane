@@ -103,6 +103,13 @@ jobs:
           DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
             go test ./scripts -run '^TestReleaseArchiveNativeExecutables$' -count=1
 
+      - name: Verify fresh native Linux install and fail-closed corruption
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
+        run: bash scripts/smoke-linux-install.sh
+
       - name: Attest verified release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
