@@ -17,7 +17,256 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows-installer:
+    name: Build, sign and verify Windows MSI packages
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Install pinned WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path "$env:RUNNER_TEMP/wix" wix --version 6.0.0
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+      - name: Require authorized signing identity and matching release tag
+        shell: pwsh
+        env:
+          MSI_SIGNING_PFX_BASE64: ${{ secrets.MSI_SIGNING_PFX_BASE64 }}
+          MSI_SIGNING_PFX_PASSWORD: ${{ secrets.MSI_SIGNING_PFX_PASSWORD }}
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - name: Validate release identity
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "invalid VERSION: $version" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME}" != "$tag" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match VERSION $version" >&2
+            exit 1
+          fi
+          commit="$(git rev-parse HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Validate versioned release notes
+        shell: bash
+        run: ./scripts/check-release-notes.sh
+
+      - name: Require tested main revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          require_success() {
+            workflow="$1"
+            label="$2"
+            response="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=push&branch=main&head_sha=$SHA&per_page=10")"
+            count="$(jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length' <<<"$response")"
+            if [[ "$count" -lt 1 ]]; then
+              echo "$label has no successful main run for $SHA" >&2
+              exit 1
+            fi
+          }
+          require_success "ci.yml" "CI"
+          require_success "action-smoke.yml" "GitHub Action smoke"
+
+      - name: Build and verify release assets
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          export COMMIT="${COMMIT:0:12}"
+          export BUILD_DATE="$(git show -s --format=%cI HEAD)"
+          ./scripts/build.sh
+          go run ./scripts/release-assets.go verify
+          jq -e --arg version "$VERSION" --arg commit "$COMMIT" \
+            '.schemaVersion == "2" and .version == $version and .commit == $commit and (.assets | length == 36)' \
+            dist/RELEASE-METADATA.json
+          identity="$("./dist/distroplane_${VERSION}_linux_amd64" version --json)"
+          jq -e --arg version "$VERSION" --arg commit "$COMMIT" \
+            '.version == $version and .commit == $commit' <<<"$identity"
+          DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
+          DISTROPLANE_RELEASE_SMOKE_VERSION="$VERSION" \
+          DISTROPLANE_RELEASE_SMOKE_COMMIT="$COMMIT" \
+            go test ./cmd/distroplane -run '^TestReleaseArtifactsExecuteGitProviderThroughCLI$' -count=1
+          DISTROPLANE_RELEASE_SMOKE_DIR="$GITHUB_WORKSPACE/dist" \
+            go test ./scripts -run '^TestReleaseArchiveNativeExecutables$' -count=1
+
+      - name: Verify fresh native Linux install and fail-closed corruption
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
+        run: bash scripts/smoke-linux-install.sh
+
+      - name: Download signed Windows MSI packages
+        if: ${{ !contains(github.ref_name, '-rc.') }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: verified-signed-windows-msi
+          path: windows-msi
+
+      - name: Verify Windows payload parity and include signed MSIs in release
+        if: ${{ !contains(github.ref_name, '-rc.') }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            archive="distroplane_${VERSION}_windows_${arch}.zip"
+            msi="distroplane_${VERSION}_windows_${arch}.msi"
+            cmp "dist/$archive" "windows-msi/dist/$archive"
+            test -s "windows-msi/msi/$msi"
+            cp "windows-msi/msi/$msi" "dist/$msi"
+          done
+          (
+            cd dist
+            sha256sum "distroplane_${VERSION}_windows_amd64.msi" "distroplane_${VERSION}_windows_arm64.msi" > MSI-SHA256SUMS
+            sha256sum --check MSI-SHA256SUMS
+          )
+
+      - name: Attest verified release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+
+      - name: Verify signed release provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          for asset in dist/*; do
+            gh attestation verify "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --source-digest "$SOURCE_COMMIT" \
+              --source-ref "$GITHUB_REF" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" >/dev/null
+          done
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists" >&2
+            exit 1
+          fi
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* --verify-tag "${prerelease[@]}" --title "$TAG" --notes-file "docs/releases/v${VERSION}.md"
+
+  homebrew-tap-update:
+    name: Propose verified Homebrew formula update
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout released revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Validate published assets and propose tap PR
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/update-homebrew-tap.sh "${GITHUB_REF_NAME#v}"
+ -or $env:GITHUB_REF_NAME -cne "v$version") {
+            throw 'Stable MSI release requires matching VERSION and tag'
+          }
+          if (-not $env:MSI_SIGNING_PFX_BASE64 -or -not $env:MSI_SIGNING_PFX_PASSWORD) {
+            throw 'MSI signing identity is not configured; refusing to publish unsigned MSI'
+          }
+      - name: Build verified release executables and archives
+        shell: pwsh
+        run: |
+          $env:VERSION = (Get-Content VERSION -Raw).Trim()
+          $env:COMMIT = (git rev-parse --short=12 HEAD).Trim()
+          $env:BUILD_DATE = (git show -s --format=%cI HEAD).Trim()
+          ./scripts/build.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+          go run ./scripts/release-assets.go verify
+          if ($LASTEXITCODE -ne 0) { throw 'Release archive integrity failed' }
+          "VERSION=$env:VERSION" >> $env:GITHUB_ENV
+      - name: Sign and verify MSI for both architectures
+        shell: pwsh
+        env:
+          MSI_SIGNING_PFX_BASE64: ${{ secrets.MSI_SIGNING_PFX_BASE64 }}
+          MSI_SIGNING_PFX_PASSWORD: ${{ secrets.MSI_SIGNING_PFX_PASSWORD }}
+        run: |
+          $wix = Join-Path $env:RUNNER_TEMP 'wix/wix.exe'
+          foreach ($arch in @('amd64','arm64')) {
+            ./scripts/build-msi.ps1 -Version $env:VERSION -Architecture $arch -ReleaseDir dist -OutputDir msi -WixExe $wix -RequireSignature
+          }
+      - name: Upload signed MSI and exact source archive evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verified-signed-windows-msi
+          path: |
+            msi/*.msi
+            dist/distroplane_*_windows_*.zip
+          if-no-files-found: error
+          retention-days: 2
+
   publish:
+    needs: windows-installer
+    if: ${{ always() && (needs.windows-installer.result == 'success' || (contains(github.ref_name, '-rc.') && needs.windows-installer.result == 'skipped')) }}
     name: Publish release
     runs-on: ubuntu-latest
     timeout-minutes: 20
