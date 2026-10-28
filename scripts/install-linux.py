@@ -2,6 +2,7 @@
 """Install a verified, immutable Distroplane Linux release without Go or Homebrew."""
 import argparse
 import hashlib
+import fcntl
 import io
 import json
 import os
@@ -72,6 +73,15 @@ def release_inventory(directory, version, archive_name):
     items = manifest.get("assets")
     if not isinstance(items, list) or len(items) != 36:
         fail("release metadata inventory incomplete")
+    expected = set()
+    for os_name in ("darwin", "linux", "windows"):
+        for cpu in ("amd64", "arm64"):
+            suffix = ".zip" if os_name == "windows" else ".tar.gz"
+            expected.add(f"distroplane_{version}_{os_name}_{cpu}{suffix}")
+            for executable in ("distroplane",) + tuple(
+                    "distroplane-provider-" + p for p in PROVIDERS):
+                extension = ".exe" if os_name == "windows" else ""
+                expected.add(f"{executable}_{version}_{os_name}_{cpu}{extension}")
     indexed = {}
     for asset in items:
         if (not isinstance(asset, dict) or set(asset) != {"name", "sha256", "size"}
@@ -82,6 +92,8 @@ def release_inventory(directory, version, archive_name):
         if asset["name"] in indexed:
             fail("duplicate release asset")
         indexed[asset["name"]] = asset
+    if set(indexed) != expected:
+        fail("release inventory contains unexpected or missing asset names")
     lines = "".join(f'{indexed[name]["sha256"]}  {name}\n' for name in sorted(indexed))
     if read_regular(directory / "SHA256SUMS", MAX_METADATA) != lines.encode("ascii"):
         fail("release checksums do not match metadata")
@@ -214,16 +226,10 @@ def replace_owned_link(link, versions, location):
 def install(args):
     if platform.system() != "Linux":
         fail("direct installer supports Linux only")
-    if not VERSION.fullmatch(args.version or ""):
-        fail("a stable, version-pinned --version is required")
-    arch = ARCHES.get(platform.machine().lower())
-    if arch is None:
-        fail("unsupported Linux CPU architecture: " + platform.machine())
     prefix = args.prefix.expanduser().resolve()
-    versions = prefix / "lib" / "distroplane" / "versions"
-    destination = versions / args.version
-    link = prefix / "bin" / "distroplane"
     if args.uninstall:
+        link = prefix / "bin" / "distroplane"
+        versions = prefix / "lib" / "distroplane" / "versions"
         if not link.is_symlink():
             fail("no installer-managed executable to uninstall")
         current = link.resolve(strict=False)
@@ -234,6 +240,14 @@ def install(args):
         link.unlink()
         print("Removed Distroplane command; retained versioned binaries for run recovery")
         return
+    if not VERSION.fullmatch(args.version or ""):
+        fail("a stable, version-pinned --version is required")
+    arch = ARCHES.get(platform.machine().lower())
+    if arch is None:
+        fail("unsupported Linux CPU architecture: " + platform.machine())
+    versions = prefix / "lib" / "distroplane" / "versions"
+    destination = versions / args.version
+    link = prefix / "bin" / "distroplane"
     archive_name = f"distroplane_{args.version}_linux_{arch}.tar.gz"
     with tempfile.TemporaryDirectory(prefix="distroplane-download-") as temp:
         directory = args.offline_dir.expanduser().resolve() if args.offline_dir else Path(temp)
