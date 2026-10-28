@@ -4,6 +4,9 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import shutil
+import textwrap
 import subprocess
 import sys
 import tarfile
@@ -179,6 +182,120 @@ class FormulaTests(unittest.TestCase):
         with self.assertRaises(formula.FormulaError):
             formula.verify_archive(out.getvalue(), "1.2.3", "0123456789ab", "darwin", "arm64")
 
+
+
+    def test_update_workflow_idempotence_and_fail_closed_api(self):
+        gh = self.directory / "mock-bin"
+        gh.mkdir()
+        mock = gh / "gh"
+        mock.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import base64
+            import json
+            import os
+            import shutil
+            import sys
+            from pathlib import Path
+
+            args = sys.argv[1:]
+            state_path = Path(os.environ["TEST_GH_STATE"])
+            state = json.loads(state_path.read_text()) if state_path.exists() else {}
+            def save():
+                state_path.write_text(json.dumps(state))
+            def missing():
+                print("gh: Not Found (HTTP 404)", file=sys.stderr)
+                sys.exit(1)
+            def error(code):
+                print(f"gh: unexpected failure (HTTP {code})", file=sys.stderr)
+                sys.exit(1)
+            def record(value):
+                return {"content": base64.b64encode(value.encode()).decode(),
+                        "sha": "b" * 40}
+            if args[:2] == ["release", "download"]:
+                target = Path(args[args.index("--dir") + 1])
+                source = Path(os.environ["TEST_GH_ASSETS"])
+                for name in ("RELEASE-METADATA.json", "SHA256SUMS"):
+                    shutil.copyfile(source / name, target / name)
+                for item in source.glob("distroplane_1.2.3_*.tar.gz"):
+                    shutil.copyfile(item, target / item.name)
+                sys.exit(0)
+            if not args or args[0] != "api":
+                error(400)
+            method = args[args.index("--method") + 1] if "--method" in args else "GET"
+            url = next((a for a in args if a.startswith("repos/")), "")
+            if url == "repos/aalsanie/distroplane/releases/tags/v1.2.3":
+                print(json.dumps({"draft": False, "prerelease": False,
+                                  "published_at": "2026-10-28T00:00:00Z"}))
+            elif url == "repos/aalsanie/distroplane/commits/v1.2.3":
+                print("0123456789ab" + "0" * 28)
+            elif url == "repos/aalsanie/homebrew-tap/git/ref/heads/main":
+                print("a" * 40)
+            elif url == "repos/aalsanie/homebrew-tap/contents/Formula/distroplane.rb?ref=main":
+                if os.environ.get("TEST_GH_READ_ERROR"):
+                    error(int(os.environ["TEST_GH_READ_ERROR"]))
+                if "main_formula" not in state:
+                    missing()
+                print(json.dumps(record(state["main_formula"])))
+            elif url == "repos/aalsanie/homebrew-tap/git/ref/heads/update/distroplane-v1.2.3":
+                if not state.get("branch"):
+                    missing()
+                print(json.dumps({"object": {"sha": "a" * 40}}))
+            elif url == "repos/aalsanie/homebrew-tap/contents/Formula/distroplane.rb?ref=update/distroplane-v1.2.3":
+                if "branch_formula" not in state:
+                    missing()
+                print(json.dumps(record(state["branch_formula"])))
+            elif url == "repos/aalsanie/homebrew-tap/git/refs" and method == "POST":
+                state["branch"] = True
+                save()
+                print("{}")
+            elif url == "repos/aalsanie/homebrew-tap/contents/Formula/distroplane.rb" and method == "PUT":
+                content = next(a[8:] for a in args if a.startswith("content="))
+                state["branch_formula"] = base64.b64decode(content).decode()
+                save()
+                print("{}")
+            elif url.startswith("repos/aalsanie/homebrew-tap/pulls?state=all"):
+                print(json.dumps(state.get("prs", [])))
+            elif url == "repos/aalsanie/homebrew-tap/pulls" and method == "POST":
+                state.setdefault("prs", []).append({"state": "open"})
+                save()
+                print("{}")
+            else:
+                error(400)
+            """))
+        mock.chmod(0o755)
+        state_path = self.directory / "tap-state.json"
+        env = os.environ.copy()
+        env.update(PATH=str(gh) + os.pathsep + env.get("PATH", ""),
+                   SOURCE_TOKEN="fixture-source", TAP_TOKEN="fixture-tap",
+                   TEST_GH_STATE=str(state_path),
+                   TEST_GH_ASSETS=str(self.directory))
+        def run(extra=None):
+            current = env.copy()
+            current.update(extra or {})
+            return subprocess.run(
+                ["bash", "scripts/update-homebrew-tap.sh", "1.2.3"],
+                cwd=SCRIPT.parent.parent, env=current, capture_output=True, text=True,
+                timeout=30,
+            )
+        first = run()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        state = json.loads(state_path.read_text())
+        self.assertEqual(len(state["prs"]), 1)
+        self.assertIn('version "1.2.3"', state["branch_formula"])
+        self.assertIn("on_linux do", state["branch_formula"])
+        second = run()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(state_path.read_text()), state)
+        for code in ("403", "500"):
+            blocked = run({"TEST_GH_READ_ERROR": code})
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("refusing to proceed", blocked.stderr)
+            self.assertEqual(json.loads(state_path.read_text()), state)
+        state["main_formula"] = state["branch_formula"]
+        state_path.write_text(json.dumps(state))
+        already_published = run()
+        self.assertEqual(already_published.returncode, 0, already_published.stderr)
+        self.assertEqual(json.loads(state_path.read_text()), state)
 
 if __name__ == "__main__":
     unittest.main()

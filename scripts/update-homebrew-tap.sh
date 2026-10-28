@@ -38,9 +38,23 @@ if not re.fullmatch(r'[0-9a-f]{40}', sha) or sha[:12] != commit:
 PY
 
 api() { GH_TOKEN="$TAP_TOKEN" gh api "$@"; }
+# Only an HTTP 404 means that a GitHub resource is absent. Permission,
+# transport, and server errors must never be mistaken for a missing formula.
+read_optional() {
+  local response error_status
+  if response="$(api "$1" 2>"$work/github-error")"; then
+    printf '%s\n' "$response"
+    return 0
+  fi
+  if grep -Eq '\(HTTP 404\)' "$work/github-error"; then
+    return 0
+  fi
+  echo "unable to inspect tap resource $1; refusing to proceed" >&2
+  return 1
+}
 main_sha="$(api "repos/$tap_repo/git/ref/heads/main" --jq '.object.sha')"
 formula_path='Formula/distroplane.rb'
-main_record="$(api "repos/$tap_repo/contents/$formula_path?ref=main" 2>/dev/null || true)"
+main_record="$(read_optional "repos/$tap_repo/contents/$formula_path?ref=main")"
 if [[ -n "$main_record" ]]; then
   jq -er '.content' <<<"$main_record" | base64 --decode > "$work/current.rb"
   python3 - "$work/current.rb" "$work/distroplane.rb" <<'PY'
@@ -60,7 +74,7 @@ PY
   fi
 fi
 
-branch_record="$(api "repos/$tap_repo/git/ref/heads/$branch" 2>/dev/null || true)"
+branch_record="$(read_optional "repos/$tap_repo/git/ref/heads/$branch")"
 write_formula() {
   local content
   content="$(base64 < "$work/distroplane.rb" | tr -d '\n')"
@@ -69,7 +83,7 @@ write_formula() {
     -f "content=$content" -f "branch=$branch" "$@" >/dev/null
 }
 if [[ -n "$branch_record" ]]; then
-  existing_record="$(api "repos/$tap_repo/contents/$formula_path?ref=$branch" 2>/dev/null || true)"
+  existing_record="$(read_optional "repos/$tap_repo/contents/$formula_path?ref=$branch")"
   if [[ -z "$existing_record" ]]; then
     branch_sha="$(jq -er '.object.sha' <<<"$branch_record")"
     if [[ "$branch_sha" != "$main_sha" ]]; then
