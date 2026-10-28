@@ -157,7 +157,6 @@ def generate(directory, version):
     return ("class Distroplane < Formula\n"
             '  desc "Distribute verified release artifacts to registries and package managers"\n'
             '  homepage "https://github.com/aalsanie/distroplane"\n'
-            f'  version "{version}"\n'
             '  license "Apache-2.0"\n\n'
             + "\n\n".join(blocks) + "\n\n"
             '  def install\n'
