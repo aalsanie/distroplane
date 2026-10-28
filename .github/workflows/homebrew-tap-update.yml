@@ -1,0 +1,56 @@
+name: Homebrew formula update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/homebrew-tap-update.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing stable release version (for example, 0.9.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap-update
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    name: Propose reviewed Homebrew formula
+    if: github.repository == 'aalsanie/distroplane'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted updater
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve existing stable release
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$REQUESTED_VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="$(tr -d '\r\n' < VERSION)"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'a stable release version is required' >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Verify published release and propose tap PR
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: bash ./scripts/update-homebrew-tap.sh "$VERSION"
