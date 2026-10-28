@@ -46,6 +46,9 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_homebrew_formula.py'
           bash -n scripts/update-homebrew-tap.sh
+      - name: Verify Linux installer failure and recovery paths
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
       - name: Vet
         run: go vet ./...
       - name: Dependency budget
@@ -88,6 +91,18 @@ jobs:
         run: go test ./internal/journal -run '^$' -fuzz '^FuzzRead$' -fuzztime 2s
       - name: Journal reducer
         run: go test ./internal/journal -run '^$' -fuzz '^FuzzReduce$' -fuzztime 2s
+
+  linux-installer-arm64:
+    name: Linux installer (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test direct Linux installer on ARM64
+        run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
 
   benchmark:
     name: Benchmark record
@@ -220,6 +235,12 @@ jobs:
         run: |
           go run ./scripts/release-assets.go verify
           if ($LASTEXITCODE -ne 0) { throw 'release archive verification failed' }
+      - name: Install and tamper-test unified archive on native Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
+        run: bash scripts/smoke-linux-install.sh
       - name: Smoke candidate artifacts through CLI
         shell: pwsh
         env:
