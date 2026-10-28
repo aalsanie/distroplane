@@ -299,7 +299,7 @@ jobs:
           python scripts/generate-winget-manifests.py --version $env:VERSION --msi-dir msi --package-id Aalsanie.Distroplane --publisher Aalsanie --output-dir "$env:RUNNER_TEMP/winget-manifests"
           if ($LASTEXITCODE -ne 0) { throw 'WinGet manifest generation failed' }
           if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget validate --manifest "$env:RUNNER_TEMP/winget-manifests"
+            winget validate --manifest "$env:RUNNER_TEMP/winget-manifests/a/Aalsanie/Distroplane/$env:VERSION"
             if ($LASTEXITCODE -ne 0) { throw 'WinGet manifest validation failed' }
           } else {
             Write-Host 'WinGet CLI unavailable on runner; structural validation only (public submission remains gated)'
@@ -309,11 +309,11 @@ jobs:
         run: |
           $stage = Join-Path $env:RUNNER_TEMP 'previous-msi'
           Expand-Archive -LiteralPath "dist/distroplane_$($env:VERSION)_windows_amd64.zip" -DestinationPath $stage
-          & "$env:RUNNER_TEMP/wix/wix.exe" build packaging/windows/Product.wxs -arch x64 '-dProductVersion=0.0.1' '-dUpgradeCode=708E3E44-72D8-4DC6-ACB9-FB5A7DD0A27E' "-dPayloadDir=$stage" -o 'msi/previous_amd64.msi'
+          & "$env:RUNNER_TEMP/wix/wix.exe" build packaging/windows/Product.wxs -arch x64 '-d' 'ProductVersion=0.0.1' '-d' 'UpgradeCode=708E3E44-72D8-4DC6-ACB9-FB5A7DD0A27E' '-d' "PayloadDir=$stage" -o 'msi/previous_amd64.msi'
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic upgrade fixture failed' }
           $armStage = Join-Path $env:RUNNER_TEMP 'previous-arm64-msi'
           Expand-Archive -LiteralPath "dist/distroplane_$($env:VERSION)_windows_arm64.zip" -DestinationPath $armStage
-          & "$env:RUNNER_TEMP/wix/wix.exe" build packaging/windows/Product.wxs -arch arm64 '-dProductVersion=0.0.1' '-dUpgradeCode=C937D854-AC1A-4966-9524-3927981DB7A6' "-dPayloadDir=$armStage" -o 'msi/previous_arm64.msi'
+          & "$env:RUNNER_TEMP/wix/wix.exe" build packaging/windows/Product.wxs -arch arm64 '-d' 'ProductVersion=0.0.1' '-d' 'UpgradeCode=C937D854-AC1A-4966-9524-3927981DB7A6' '-d' "PayloadDir=$armStage" -o 'msi/previous_arm64.msi'
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic ARM upgrade fixture failed' }
       - name: Test native MSI installation, upgrade, providers and uninstall
         shell: pwsh

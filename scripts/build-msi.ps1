@@ -86,7 +86,7 @@ try {
     if ($allFiles.Count -ne 6) { throw 'Unexpected MSI payload file' }
     New-Item -Path $out -ItemType Directory -Force | Out-Null
     $msi = Join-Path $out "distroplane_${Version}_windows_${Architecture}.msi"
-    & $WixExe build 'packaging/windows/Product.wxs' '-arch' $(if ($Architecture -eq 'amd64') { 'x64' } else { 'arm64' }) "-dProductVersion=$Version" "-dUpgradeCode=$upgrade" "-dPayloadDir=$stage" '-o' $msi
+    & $WixExe build 'packaging/windows/Product.wxs' '-arch' $(if ($Architecture -eq 'amd64') { 'x64' } else { 'arm64' }) '-d' "ProductVersion=$Version" '-d' "UpgradeCode=$upgrade" '-d' "PayloadDir=$stage" '-o' $msi
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -PathType Leaf $msi)) { throw "WiX MSI build failed: $Architecture" }
     if ($env:MSI_SIGNING_PFX_BASE64) {
         if (-not $env:MSI_SIGNING_PFX_PASSWORD) { throw 'Signing password is missing' }
