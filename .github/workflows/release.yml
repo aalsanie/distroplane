@@ -169,4 +169,4 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          ./scripts/update-homebrew-tap.sh "${GITHUB_REF_NAME#v}"
+          bash ./scripts/update-homebrew-tap.sh "${GITHUB_REF_NAME#v}"

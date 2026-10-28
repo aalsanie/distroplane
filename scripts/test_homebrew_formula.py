@@ -184,6 +184,16 @@ class FormulaTests(unittest.TestCase):
 
 
 
+    def test_tap_update_workflow_invocation_is_shell_safe(self):
+        workflows = SCRIPT.parent.parent / ".github/workflows"
+        release = (workflows / "release.yml").read_text(encoding="utf-8")
+        recovery = (workflows / "homebrew-tap-update.yml").read_text(encoding="utf-8")
+        self.assertIn('bash ./scripts/update-homebrew-tap.sh "${GITHUB_REF_NAME#v}"', release)
+        self.assertIn('bash ./scripts/update-homebrew-tap.sh "$VERSION"', recovery)
+        self.assertIn("workflow_dispatch:", recovery)
+        self.assertIn("paths:", recovery)
+        self.assertNotIn('          ./scripts/update-homebrew-tap.sh', release)
+
     def test_update_workflow_idempotence_and_fail_closed_api(self):
         gh = self.directory / "mock-bin"
         gh.mkdir()
