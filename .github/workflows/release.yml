@@ -140,3 +140,26 @@ jobs:
             prerelease+=(--prerelease)
           fi
           gh release create "$TAG" dist/* --verify-tag "${prerelease[@]}" --title "$TAG" --notes-file "docs/releases/v${VERSION}.md"
+
+  homebrew-tap-update:
+    name: Propose verified Homebrew formula update
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout released revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Validate published assets and propose tap PR
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./scripts/update-homebrew-tap.sh "${GITHUB_REF_NAME#v}"

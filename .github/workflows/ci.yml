@@ -41,6 +41,11 @@ jobs:
         run: |
           ./scripts/check-release-notes.sh
           ./scripts/test-release-notes.sh
+      - name: Check published-asset-to-Homebrew formula generation
+        shell: bash
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_homebrew_formula.py'
+          bash -n scripts/update-homebrew-tap.sh
       - name: Vet
         run: go vet ./...
       - name: Dependency budget
