@@ -31,11 +31,11 @@ Never put signing keys into source control. Both modes retain versioned release-
 
 ## WinGet community submission
 
-WinGet identity **`Aalsanie.Distroplane` is provisional** until the publisher approves the package ID and publisher name. Generate version-specific WinGet manifests from the **actual signed MSI files**, using explicit approved identity values:
+WinGet identity **`Aalsanie.Distroplane` is provisional** until the publisher approves the package ID and publisher name. Generate version-specific WinGet manifests from the **actual published MSI files**, using explicit approved identity values:
 
 ```powershell
 python scripts/generate-winget-manifests.py --version 0.9.2 --msi-dir msi --package-id Aalsanie.Distroplane --publisher Aalsanie --output-dir winget-candidate
-winget validate --manifest winget-candidate
+winget validate --manifest winget-candidate/a/Aalsanie/Distroplane/0.9.2
 ```
 
 Only substitute a released version for which both MSI URLs exist. Independently compare the manifest hashes against the **published MSI bytes**. For `pfx` releases, verify both Authenticode signatures; for `unsigned`, confirm there are no signatures and disclose the absence of publisher authentication. Perform local `winget validate --manifest`, `winget install --manifest`, and uninstall tests, then submit one version per PR to `microsoft/winget-pkgs`. MSI submissions do not have a blanket Authenticode signing requirement, but Microsoft's unattended-install and security checks still apply and can reject a package. **Do not** advertise `winget install --id Aalsanie.Distroplane -e` until the community PR has merged and public catalog installation succeeds.

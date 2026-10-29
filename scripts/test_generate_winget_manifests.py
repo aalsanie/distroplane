@@ -35,6 +35,7 @@ class WinGetManifestTests(unittest.TestCase):
         self.assertIn("Architecture: x64", content)
         self.assertIn("Architecture: arm64", content)
         self.assertIn("Scope: machine", content)
+        self.assertEqual(content.count("ElevationRequirement: elevationRequired"), 1)
         for arch in ("amd64", "arm64"):
             filename = f"distroplane_1.2.3_windows_{arch}.msi"
             want = hashlib.sha256((self.path / filename).read_bytes()).hexdigest().upper()
