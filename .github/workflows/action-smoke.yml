@@ -196,6 +196,176 @@ jobs:
             throw 'unexpected normalized target state'
           }
 
+  reviewed-plan:
+    name: Reviewed plan handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      plan-id: ${{ steps.plan.outputs.plan-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build reviewed-plan fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1 -Root reviewed-smoke -Mode published
+      - name: Plan without authorization to publish
+        id: plan
+        uses: ./
+        with:
+          command: plan
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          upload-recovery: 'true'
+          recovery-artifact-name: reviewed-plan-state
+      - name: Check immutable planned identity
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.plan.outputs.plan-id }}
+          RUN_ID: ${{ steps.plan.outputs.run-id }}
+          RECOVERY_ARTIFACT: ${{ steps.plan.outputs.recovery-artifact-id }}
+        run: |
+          if (-not $env:PLAN_ID -or $env:RUN_ID -or -not $env:RECOVERY_ARTIFACT) {
+            throw 'planning unexpectedly executed or failed to preserve its state'
+          }
+
+  reviewed-plan-apply:
+    name: Explicit plan-ID approval in another job
+    needs: reviewed-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore verified plan and publish only approved identity
+        id: publish
+        uses: ./
+        with:
+          command: publish
+          binary: reviewed-smoke/bin/distroplane
+          config: reviewed-smoke/distroplane.json
+          confirm-plan: ${{ needs.reviewed-plan.outputs.plan-id }}
+          restore-recovery: 'true'
+          recovery-artifact-name: reviewed-plan-state
+      - name: Verify reviewed plan identity and completion
+        shell: pwsh
+        env:
+          EXPECTED_PLAN: ${{ needs.reviewed-plan.outputs.plan-id }}
+          PLAN_ID: ${{ steps.publish.outputs.plan-id }}
+          RUN_ID: ${{ steps.publish.outputs.run-id }}
+          COMPLETED: ${{ steps.publish.outputs.completed }}
+          EXIT_CODE: ${{ steps.publish.outputs.exit-code }}
+        run: |
+          if (-not $env:RUN_ID -or $env:PLAN_ID -ne $env:EXPECTED_PLAN -or
+              $env:COMPLETED -ne 'true' -or $env:EXIT_CODE -ne '0') {
+            throw 'reviewed plan was not safely approved and completed'
+          }
+
+  pending-publish-handoff:
+    name: Pending publication and recovery upload (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Build pending fixture
+        id: fixture
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1 -Root recovery-smoke -Mode waiting_external
+      - name: Publish with explicit approval and retain recoverable state
+        id: publish
+        uses: ./
+        with:
+          command: publish
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: ${{ steps.fixture.outputs.config }}
+          approve: 'true'
+          upload-recovery: 'true'
+          recovery-artifact-name: action-recovery-${{ matrix.os }}
+      - name: Verify pending publication
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.publish.outputs.plan-id }}
+          RUN_ID: ${{ steps.publish.outputs.run-id }}
+          PENDING: ${{ steps.publish.outputs.pending }}
+          COMPLETED: ${{ steps.publish.outputs.completed }}
+          FAILED: ${{ steps.publish.outputs.failed }}
+          REJECTED: ${{ steps.publish.outputs.rejected }}
+          RECOVERY_ARTIFACT: ${{ steps.publish.outputs.recovery-artifact-id }}
+        run: |
+          if (-not $env:PLAN_ID -or -not $env:RUN_ID -or -not $env:RECOVERY_ARTIFACT) {
+            throw 'publish omitted durable identity or recovery artifact'
+          }
+          if ($env:PENDING -ne 'true' -or $env:COMPLETED -ne 'false' -or
+              $env:FAILED -ne 'false' -or $env:REJECTED -ne 'false') {
+            throw 'pending publish was incorrectly reported as completed or failed'
+          }
+
+  pending-resume-handoff:
+    name: Verified recovery and resume (${{ matrix.os }})
+    needs: pending-publish-handoff
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore and resume the original pending publication
+        id: resume
+        uses: ./
+        with:
+          command: resume
+          config: recovery-smoke/distroplane.json
+          binary: recovery-smoke/bin/distroplane${{ runner.os == 'Windows' && '.exe' || '' }}
+          restore-recovery: 'true'
+          recovery-artifact-name: action-recovery-${{ matrix.os }}
+      - name: Verify same-run recovery
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.resume.outputs.plan-id }}
+          RUN_ID: ${{ steps.resume.outputs.run-id }}
+          COMPLETED: ${{ steps.resume.outputs.completed }}
+          PENDING: ${{ steps.resume.outputs.pending }}
+          FAILED: ${{ steps.resume.outputs.failed }}
+          EXIT_CODE: ${{ steps.resume.outputs.exit-code }}
+          RESULT_JSON: ${{ steps.resume.outputs.result-json }}
+        run: |
+          if (-not $env:PLAN_ID -or -not $env:RUN_ID -or
+              $env:COMPLETED -ne 'true' -or $env:PENDING -ne 'false' -or
+              $env:FAILED -ne 'false' -or $env:EXIT_CODE -ne '0') {
+            throw 'restored run did not complete successfully'
+          }
+          $entries = @(Get-ChildItem -LiteralPath 'recovery-smoke/.distroplane/catalog/runs' -File |
+              Where-Object { $_.Name -like '*.json' -and $_.Name -notlike '*.backup' })
+          if ($entries.Count -ne 1) { throw 'restored catalog has unexpected run count' }
+          $record = Get-Content -LiteralPath $entries[0].FullName -Raw | ConvertFrom-Json
+          if ($record.planId -ne $env:PLAN_ID -or $record.runId -ne $env:RUN_ID) {
+            throw 'resume changed the original durable plan or run identity'
+          }
+          $output = $env:RESULT_JSON | ConvertFrom-Json
+          if ($output.targets.Count -ne 1 -or $output.targets[0].state -ne 'PUBLISHED') {
+            throw 'resume did not reconcile the controlled external publication'
+          }
+
   evidence-handoff:
     name: Evidence handoff (${{ matrix.os }})
     needs: apply
