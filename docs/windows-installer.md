@@ -22,9 +22,12 @@ GitHub CI additionally tests a synthetic predecessor MSI upgrade, repair, provid
 
 ## Signing and supply chain policy
 
-**Public Windows MSI publication is blocked until release ownership has provided an approved Authenticode publisher identity and signing certificate.** The stable release job requires `MSI_SIGNING_PFX_BASE64` and `MSI_SIGNING_PFX_PASSWORD` repository secrets, uses a trusted timestamp, verifies Authenticode validity, and only then hands the packages to the release publishing job. Never put signing keys into source or artifacts. GitHub Actions provenance attests the published MSI alongside the other versioned release files; `MSI-SHA256SUMS` covers the two MSI files independently of the existing 36-asset archive contract. The release job checks exact Windows ZIP byte parity against its own reproducible build before publishing the signed MSI. Code signing does not guarantee a new publisher will have established Microsoft SmartScreen reputation; warn operators about initial reputation prompts, never instruct them to bypass a security warning.
+Stable releases require the Actions variable **`WINDOWS_MSI_SIGNING_MODE`** to be explicitly configured under **Settings → Secrets and variables → Actions → Variables**. An unset or invalid mode blocks the release. Allowed case-sensitive values:
 
-Without a signing identity, **future stable release publication fails closed** instead of shipping unsigned MSI. The previously published `v0.9.1` release has no MSI and is not retroactively changed by these source revisions.
+- `unsigned`: explicitly distribute **unsigned** MSI installers; signing secrets must be absent. The release job verifies both installers are unsigned and appends a visible warning to its published release notes. Windows SmartScreen or organizational policy may warn or block installation. This mode provides SHA-256 checksums and GitHub Actions provenance, **not** Authenticode publisher identity.
+- `pfx`: require a valid Authenticode signature on both MSIs. This mode requires the existing `MSI_SIGNING_PFX_BASE64` and `MSI_SIGNING_PFX_PASSWORD` repository secrets for an approved exportable PFX. Timestamp and signature validation failures block publication. Hardware-backed or managed signing requires a separate approved integration.
+
+Never put signing keys into source control. Both modes retain versioned release-archive byte parity, `MSI-SHA256SUMS` for the two MSI files, and GitHub Actions attestations. The existing 36-asset release metadata contract is unchanged. The already published `v0.9.1` release must not be modified.
 
 ## WinGet community submission
 
@@ -35,4 +38,4 @@ python scripts/generate-winget-manifests.py --version 0.9.2 --msi-dir msi --pack
 winget validate --manifest winget-candidate
 ```
 
-Only substitute a released version for which both MSI URLs exist. Independently compare the two manifest digests against the **published MSI bytes**, verify their signatures, perform a local `winget install --manifest` and uninstall, then submit one version per PR to the official `microsoft/winget-pkgs` repository following its external contribution process. Community acceptance and public client propagation are separate from a successful local manifest validation. Do **not** advertise `winget install --id Aalsanie.Distroplane -e` until the community PR is merged and the public catalog client succeeds.
+Only substitute a released version for which both MSI URLs exist. Independently compare the manifest hashes against the **published MSI bytes**. For `pfx` releases, verify both Authenticode signatures; for `unsigned`, confirm there are no signatures and disclose the absence of publisher authentication. Perform local `winget validate --manifest`, `winget install --manifest`, and uninstall tests, then submit one version per PR to `microsoft/winget-pkgs`. MSI submissions do not have a blanket Authenticode signing requirement, but Microsoft's unattended-install and security checks still apply and can reject a package. **Do not** advertise `winget install --id Aalsanie.Distroplane -e` until the community PR has merged and public catalog installation succeeds.
