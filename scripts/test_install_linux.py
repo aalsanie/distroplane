@@ -37,7 +37,7 @@ def executable_script(name, version):
             + "},'protocolVersions':['1']}}))\n").encode()
 
 
-def fixture(directory, version, tamper=None):
+def fixture(directory, version, tamper=None, broken_provider=None):
     directory.mkdir(parents=True, exist_ok=True)
     arch = module.ARCHES[platform.machine().lower()]
     tar_name = f"distroplane_{version}_linux_{arch}.tar.gz"
@@ -48,6 +48,8 @@ def fixture(directory, version, tamper=None):
     for path in paths:
         name = Path(path).name
         payload = executable_script(name, version)
+        if name == broken_provider:
+            payload = b"#!/usr/bin/env python3\nimport sys\nsys.exit(22)\n"
         source[path] = payload
         files.append({"path": path, "sha256": digest(payload), "size": len(payload),
                       "mode": "0755"})
@@ -138,6 +140,19 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(rollback.returncode, 0, rollback.stderr)
         self.assertIn("0.9.1", os.readlink(self.prefix / "bin/distroplane"))
 
+    def test_failed_native_staging_leaves_previous_cli_and_no_partial_install(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        original = os.readlink(self.prefix / "bin/distroplane")
+        broken = self.root / "broken"
+        fixture(broken, "0.9.2", broken_provider="distroplane-provider-npm")
+        failed = self.run_installer("0.9.2", broken)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(os.readlink(self.prefix / "bin/distroplane"), original)
+        versions = self.prefix / "lib/distroplane/versions"
+        self.assertFalse((versions / "0.9.2").exists())
+        self.assertFalse(list(versions.glob(".install-*")))
+
     def test_reject_tampered_archive_preserve_healthy_install(self):
         self.assertEqual(self.run_installer("0.9.1", self.release).returncode, 0)
         current = os.readlink(self.prefix / "bin/distroplane")
@@ -185,6 +200,77 @@ class InstallTests(unittest.TestCase):
         result = self.run_installer("0.9.1", self.release)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from verified", result.stderr)
+
+
+    def test_reinstall_after_uninstall_and_preserve_recovery_files(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        original = self.prefix / "lib/distroplane/versions/0.9.1/libexec/distroplane-provider-npm"
+        fingerprint = digest(original.read_bytes())
+        removed = self.run_installer(None, None, "--uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        installed = self.run_installer("0.9.1", self.release)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual(digest(original.read_bytes()), fingerprint)
+        self.assertTrue((self.prefix / "bin/distroplane").is_symlink())
+
+    def test_reject_extra_installed_file_on_immutable_version_reuse(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        original = os.readlink(self.prefix / "bin/distroplane")
+        version_dir = self.prefix / "lib/distroplane/versions/0.9.1"
+        (version_dir / "libexec/rogue-provider").write_text("unexpected")
+        result = self.run_installer("0.9.1", self.release)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("differs from verified", result.stderr)
+        self.assertEqual(os.readlink(self.prefix / "bin/distroplane"), original)
+
+    def test_reject_symlink_inside_immutable_release(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        version_dir = self.prefix / "lib/distroplane/versions/0.9.1"
+        (version_dir / "libexec/foreign-link").symlink_to(self.root)
+        result = self.run_installer("0.9.1", self.release)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsafe symlinks", result.stderr)
+
+    def test_reject_foreign_link_under_versions_and_leave_it_untouched(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        link = self.prefix / "bin/distroplane"
+        link.unlink()
+        alien = self.prefix / "lib/distroplane/versions/0.9.1/libexec/distroplane-provider-npm"
+        link.symlink_to(alien)
+        failed = self.run_installer("0.9.1", self.release)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(os.readlink(link), str(alien))
+        failed_uninstall = self.run_installer(None, None, "--uninstall")
+        self.assertNotEqual(failed_uninstall.returncode, 0)
+        self.assertEqual(os.readlink(link), str(alien))
+
+    def test_refuse_symlinked_install_lock_and_preserve_current_version(self):
+        first = self.run_installer("0.9.1", self.release)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        link = self.prefix / "bin/distroplane"
+        previous = os.readlink(link)
+        lock = self.prefix / "lib/distroplane/install.lock"
+        lock.unlink()
+        external = self.root / "external"
+        external.write_text("important")
+        lock.symlink_to(external)
+        failed = self.run_installer("0.9.1", self.release)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("unsafe installation lock", failed.stderr)
+        self.assertEqual(external.read_text(), "important")
+        self.assertEqual(os.readlink(link), previous)
+
+    def test_user_prefix_with_spaces_and_unicode(self):
+        self.prefix = self.root / "custom é space" / "install"
+        installed = self.run_installer("0.9.1", self.release)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        output = subprocess.check_output(
+            [str(self.prefix / "bin/distroplane"), "version", "--json"], text=True)
+        self.assertEqual(json.loads(output)["version"], "0.9.1")
 
 
 if __name__ == "__main__":

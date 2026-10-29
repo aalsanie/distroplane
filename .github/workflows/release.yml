@@ -98,12 +98,14 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  publish:
+  stage:
+    name: Stage verified release artifacts
     needs: windows-installer
+    outputs:
+      signing_mode: ${{ needs.windows-installer.outputs.signing_mode }}
     if: ${{ always() && (needs.windows-installer.result == 'success' || (contains(github.ref_name, '-rc.') && needs.windows-installer.result == 'skipped')) }}
-    name: Publish release
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Checkout tagged revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,6 +189,7 @@ jobs:
             go test ./scripts -run '^TestReleaseArchiveNativeExecutables$' -count=1
 
       - name: Verify fresh native Linux install and fail-closed corruption
+        if: ${{ !contains(github.ref_name, '-rc.') }}
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -220,6 +223,102 @@ jobs:
             sha256sum --check MSI-SHA256SUMS
           )
 
+      - name: Verify complete release staging inventory
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          SIGNING_MODE: ${{ needs.windows-installer.outputs.signing_mode }}
+        run: |
+          set -euo pipefail
+          mode="${SIGNING_MODE:-not-applicable}"
+          python3 scripts/verify-release-stage.py create --directory dist --version "$VERSION" --commit "${COMMIT:0:12}" --signing-mode "$mode"
+          python3 scripts/verify-release-stage.py verify --directory dist --version "$VERSION" --commit "${COMMIT:0:12}" --signing-mode "$mode"
+
+      - name: Upload verified release staging assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staged-release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 2
+
+  native-install:
+    name: Native release install (${{ matrix.os }})
+    needs: stage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            native_os: linux
+            native_arch: amd64
+          - os: ubuntu-24.04-arm
+            native_os: linux
+            native_arch: arm64
+          - os: macos-15-intel
+            native_os: darwin
+            native_arch: amd64
+          - os: macos-15
+            native_os: darwin
+            native_arch: arm64
+          - os: windows-2025
+            native_os: windows
+            native_arch: amd64
+          - os: windows-11-arm
+            native_os: windows
+            native_arch: arm64
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Download exact staged release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: staged-release-assets
+          path: dist
+      - name: Execute unpacked release on native runner
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $commit = (git rev-parse --short=12 HEAD).Trim()
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python scripts/smoke-release-native.py --directory dist --version $version --commit $commit --expected-os '${{ matrix.native_os }}' --expected-arch '${{ matrix.native_arch }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native release installability check failed' }
+
+  publish:
+    name: Publish verified release
+    needs: [stage, native-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Download verified release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: staged-release-assets
+          path: dist
+      - name: Require unchanged, complete staged release
+        shell: bash
+        env:
+          SIGNING_MODE: ${{ needs.stage.outputs.signing_mode }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          commit="$(git rev-parse --short=12 HEAD)"
+          mode="${SIGNING_MODE:-not-applicable}"
+          python3 scripts/verify-release-stage.py verify --directory dist --version "$version" --commit "$commit" --signing-mode "$mode"
       - name: Attest verified release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
@@ -229,9 +328,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_COMMIT: ${{ steps.version.outputs.commit }}
         run: |
           set -euo pipefail
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
           for asset in dist/*; do
             gh attestation verify "$asset" \
               --repo "$GITHUB_REPOSITORY" \
@@ -240,19 +339,20 @@ jobs:
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" >/dev/null
           done
 
-      - name: Publish GitHub release
+      - name: Publish verified GitHub release atomically
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-          MSI_SIGNING_MODE: ${{ needs.windows-installer.outputs.signing_mode }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ github.ref_name }}
+          MSI_SIGNING_MODE: ${{ needs.stage.outputs.signing_mode }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG already exists" >&2
             exit 1
           fi
+          VERSION="${VERSION#v}"
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then
             prerelease+=(--prerelease)
@@ -268,7 +368,24 @@ jobs:
           The Windows MSI installers in this release are **not Authenticode-signed**. Windows SmartScreen or enterprise policy may warn or block installation. Verify `MSI-SHA256SUMS` and GitHub Actions build provenance before use. Checksums and build attestations do **not** establish a trusted Windows publisher identity.
           EOF
           fi
-          gh release create "$TAG" dist/* --verify-tag "${prerelease[@]}" --title "$TAG" --notes-file "$notes_file"
+          # Draft-first publication prevents an incomplete upload from appearing in public feeds.
+          gh release create "$TAG" dist/* --draft --verify-tag "${prerelease[@]}" --title "$TAG" --notes-file "$notes_file"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/release.json"
+          python3 - "$RUNNER_TEMP/release.json" dist <<'PY'
+          import hashlib, json, pathlib, sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          directory = pathlib.Path(sys.argv[2])
+          expected = {p.name: p for p in directory.iterdir() if p.is_file()}
+          actual = {a["name"]: a for a in release["assets"]}
+          if not release.get("draft") or set(actual) != set(expected):
+              raise SystemExit("draft release is incomplete or unexpectedly public")
+          for name, file in expected.items():
+              asset = actual[name]
+              digest = "sha256:" + hashlib.sha256(file.read_bytes()).hexdigest()
+              if asset.get("size") != file.stat().st_size or (asset.get("digest") and asset["digest"] != digest):
+                  raise SystemExit("uploaded release asset mismatch: " + name)
+          PY
+          gh release edit "$TAG" --draft=false
           
   homebrew-tap-update:
     name: Propose verified Homebrew formula update

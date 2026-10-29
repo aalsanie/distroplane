@@ -16,6 +16,8 @@ Asset names are `distroplane_<version>_<os>_<arch>` and `distroplane-provider-<n
 
 `SHA256SUMS` covers all 36 assets. `RELEASE-METADATA.json` (schema 2) records the version, source commit, Go toolchain, and per-asset digests. CI checks the embedded files and exact inventory before a release. Release workflow artifacts receive GitHub OIDC/Sigstore build provenance attestations; consumers can verify a downloaded asset with `gh attestation verify ASSET --repo aalsanie/distroplane --source-ref refs/tags/v<VERSION>`. Release-local checksums alone are not an independent trust anchor; publishing access and the GitHub Actions signing workflow remain trust boundaries.
 
+For releases produced by the staged publication workflow, `RELEASE-STAGING.json` is an additional release asset. It binds the tagged source commit and the explicit MSI signing policy to an exact, sorted inventory of the 36 executables/archives, two Windows MSIs (stable releases only), checksum files, and release metadata. The staging manifest itself is verified before public publication; it is not a replacement for GitHub provenance or independent publisher signatures. The release stays a GitHub **draft** until all staged assets have been uploaded and independently compared with the staging inventory. Native installation jobs must execute the packaged CLI and all four providers on Linux, macOS, and Windows for each available amd64/arm64 runner.
+
 ## Homebrew tap publication
 
 A stable tagged release proposes a change to `aalsanie/homebrew-tap` **after** the release is published. This requires the repository secret `HOMEBREW_TAP_TOKEN` with permission to create branches and pull requests in the tap. The update uses published `RELEASE-METADATA.json`, `SHA256SUMS`, and the four macOS/Linux unified archives; it verifies their bytes, embedded CLI/provider digests, and tagged source commit. An absent archive or incomplete release blocks the update. Existing formula edits, closed review PRs, and downgrades are never overwritten. A successful proposal is **not** an installed or approved release: the tap formula must pass macOS Intel/ARM and Linuxbrew audit/install/test/uninstall checks before a maintainer merges its PR.
@@ -32,7 +34,11 @@ python3 install-linux.py --version 0.9.1
 $HOME/.local/bin/distroplane version
 ```
 
-The installer verifies release metadata, checksums, package file digests, and native provider startup before atomically switching the managed CLI link. To install without downloading packages, supply `--offline-dir DIR` containing `RELEASE-METADATA.json`, `SHA256SUMS`, and the matching Linux unified archive; `--prefix /usr/local` is available for explicitly authorized system installs. The installed provider binaries remain available under the versioned prefix on uninstall for run recovery. Release-local checksums are not an independent trust anchor.
+The installer requires Python 3.8+ and verifies release metadata, checksums, package file digests, and native provider startup before atomically switching the managed CLI link. An ordinary installation uses `$HOME/.local` and does not require root. Ensure `$HOME/.local/bin` is on `PATH`. For an authorized system-wide installation, run the installer with `--prefix /usr/local` using appropriate privileges; never run a downloaded script without inspecting and verifying its source.
+
+For a proxy-assisted download, configure the standard HTTPS proxy environment variables before invoking Python. To install fully offline, first transfer `RELEASE-METADATA.json`, `SHA256SUMS`, and the selected `distroplane_<VERSION>_linux_<arch>.tar.gz` from the **same immutable release**; run `python3 install-linux.py --version <VERSION> --offline-dir DIR`. The installer rejects redirections to unapproved hosts, incorrect architectures, unsafe archives, and tampered release inventories. To uninstall the managed command, run `python3 install-linux.py --prefix <PREFIX> --uninstall`; the versioned executables and project `.distroplane` state remain intact for unfinished-run recovery.
+
+Repeated installation of the same version compares its installed bytes with the verified archive. Upgrades and explicit downgrades install side-by-side in `lib/distroplane/versions`; a failed install cannot replace the current CLI link. Release-local checksums are not an independent trust anchor.
 
 ## Manual installation
 
