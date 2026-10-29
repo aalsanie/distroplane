@@ -27,9 +27,10 @@ class WinGetManifestTests(unittest.TestCase):
             kind = "installer" if ".installer." in filename else (
                 "defaultLocale" if ".locale." in filename else "version")
             self.assertTrue(yaml.startswith(
-                f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.10.0.schema.json"
+                f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.12.0.schema.json"
             ), filename)
             self.assertIn("PackageIdentifier:", yaml)
+            self.assertIn("ManifestVersion: 1.12.0", yaml)
         content = docs["Aalsanie.Distroplane.installer.yaml"]
         self.assertEqual(content.count("InstallerUrl:"), 2)
         self.assertIn("Architecture: x64", content)

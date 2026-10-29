@@ -329,7 +329,8 @@ jobs:
           python scripts/generate-winget-manifests.py --version $env:VERSION --msi-dir msi --package-id Aalsanie.Distroplane --publisher Aalsanie --output-dir "$env:RUNNER_TEMP/winget-manifests"
           if ($LASTEXITCODE -ne 0) { throw 'WinGet manifest generation failed' }
           if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget validate --manifest "$env:RUNNER_TEMP/winget-manifests/a/Aalsanie/Distroplane/$env:VERSION"
+            # Hosted WinGet clients may predate schema 1.12 and warn on its URL; syntax errors still fail.
+            winget validate --manifest "$env:RUNNER_TEMP/winget-manifests/a/Aalsanie/Distroplane/$env:VERSION" --ignore-warnings
             if ($LASTEXITCODE -ne 0) { throw 'WinGet manifest validation failed' }
           } else {
             Write-Host 'WinGet CLI unavailable on runner; structural validation only (public submission remains gated)'

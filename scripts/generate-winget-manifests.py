@@ -47,7 +47,7 @@ def generate(directory, version, package_id, publisher):
         checksums[arch] = digest_file(directory / name)
     filename_prefix = f"https://github.com/aalsanie/distroplane/releases/download/v{version}/"
     installer = (
-        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json\n"
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json\n"
         f"PackageIdentifier: {package_id}\n"
         f"PackageVersion: {version}\n"
         "InstallerType: msi\n"
@@ -66,9 +66,9 @@ def generate(directory, version, package_id, publisher):
             f"    InstallerUrl: {filename_prefix}distroplane_{version}_windows_{arch}.msi\n"
             f"    InstallerSha256: {checksums[arch]}\n"
         )
-    installer += "ManifestType: installer\nManifestVersion: 1.10.0\n"
+    installer += "ManifestType: installer\nManifestVersion: 1.12.0\n"
     locale = (
-        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json\n"
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json\n"
         f"PackageIdentifier: {package_id}\n"
         f"PackageVersion: {version}\n"
         "PackageLocale: en-US\n"
@@ -78,15 +78,15 @@ def generate(directory, version, package_id, publisher):
         "ShortDescription: A local-first release distribution control plane\n"
         "PackageUrl: https://github.com/aalsanie/distroplane\n"
         "ManifestType: defaultLocale\n"
-        "ManifestVersion: 1.10.0\n"
+        "ManifestVersion: 1.12.0\n"
     )
     version_yaml = (
-        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json\n"
+        "# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json\n"
         f"PackageIdentifier: {package_id}\n"
         f"PackageVersion: {version}\n"
         "DefaultLocale: en-US\n"
         "ManifestType: version\n"
-        "ManifestVersion: 1.10.0\n"
+        "ManifestVersion: 1.12.0\n"
     )
     return {
         f"{package_id}.yaml": version_yaml,
