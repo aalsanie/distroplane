@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -205,39 +206,60 @@ def smoke(location, version):
         raise InstallError("installed executable smoke check failed") from exc
 
 
+def owned_link_target(link, versions):
+    if not link.is_symlink():
+        fail("no installer-managed Distroplane symlink")
+    # Compare the literal target, not a resolved path through attacker-controlled
+    # symlinks. Only the exact versioned CLI location is installer-owned.
+    raw = Path(os.readlink(link))
+    if (not raw.is_absolute() or raw.name != "distroplane" or
+            raw.parent.name != "bin" or not VERSION.fullmatch(raw.parent.parent.name) or
+            raw.parent.parent.parent != versions):
+        fail("existing distroplane symlink is not owned by this installer")
+    return raw
+
+
+def checked_layout(prefix, versions):
+    # Refuse to follow redirected package directories or an attacker-supplied
+    # lock file in system-wide prefixes.
+    for path in (prefix / "bin", prefix / "lib", prefix / "lib" / "distroplane", versions):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            fail("unsafe installation directory: " + str(path))
+    lock_path = versions.parent / "install.lock"
+    if lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file()):
+        fail("unsafe installation lock")
+
+
 def replace_owned_link(link, versions, location):
     if link.is_symlink():
-        current = link.resolve(strict=False)
-        if current != location / "bin" / "distroplane":
-            try:
-                current.relative_to(versions)
-            except ValueError:
-                fail("existing distroplane symlink is not owned by this installer")
+        owned_link_target(link, versions)
     elif link.exists():
         fail("existing distroplane executable is not installer-managed")
-    temp_link = link.parent / (".distroplane-link-" + str(os.getpid()))
+    temp_link = link.parent / (".distroplane-link-" + secrets.token_hex(12))
+    created = False
     try:
         temp_link.symlink_to(location / "bin" / "distroplane")
+        created = True
         os.replace(temp_link, link)
     finally:
-        temp_link.unlink(missing_ok=True)
+        if created:
+            temp_link.unlink(missing_ok=True)
 
 
 def install(args):
     if platform.system() != "Linux":
         fail("direct installer supports Linux only")
     prefix = args.prefix.expanduser().resolve()
+    versions = prefix / "lib" / "distroplane" / "versions"
+    link = prefix / "bin" / "distroplane"
+    checked_layout(prefix, versions)
     if args.uninstall:
-        link = prefix / "bin" / "distroplane"
-        versions = prefix / "lib" / "distroplane" / "versions"
-        if not link.is_symlink():
-            fail("no installer-managed executable to uninstall")
-        current = link.resolve(strict=False)
-        try:
-            current.relative_to(versions)
-        except ValueError:
-            fail("refusing to remove foreign executable")
-        link.unlink()
+        if not versions.is_dir():
+            fail("no installer-managed versions to uninstall")
+        with (versions.parent / "install.lock").open("a+b") as file_lock:
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
+            owned_link_target(link, versions)
+            link.unlink()
         print("Removed Distroplane command; retained versioned binaries for run recovery")
         return
     if not VERSION.fullmatch(args.version or ""):
@@ -245,9 +267,7 @@ def install(args):
     arch = ARCHES.get(platform.machine().lower())
     if arch is None:
         fail("unsupported Linux CPU architecture: " + platform.machine())
-    versions = prefix / "lib" / "distroplane" / "versions"
     destination = versions / args.version
-    link = prefix / "bin" / "distroplane"
     archive_name = f"distroplane_{args.version}_linux_{arch}.tar.gz"
     with tempfile.TemporaryDirectory(prefix="distroplane-download-") as temp:
         directory = args.offline_dir.expanduser().resolve() if args.offline_dir else Path(temp)
@@ -269,12 +289,24 @@ def install(args):
                 with tempfile.TemporaryDirectory(dir=versions, prefix=".check-") as tmp:
                     expected = Path(tmp)
                     verify_and_stage(blob, args.version, commit, arch, expected)
-                    for file in expected.rglob("*"):
+                    expected_files = {file.relative_to(expected) for file in expected.rglob("*")
+                                      if file.is_file()}
+                    actual_files = set()
+                    for file in destination.rglob("*"):
+                        if file.is_symlink():
+                            fail("installed release contains unsafe symlinks")
                         if file.is_file():
-                            counterpart = destination / file.relative_to(expected)
-                            if (counterpart.is_symlink() or not counterpart.is_file()
-                                    or read_regular(counterpart, MAX_BINARY) != file.read_bytes()):
-                                fail("installed release differs from verified published bytes")
+                            actual_files.add(file.relative_to(destination))
+                        elif not file.is_dir():
+                            fail("installed release contains unsafe file types")
+                    if actual_files != expected_files:
+                        fail("installed release differs from verified published bytes")
+                    for relative in expected_files:
+                        counterpart = destination / relative
+                        if (counterpart.is_symlink() or not counterpart.is_file()
+                                or read_regular(counterpart, MAX_BINARY) !=
+                                (expected / relative).read_bytes()):
+                            fail("installed release differs from verified published bytes")
                 smoke(destination, args.version)
             else:
                 staging = Path(tempfile.mkdtemp(dir=versions, prefix=".install-"))

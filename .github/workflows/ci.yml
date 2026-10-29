@@ -51,6 +51,10 @@ jobs:
       - name: Verify Linux installer failure and recovery paths
         if: runner.os == 'Linux'
         run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
+      - name: Verify complete release staging contract and corruption paths
+        run: python3 -m unittest discover -s scripts -p 'test_verify_release_stage.py' -v
+      - name: Verify native archive execution and rejection paths
+        run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
       - name: Vet
         run: go vet ./...
       - name: Dependency budget
@@ -105,6 +109,8 @@ jobs:
           persist-credentials: false
       - name: Test direct Linux installer on ARM64
         run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
+      - name: Verify native ARM64 archive execution fixture
+        run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
 
   benchmark:
     name: Benchmark record
@@ -237,6 +243,12 @@ jobs:
         run: |
           go run ./scripts/release-assets.go verify
           if ($LASTEXITCODE -ne 0) { throw 'release archive verification failed' }
+      - name: Run real standalone and packaged executables on native runner
+        shell: pwsh
+        run: |
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python scripts/smoke-release-native.py --directory dist --version $env:VERSION --commit $env:COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'native release installation check failed' }
       - name: Install and tamper-test unified archive on native Linux
         if: runner.os == 'Linux'
         shell: bash
@@ -323,6 +335,24 @@ jobs:
               throw "Unsigned CI MSI unexpectedly contains an Authenticode signature: $arch"
             }
           }
+      - name: Rehearse complete release staging from real MSI and archive bytes
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $commit = (git rev-parse --short=12 HEAD).Trim()
+          $lines = foreach ($arch in @('amd64', 'arm64')) {
+            $name = "distroplane_${version}_windows_${arch}.msi"
+            Copy-Item -LiteralPath "msi/$name" -Destination "dist/$name"
+            $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          $checksumFile = Join-Path dist 'MSI-SHA256SUMS'
+          $bytes = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) $checksumFile), (($lines -join [char]10) + [char]10), $bytes)
+          python scripts/verify-release-stage.py create --directory dist --version $version --commit $commit --signing-mode unsigned
+          if ($LASTEXITCODE -ne 0) { throw 'Release staging manifest creation failed' }
+          python scripts/verify-release-stage.py verify --directory dist --version $version --commit $commit --signing-mode unsigned
+          if ($LASTEXITCODE -ne 0) { throw 'Release staging manifest verification failed' }
       - name: Generate WinGet manifest candidates from actual MSI hashes
         shell: pwsh
         run: |
