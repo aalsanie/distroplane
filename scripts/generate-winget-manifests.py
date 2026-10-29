@@ -2,7 +2,7 @@
 """Create reviewable WinGet manifests from real, already-built MSI bytes.
 
 Submission is deliberately separate from generation: public catalog acceptance
-requires publisher identity approval and a published, signed installer.
+requires publisher identity approval and a published, verified installer.
 """
 import argparse
 import hashlib
@@ -52,6 +52,7 @@ def generate(directory, version, package_id, publisher):
         f"PackageVersion: {version}\n"
         "InstallerType: msi\n"
         "Scope: machine\n"
+        "ElevationRequirement: elevationRequired\n"
         "UpgradeBehavior: install\n"
         "InstallModes:\n"
         "  - interactive\n"
