@@ -274,6 +274,32 @@ jobs:
         run: |
           dotnet tool install --tool-path "$env:RUNNER_TEMP/wix" wix --version 6.0.0
           if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+      - name: Verify fail-closed Windows MSI signing policy
+        shell: pwsh
+        run: |
+          $env:MSI_SIGNING_PFX_BASE64 = ''
+          $env:MSI_SIGNING_PFX_PASSWORD = ''
+          if ((./scripts/validate-windows-msi-mode.ps1 -Mode unsigned) -cne 'unsigned') {
+            throw 'Unsigned mode must be explicitly accepted'
+          }
+          function Assert-Rejected([string]$mode) {
+            try {
+              ./scripts/validate-windows-msi-mode.ps1 -Mode $mode | Out-Null
+              throw 'UNEXPECTED_POLICY_ACCEPTANCE'
+            } catch {
+              if ($_.Exception.Message -eq 'UNEXPECTED_POLICY_ACCEPTANCE') { throw }
+            }
+          }
+          foreach ($mode in @('', 'false', 'pfx')) { Assert-Rejected $mode }
+          $env:MSI_SIGNING_PFX_BASE64 = 'placeholder'
+          $env:MSI_SIGNING_PFX_PASSWORD = 'placeholder'
+          if ((./scripts/validate-windows-msi-mode.ps1 -Mode pfx) -cne 'pfx') {
+            throw 'PFX mode must accept complete credentials'
+          }
+          Assert-Rejected 'unsigned'
+          $env:MSI_SIGNING_PFX_PASSWORD = ''
+          Assert-Rejected 'pfx'
+          $env:MSI_SIGNING_PFX_BASE64 = ''
       - name: Build and verify Windows release input
         shell: pwsh
         env:
@@ -292,6 +318,10 @@ jobs:
           $wix = Join-Path $env:RUNNER_TEMP 'wix/wix.exe'
           foreach ($arch in @('amd64', 'arm64')) {
             ./scripts/build-msi.ps1 -Version $env:VERSION -Architecture $arch -ReleaseDir dist -OutputDir msi -WixExe $wix
+            $msi = "msi/distroplane_$($env:VERSION)_windows_$arch.msi"
+            if ((Get-AuthenticodeSignature -LiteralPath $msi).Status -ne 'NotSigned') {
+              throw "Unsigned CI MSI unexpectedly contains an Authenticode signature: $arch"
+            }
           }
       - name: Generate WinGet manifest candidates from actual MSI hashes
         shell: pwsh
