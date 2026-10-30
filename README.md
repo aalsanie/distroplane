@@ -1,5 +1,7 @@
 # Distroplane
 
+[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml) [![CodeQL](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml) [![CLI Release](https://img.shields.io/github/v/release/aalsanie/distroplane?label=CLI)](https://github.com/aalsanie/distroplane/releases/latest) [![Maven Central](https://img.shields.io/maven-central/v/io.github.aalsanie/distroplane-maven-plugin?label=Maven%20plugin)](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin) [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
+
 Publish prebuilt releases to npm, SDKMAN, Homebrew, and WinGet.
 
 ## Install
