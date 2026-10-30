@@ -52,7 +52,9 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 -m unittest discover -s scripts -p 'test_install_linux.py' -v
       - name: Verify complete release staging contract and corruption paths
-        run: python3 -m unittest discover -s scripts -p 'test_verify_release_stage.py' -v
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_release_stage.py' -v
+          python3 -m unittest discover -s scripts -p 'test_release_workflow.py' -v
       - name: Verify native archive execution and rejection paths
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
       - name: Verify Action recovery handoff integrity
