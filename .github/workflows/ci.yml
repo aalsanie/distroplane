@@ -57,11 +57,10 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
       - name: Verify Action recovery handoff integrity
         run: python3 -m unittest discover -s scripts -p 'test_action_recovery.py' -v
-      - name: Verify documentation and benchmark evidence contracts
+      - name: Check documentation links and benchmark evidence
         run: |
-          python3 -m unittest discover -s scripts -p 'test_verify_readiness.py' -v
+          python3 -m unittest discover -s scripts -p 'test_docs.py' -v
           python3 -m unittest discover -s scripts -p 'test_compare_benchmarks.py' -v
-          python3 scripts/verify-readiness.py
       - name: Vet
         run: go vet ./...
       - name: Dependency budget

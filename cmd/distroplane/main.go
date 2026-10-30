@@ -53,6 +53,11 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 		printHelp(stdout)
 		return exitOK
 	}
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		if printCommandHelp(args[0], stdout) {
+			return exitOK
+		}
+	}
 	switch args[0] {
 	case "help", "-h", "--help":
 		if len(args) != 1 {
@@ -121,34 +126,67 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Distroplane — release distribution control plane")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  distroplane <command> [options]")
+	fmt.Fprintln(w, "Get started:")
+	fmt.Fprintln(w, "  distroplane init       create release configuration")
+	fmt.Fprintln(w, "  distroplane doctor     check that everything is ready")
+	fmt.Fprintln(w, "  distroplane publish    review and publish the release")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Check an existing release:")
+	fmt.Fprintln(w, "  distroplane status     see what happened")
+	fmt.Fprintln(w, "  distroplane resume     continue a pending release safely")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  version [--json]                 print version information")
-	fmt.Fprintln(w, "  validate --config PATH [--json]  validate release configuration")
-	fmt.Fprintln(w, "  doctor --config PATH [--plan PATH] [--remote] [--json]")
-	fmt.Fprintln(w, "                                      check local readiness and opt-in network connectivity")
-	fmt.Fprintln(w, "  init --destination PROVIDER --release ID [--artifact PATH] [--set FIELD=VALUE]")
-	fmt.Fprintln(w, "                                      generate a validated schema-v2 config")
-	fmt.Fprintln(w, "  plan --config PATH [--json]      build and persist an immutable plan")
-	fmt.Fprintln(w, "  publish --config PATH [--yes | --confirm-plan ID] [--dry-run] [--json]")
-	fmt.Fprintln(w, "                                      preview, approve, and execute a release")
-	fmt.Fprintln(w, "  runs --config PATH [--release ID] [--run ID] [--json]")
-	fmt.Fprintln(w, "                                      inventory verified release runs")
-	fmt.Fprintln(w, "  apply --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
-	fmt.Fprintln(w, "                                      execute or resume a plan")
-	fmt.Fprintln(w, "  resume --config PATH [--release ID] [--run ID] [--reconcile-only] [--json]")
-	fmt.Fprintln(w, "                                      recover a cataloged publication run")
-	fmt.Fprintln(w, "  status [--config PATH] [--release ID] [--run ID] [--json]")
-	fmt.Fprintln(w, "                                      inspect selected journal-derived state")
-	fmt.Fprintln(w, "  reconcile --config PATH --plan PATH --journal PATH [--concurrency N] [--json]")
-	fmt.Fprintln(w, "                                      reconcile external state only")
+	fmt.Fprintln(w, "  init [--destination PROVIDER] [--release ID] [--artifact PATH]")
+	fmt.Fprintln(w, "  doctor [--config PATH] [--remote] [--json]")
+	fmt.Fprintln(w, "  publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID]")
+	fmt.Fprintln(w, "  status [--config PATH] [--release ID] [--run ID]")
+	fmt.Fprintln(w, "  resume [--config PATH] [--release ID] [--run ID] [--reconcile-only]")
+	fmt.Fprintln(w, "  validate [--config PATH] [--json]")
+	fmt.Fprintln(w, "  plan [--config PATH] [--json]")
+	fmt.Fprintln(w, "  runs [--config PATH] [--json]")
+	fmt.Fprintln(w, "  apply --config PATH --plan PATH --journal PATH")
+	fmt.Fprintln(w, "  reconcile --config PATH --plan PATH --journal PATH")
 	fmt.Fprintln(w, "  retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk")
-	fmt.Fprintln(w, "                                      authorize one reconciled absent npm retry (no publication)")
-	fmt.Fprintln(w, "  evidence --plan PATH --journal PATH [--output PATH] [--json]")
-	fmt.Fprintln(w, "                                      export normalized release evidence")
-	fmt.Fprintln(w, "  help                             print this help")
+	fmt.Fprintln(w, "  evidence --plan PATH --journal PATH [--output PATH]")
+	fmt.Fprintln(w, "  version [--json]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run distroplane <command> --help for command options.")
+}
+
+func printCommandHelp(command string, w io.Writer) bool {
+	var summary string
+	switch command {
+	case "init":
+		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE]\n  Options: --output PATH, --force, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip"
+	case "doctor":
+		summary = "Check local readiness without publishing.\n  distroplane doctor [--config PATH] [--plan PATH] [--remote] [--timeout 3s] [--json]"
+	case "publish":
+		summary = "Preview, approve and publish a release.\n  distroplane publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID] [--credential REF=ENV] [--json]"
+	case "status":
+		summary = "Inspect an existing release without publishing.\n  distroplane status [--config PATH] [--release ID] [--run ID] [--json]"
+	case "resume":
+		summary = "Continue an existing release without creating a new one.\n  distroplane resume [--config PATH] [--release ID] [--run ID] [--reconcile-only] [--credential REF=ENV] [--json]"
+	case "validate":
+		summary = "Validate release configuration.\n  distroplane validate [--config PATH] [--json]"
+	case "plan":
+		summary = "Save an immutable release plan without publishing.\n  distroplane plan [--config PATH] [--state-dir PATH] [--json]"
+	case "runs":
+		summary = "List existing releases.\n  distroplane runs [--config PATH] [--release ID] [--run ID] [--json]"
+	case "apply":
+		summary = "Execute or resume a reviewed plan.\n  distroplane apply --config PATH --plan PATH --journal PATH [--credential REF=ENV] [--json]"
+	case "reconcile":
+		summary = "Inspect uncertain destination outcomes without publishing.\n  distroplane reconcile --config PATH --plan PATH --journal PATH [--credential REF=ENV] [--json]"
+	case "retry":
+		summary = "Authorize one reconciled npm retry after accepting duplicate risk.\n  distroplane retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk"
+	case "evidence":
+		summary = "Export recorded release evidence.\n  distroplane evidence --plan PATH --journal PATH [--output PATH] [--json]"
+	case "version":
+		summary = "Show the CLI version.\n  distroplane version [--json]"
+	default:
+		return false
+	}
+	fmt.Fprintln(w, summary)
+	return true
 }
 
 func stdinIsTerminal() bool {
