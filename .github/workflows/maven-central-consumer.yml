@@ -1,0 +1,48 @@
+name: Verify published Maven plugin consumer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Maven Central published plugin version to verify'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  consumer:
+    name: Clean Maven Central consumer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch from Maven Central using a clean repository and verify the real CLI
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:VERSION -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid public version' }
+          $base = "https://repo.maven.apache.org/maven2/io/github/aalsanie/distroplane-maven-plugin/$env:VERSION"
+          $uri = "$base/distroplane-maven-plugin-$env:VERSION.pom"
+          try { Invoke-WebRequest -Uri $uri -Method Head -MaximumRedirection 0 -ErrorAction Stop | Out-Null }
+          catch { throw 'Maven plugin has not reached the public Central repository; public availability must not be claimed.' }
+          $repo = Join-Path $env:RUNNER_TEMP ('maven-central-fresh-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $repo | Out-Null
+          Push-Location maven-plugin/examples/npm
+          try {
+            $goal = 'io.github.aalsanie:distroplane-maven-plugin:{0}:validate' -f $env:VERSION
+            mvn -B -ntp -U "-Dmaven.repo.local=$repo" "-Ddistroplane.plugin.version=$env:VERSION" $goal
+            if ($LASTEXITCODE -ne 0) { throw 'Clean Maven Central consumer could not invoke native Distroplane validate' }
+          } finally { Pop-Location }

@@ -115,7 +115,12 @@ final class ArtifactMapper {
         return result;
     }
     private static void add(List<Source> result, String module, Artifact artifact) {
-        result.add(new Source(module, artifact.getClassifier(), artifact.getType(),
+        // Maven uses internal artifact types such as "java-source" for an
+        // attached sources JAR. Release mappings describe the file extension,
+        // not Maven's internal type (which varies by producing plugin).
+        String extension = artifact.getArtifactHandler() == null ? artifact.getType() :
+            artifact.getArtifactHandler().getExtension();
+        result.add(new Source(module, artifact.getClassifier(), extension,
             artifact.getFile() == null ? null : artifact.getFile().toPath()));
     }
 }
