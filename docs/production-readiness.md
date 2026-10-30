@@ -1,6 +1,6 @@
 # Production readiness and acceptance evidence
 
-This is the evidence index for **engineering checks before the v1.0.0 release rehearsal**. Passing a pull-request CI run is necessary but not sufficient to sign the final twelve release gates. Verify exact commit, workflow attempt, native runner, and artifact identity at review time. The release owner records any accepted limitation and independent acceptance separately; no unchecked item is inferred complete from this document.
+This is the evidence index for **engineering checks before the v1.0.0 release rehearsal**. Passing a pull-request CI run is necessary but not sufficient to authorize a general-availability release. Verify exact commit, workflow attempt, native runner, and artifact identity at review time. The release owner records any accepted limitation and independent acceptance separately; no unchecked item is inferred complete from this document.
 
 ## Cross-platform executable and installation evidence
 
@@ -19,15 +19,15 @@ A compile-only build is **not** evidence of execution. Homebrew installation of 
 
 | Gate | Existing validation to review | Remaining release-specific evidence |
 | --- | --- | --- |
-| QA-01 — install matrix | `.github/workflows/ci.yml` release-build, Linux arm64 and MSI native lifecycle; `.github/workflows/release.yml` 6-architecture native installation | Fresh real release install on all supported channels and hardware; capture native-vs-emulated provenance |
-| QA-02 — crash and duplicate safety | `internal/journal/fault_test.go`, `internal/executor/ambiguous_retry_test.go`, `internal/runstate/crash_test.go`, `cmd/distroplane/{blocked_recovery,resume,retry,publish}_test.go` | Verify exact CI test outcomes and interruption/changed-digest cases on the release candidate; no implicit npm retry |
-| QA-03 — tampering | `internal/providerretention/retention_faults_test.go`, `internal/runstate/safety_test.go`, `scripts/test_install_linux.py`, `scripts/test_verify_release_stage.py`, `scripts/test_action_recovery.py`, `maven-plugin/src/test` | Review permission, PATH shadowing, archive escapes, cache poisoning and output redaction on native hosts |
-| QA-04 — provider semantics | `providers/{npm,sdkman,homebrew,winget}/*_test.go`, `internal/config/testdata/compatibility/`, `cmd/distroplane/release_artifact_test.go` | Verify planning/apply/reconcile/failure cases for each destination; PR creation/merge and API acceptance must not be called public availability |
-| QA-05 — Action and Maven | `.github/workflows/action-smoke.yml`, `.github/workflows/maven-plugin.yml`, `.github/workflows/maven-central-consumer.yml` | Preserve exact approval, pending, restore and run-ID evidence; use sacrificial credentials only with approval |
-| QA-06 — incident response | [Security model](security-model.md), [incident procedure](security-incident-response.md), `SECURITY.md` | Named human owners, private tabletop record, credential rotation/withdrawal signoff |
-| QA-07 — performance | [Historical performance baseline](performance-baseline.md), `.github/workflows/ci.yml` benchmark job, `scripts/compare-benchmarks.py` | Inspect uploaded per-commit sample/environment; accept/reject material regressions; rerun on comparable hardware where needed |
-| QA-08 — docs and examples | `scripts/verify-readiness.py`, [CLI](cli.md), [configuration](configuration.md), [release verification](release-verification.md), [Action](github-actions.md), published Maven example | Execute consumer examples with tested public versions; validate all referenced paths/credentials, and check external channel availability |
-| QA-09 — independent onboarding | Task protocol below | **Independent human evaluations remain required** on macOS, Windows, Linux |
+| install matrix | `.github/workflows/ci.yml` release-build, Linux arm64 and MSI native lifecycle; `.github/workflows/release.yml` 6-architecture native installation | Fresh real release install on all supported channels and hardware; capture native-vs-emulated provenance |
+| crash and duplicate safety | `internal/journal/fault_test.go`, `internal/executor/ambiguous_retry_test.go`, `internal/runstate/crash_test.go`, `cmd/distroplane/{blocked_recovery,resume,retry,publish}_test.go` | Verify exact CI test outcomes and interruption/changed-digest cases on the release candidate; no implicit npm retry |
+| tampering | `internal/providerretention/retention_faults_test.go`, `internal/runstate/safety_test.go`, `scripts/test_install_linux.py`, `scripts/test_verify_release_stage.py`, `scripts/test_action_recovery.py`, `maven-plugin/src/test` | Review permission, PATH shadowing, archive escapes, cache poisoning and output redaction on native hosts |
+| provider semantics | `providers/{npm,sdkman,homebrew,winget}/*_test.go`, `internal/config/testdata/compatibility/`, `cmd/distroplane/release_artifact_test.go` | Verify planning/apply/reconcile/failure cases for each destination; PR creation/merge and API acceptance must not be called public availability |
+| Action and Maven | `.github/workflows/action-smoke.yml`, `.github/workflows/maven-plugin.yml`, `.github/workflows/maven-central-consumer.yml` | Preserve exact approval, pending, restore and run-ID evidence; use sacrificial credentials only with approval |
+| incident response | [Security model](security-model.md), [incident procedure](security-incident-response.md), `SECURITY.md` | Named human owners, private tabletop record, credential rotation/withdrawal signoff |
+| performance | [Historical performance baseline](performance-baseline.md), `.github/workflows/ci.yml` benchmark job, `scripts/compare-benchmarks.py` | Inspect uploaded per-commit sample/environment; accept/reject material regressions; rerun on comparable hardware where needed |
+| docs and examples | `scripts/verify-readiness.py`, [CLI](cli.md), [configuration](configuration.md), [release verification](release-verification.md), [Action](github-actions.md), published Maven example | Execute consumer examples with tested public versions; validate all referenced paths/credentials, and check external channel availability |
+| independent onboarding | Task protocol below | **Independent human evaluations remain required** on macOS, Windows, Linux |
 
 No line in this matrix asserts an external test, incident drill, or usability evaluation has occurred. GitHub workflow results, artifact digests and human signoffs must be linked by the release owner before marking a gate accepted.
 
@@ -51,4 +51,4 @@ The baseline commit is `47e40cbc21605c7ddaa84fe62a8535b52f789eea`; its results a
 
 ## Final handoff to release rehearsal
 
-Before beginning the final release rehearsal, attach the PR 19 exact-commit CI and benchmark URLs, native platform evidence, external-channel availability, a signed incident drill, the independent developer results, and any accepted limitations. The release owner must explicitly decide whether each QA-01–QA-09 acceptance criterion is satisfied. Final release gates and the v1.0.0 tag remain a **separate** release milestone.
+Before beginning the final release rehearsal, attach the exact-commit CI and benchmark URLs, native platform evidence, external-channel availability, a signed incident drill, the independent developer results, and any accepted limitations. The release owner must explicitly decide whether each production-readiness acceptance criterion is satisfied. The v1.0.0 tag remains subject to a separate release rehearsal and approval.
