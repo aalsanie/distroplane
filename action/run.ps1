@@ -78,7 +78,8 @@ function Add-MultilineFlags {
 function Invoke-Distroplane {
     param(
         [Parameter(Mandatory = $true)][string]$Binary,
-        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Arguments
+        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Arguments,
+        [string[]]$SensitiveValues = @()
     )
 
     $id = [Guid]::NewGuid().ToString('N')
@@ -89,6 +90,13 @@ function Invoke-Distroplane {
         $code = $LASTEXITCODE
         $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { '' }
         $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { '' }
+        if ($null -eq $stdout) { $stdout = '' }
+        if ($null -eq $stderr) { $stderr = '' }
+        foreach ($sensitive in $SensitiveValues) {
+            if ($sensitive -and ($stdout.Contains($sensitive) -or $stderr.Contains($sensitive))) {
+                throw 'Distroplane returned sensitive credential material; output was suppressed.'
+            }
+        }
         if ($stderr) {
             [Console]::Error.Write($stderr)
         }
@@ -208,7 +216,51 @@ switch ($command) {
 }
 $arguments.Add('--json')
 
-$result = Invoke-Distroplane -Binary $binary -Arguments $arguments
+# Only explicit npm trusted-publishing opt-in performs an OIDC token request.
+# A new JWT is acquired on each Action invocation, never stored in run state.
+$oidcMode = $env:DISTROPLANE_OIDC.Trim().ToLowerInvariant()
+$npmOidcRef = $env:DISTROPLANE_NPM_OIDC_REF.Trim()
+$sensitiveValues = [System.Collections.Generic.List[string]]::new()
+foreach ($line in ($env:DISTROPLANE_CREDENTIAL_MAPPINGS -split "\r?\n")) {
+    if ($line.Trim() -match '^[^=\s]+=([A-Za-z_][A-Za-z0-9_]*)$') {
+        $value = [Environment]::GetEnvironmentVariable($Matches[1])
+        if ($value) { $sensitiveValues.Add($value) }
+    }
+}
+# Protect conventional source secrets even when the core chooses default mappings.
+foreach ($name in @('NPM_TOKEN', 'HOMEBREW_GITHUB_TOKEN', 'WINGET_GITHUB_TOKEN',
+    'SDKMAN_VENDOR_PASSWORD', 'SDKMAN_CONSUMER_TOKEN')) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($value -and $value.Length -ge 8) { $sensitiveValues.Add($value) }
+}
+if ($oidcMode -ne 'npm' -and $npmOidcRef) {
+    throw 'npm-oidc-ref requires oidc: npm.'
+}
+if ($oidcMode -eq 'npm') {
+    if ($command -notin @('publish', 'resume', 'apply', 'reconcile')) {
+        throw 'oidc: npm only applies to a publishing or reconciliation command.'
+    }
+    if (-not $npmOidcRef) { throw 'oidc: npm requires npm-oidc-ref.' }
+    Assert-DistroplaneNpmOIDCBinding -ConfigPath (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG) -CredentialRef $npmOidcRef -Mappings $env:DISTROPLANE_CREDENTIAL_MAPPINGS
+    if ([Environment]::GetEnvironmentVariable('DISTROPLANE_ACTION_NPM_OIDC_TOKEN')) {
+        throw 'Reserved npm OIDC environment source is already set.'
+    }
+    $jwt = Get-DistroplaneNpmOIDCToken -RequestUrl $env:ACTIONS_ID_TOKEN_REQUEST_URL -RequestToken $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
+    $sensitiveValues.Add($jwt)
+    $sensitiveValues.Add($env:ACTIONS_ID_TOKEN_REQUEST_TOKEN)
+    Write-Host "::add-mask::$jwt"
+    $arguments.Insert($arguments.Count - 1, '--credential')
+    $arguments.Insert($arguments.Count - 1, "$npmOidcRef=DISTROPLANE_ACTION_NPM_OIDC_TOKEN")
+    [Environment]::SetEnvironmentVariable('DISTROPLANE_ACTION_NPM_OIDC_TOKEN', $jwt)
+    [Environment]::SetEnvironmentVariable('ACTIONS_ID_TOKEN_REQUEST_TOKEN', $null)
+    [Environment]::SetEnvironmentVariable('ACTIONS_ID_TOKEN_REQUEST_URL', $null)
+    $jwt = $null
+}
+try {
+    $result = Invoke-Distroplane -Binary $binary -Arguments $arguments -SensitiveValues $sensitiveValues.ToArray()
+} finally {
+    [Environment]::SetEnvironmentVariable('DISTROPLANE_ACTION_NPM_OIDC_TOKEN', $null)
+}
 Set-ActionOutput -Name 'exit-code' -Value ([string]$result.ExitCode)
 Set-ActionOutput -Name 'pending' -Value (($result.ExitCode -eq 4).ToString().ToLowerInvariant())
 Set-ActionOutput -Name 'failed' -Value (($result.ExitCode -eq 6 -or $result.ExitCode -in @(1, 2, 3)).ToString().ToLowerInvariant())
@@ -298,7 +350,7 @@ if ($shouldGenerateEvidence) {
         Add-MultilineFlags -Arguments $evidenceArguments -Raw $env:DISTROPLANE_ATTESTATIONS -Flag '--attestation' -FormatName 'attestations'
         $evidenceArguments.Add('--json')
 
-        $evidenceResult = Invoke-Distroplane -Binary $binary -Arguments $evidenceArguments
+        $evidenceResult = Invoke-Distroplane -Binary $binary -Arguments $evidenceArguments -SensitiveValues $sensitiveValues.ToArray()
         if ($evidenceResult.ExitCode -ne 0) {
             throw "Evidence export failed with exit code $($evidenceResult.ExitCode)."
         }

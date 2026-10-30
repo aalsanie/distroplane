@@ -23,7 +23,7 @@ With `mode: "token"`, map the credential reference to an environment variable at
 distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
 ```
 
-`mode: "trusted-publishing"` exchanges a supplied npm-audience OIDC ID token for an npm token. The provider does **not** obtain the ID token itself. For GitHub Actions, explicitly request an ID token with audience `npm:registry.npmjs.org` and grant `id-token: write`; map its environment variable to the configured credential reference. Obtain a fresh ID token for a later reconciliation.
+`mode: "trusted-publishing"` exchanges a supplied npm-audience OIDC ID token for an npm token. The provider does **not** obtain the ID token itself. In the GitHub Action, set `oidc: npm` and `npm-oidc-ref` to this destination's unique credential reference; the Action explicitly requests a fresh GitHub ID token with audience `npm:registry.npmjs.org` under `permissions: id-token: write`. Only the official npm HTTPS registry is supported by automatic acquisition. The Action maps the token to a transient environment source for the npm provider and never persists it. Plain CLI invocation still requires an externally supplied ID token. A later reconciliation needs a fresh token.
 
 ## Result and recovery semantics
 
