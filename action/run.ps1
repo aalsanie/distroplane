@@ -112,8 +112,8 @@ $oidcAvailable = Test-DistroplaneOIDC -Mode $env:DISTROPLANE_OIDC -RequestUrl $e
 Set-ActionOutput -Name 'oidc-available' -Value $oidcAvailable.ToString().ToLowerInvariant()
 
 $command = $env:DISTROPLANE_COMMAND.Trim().ToLowerInvariant()
-if ($command -notin @('plan', 'apply', 'reconcile')) {
-    throw "command must be one of: plan, apply, reconcile."
+if ($command -notin @('plan', 'apply', 'reconcile', 'publish', 'resume')) {
+    throw "command must be one of: plan, apply, reconcile, publish, resume."
 }
 
 $concurrencyText = $env:DISTROPLANE_CONCURRENCY.Trim()
@@ -128,6 +128,40 @@ $arguments = [System.Collections.Generic.List[string]]::new()
 $arguments.Add($command)
 
 switch ($command) {
+    'publish' {
+        $approve = Parse-BooleanInput -Name 'approve' -Value $env:DISTROPLANE_APPROVE
+        $confirm = $env:DISTROPLANE_CONFIRM_PLAN.Trim()
+        if ($approve -and $confirm) { throw 'approve and confirm-plan are mutually exclusive.' }
+        if (-not $approve -and -not $confirm) { throw 'publish requires approve: true or a matching confirm-plan.' }
+        $arguments.Add('--config')
+        $arguments.Add($env:DISTROPLANE_CONFIG)
+        $arguments.Add('--concurrency')
+        $arguments.Add([string]$concurrency)
+        if ($approve) { $arguments.Add('--yes') }
+        if ($confirm) {
+            $arguments.Add('--confirm-plan')
+            $arguments.Add($confirm)
+        }
+        Add-MultilineFlags -Arguments $arguments -Raw $env:DISTROPLANE_CREDENTIAL_MAPPINGS -Flag '--credential' -FormatName 'credential-mappings'
+    }
+    'resume' {
+        $arguments.Add('--config')
+        $arguments.Add($env:DISTROPLANE_CONFIG)
+        $arguments.Add('--concurrency')
+        $arguments.Add([string]$concurrency)
+        if ($env:DISTROPLANE_RELEASE.Trim()) {
+            $arguments.Add('--release')
+            $arguments.Add($env:DISTROPLANE_RELEASE.Trim())
+        }
+        if ($env:DISTROPLANE_RUN_ID.Trim()) {
+            $arguments.Add('--run')
+            $arguments.Add($env:DISTROPLANE_RUN_ID.Trim())
+        }
+        if (Parse-BooleanInput -Name 'reconcile-only' -Value $env:DISTROPLANE_RECONCILE_ONLY) {
+            $arguments.Add('--reconcile-only')
+        }
+        Add-MultilineFlags -Arguments $arguments -Raw $env:DISTROPLANE_CREDENTIAL_MAPPINGS -Flag '--credential' -FormatName 'credential-mappings'
+    }
     'plan' {
         if (-not $env:DISTROPLANE_CONFIG.Trim()) {
             throw 'config must not be empty.'
@@ -177,12 +211,15 @@ $arguments.Add('--json')
 $result = Invoke-Distroplane -Binary $binary -Arguments $arguments
 Set-ActionOutput -Name 'exit-code' -Value ([string]$result.ExitCode)
 Set-ActionOutput -Name 'pending' -Value (($result.ExitCode -eq 4).ToString().ToLowerInvariant())
+Set-ActionOutput -Name 'failed' -Value (($result.ExitCode -eq 6 -or $result.ExitCode -in @(1, 2, 3)).ToString().ToLowerInvariant())
+Set-ActionOutput -Name 'rejected' -Value (($result.ExitCode -eq 5).ToString().ToLowerInvariant())
 Set-ActionOutput -Name 'result-json' -Value $result.Stdout
 
 $planID = ''
 $planPath = ''
 $runID = ''
 $completed = 'false'
+$journalPath = ''
 if ($result.Stdout) {
     try {
         $parsed = $result.Stdout | ConvertFrom-Json
@@ -201,20 +238,48 @@ if ($result.Stdout) {
     if ($parsed.PSObject.Properties.Name -contains 'completed') {
         $completed = ([bool]$parsed.completed).ToString().ToLowerInvariant()
     }
+    if ($parsed.PSObject.Properties.Name -contains 'plan' -and $null -ne $parsed.plan) {
+        $planID = [string]$parsed.plan.planId
+        $planPath = [string]$parsed.plan.path
+    }
+    if ($parsed.PSObject.Properties.Name -contains 'run' -and $null -ne $parsed.run) {
+        $runID = [string]$parsed.run.runId
+        $completed = ([bool]$parsed.run.completed).ToString().ToLowerInvariant()
+    }
+    if ($parsed.PSObject.Properties.Name -contains 'journalPath') {
+        $journalPath = [string]$parsed.journalPath
+    }
 }
 Set-ActionOutput -Name 'plan-id' -Value $planID
 Set-ActionOutput -Name 'plan-path' -Value $planPath
 Set-ActionOutput -Name 'run-id' -Value $runID
 Set-ActionOutput -Name 'completed' -Value $completed
+Set-ActionOutput -Name 'state-path' -Value (Join-Path (Split-Path -Parent (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG)) '.distroplane')
+if ($command -in @('apply', 'reconcile')) {
+    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
+}
+Set-ActionOutput -Name 'journal-path' -Value $journalPath
 
 $uploadEvidence = Parse-BooleanInput -Name 'upload-evidence' -Value $env:DISTROPLANE_UPLOAD_EVIDENCE
 $requestedEvidencePath = $env:DISTROPLANE_EVIDENCE_PATH.Trim()
-$shouldGenerateEvidence = $command -in @('apply', 'reconcile') -and ($requestedEvidencePath -or $uploadEvidence)
+$shouldGenerateEvidence = $command -in @('apply', 'reconcile', 'publish', 'resume') -and ($requestedEvidencePath -or $uploadEvidence)
+if ($command -in @('apply', 'reconcile')) {
+    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
+}
+if ($command -eq 'resume' -and $shouldGenerateEvidence) {
+    $runs = Join-Path (Split-Path -Parent (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG)) '.distroplane/catalog/runs'
+    $matches = @(Get-ChildItem -LiteralPath $runs -File -Filter '*.json' -ErrorAction Stop |
+        Where-Object { $_.Name -notlike '*.backup' } |
+        ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
+        Where-Object { $_.runId -eq $runID })
+    if ($matches.Count -ne 1) { throw 'Cannot locate the unique durable journal for evidence export.' }
+    $journalPath = [string]$matches[0].journalPath
+    $planPath = [string]$matches[0].planPath
+}
 $evidencePath = ''
 $evidenceDigest = ''
 
 if ($shouldGenerateEvidence) {
-    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
     if (Test-Path -LiteralPath $journalPath -PathType Leaf) {
         if ($requestedEvidencePath) {
             $evidencePath = Resolve-LocalPath -Path $requestedEvidencePath
@@ -225,9 +290,9 @@ if ($shouldGenerateEvidence) {
         $evidenceArguments = [System.Collections.Generic.List[string]]::new()
         $evidenceArguments.Add('evidence')
         $evidenceArguments.Add('--plan')
-        $evidenceArguments.Add($env:DISTROPLANE_PLAN)
+        $evidenceArguments.Add($(if ($planPath) { $planPath } else { $env:DISTROPLANE_PLAN }))
         $evidenceArguments.Add('--journal')
-        $evidenceArguments.Add($env:DISTROPLANE_JOURNAL)
+        $evidenceArguments.Add($journalPath)
         $evidenceArguments.Add('--output')
         $evidenceArguments.Add($evidencePath)
         Add-MultilineFlags -Arguments $evidenceArguments -Raw $env:DISTROPLANE_ATTESTATIONS -Flag '--attestation' -FormatName 'attestations'

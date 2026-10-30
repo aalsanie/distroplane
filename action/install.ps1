@@ -60,6 +60,13 @@ function Install-DistroplaneRelease {
         throw "repository must use OWNER/REPO form."
     }
 
+    if ($ActionRef -match '^v[0-9]+\.[0-9]+\.[0-9]+') {
+        $refVersion = $ActionRef.TrimStart('v')
+        if ($RequestedVersion.Trim() -and $RequestedVersion.Trim().TrimStart('v') -cne $refVersion) {
+            throw 'The requested binary version does not match the versioned Action ref.'
+        }
+    }
+
     $tag = if ($versionText.StartsWith('v')) { $versionText } else { "v$versionText" }
     $assetVersion = if ($versionText.StartsWith('v')) { $versionText.Substring(1) } else { $versionText }
     $platform = Get-DistroplanePlatform
@@ -88,6 +95,21 @@ function Install-DistroplaneRelease {
             throw "Duplicate SHA256SUMS entry for '$fileName'."
         }
         $entries[$fileName] = $Matches[1].ToLowerInvariant()
+    }
+    $archiveName = if ($IsWindows) {
+        "distroplane_${assetVersion}_${platform}_${architecture}.zip"
+    } else {
+        "distroplane_${assetVersion}_${platform}_${architecture}.tar.gz"
+    }
+    if ($entries.ContainsKey($archiveName)) {
+        $archivePath = Join-Path $installDir $archiveName
+        & $DownloadFile "$releaseBase/$archiveName" $archivePath
+        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
+        if ($actual -cne $entries[$archiveName]) { throw "Checksum mismatch for $archiveName." }
+        return Install-VerifiedDistroplaneArchive -ArchivePath $archivePath -AssetVersion $assetVersion -Platform $platform -Architecture $architecture -InstallProviders $InstallProviders
+    }
+    if ($assetVersion -match '^[0-9]+\.[0-9]+\.[0-9]+$' -and [version]$assetVersion -ge [version]'0.9.1') {
+        throw "Release $tag is missing the required unified archive $archiveName."
     }
     if (-not $entries.ContainsKey($cliName)) {
         throw "Release $tag does not contain $cliName."
@@ -127,3 +149,5 @@ function Install-DistroplaneRelease {
     Add-PathForCurrentAndLaterSteps -Path $installDir
     return $canonicalCli
 }
+
+. (Join-Path $PSScriptRoot 'archive-helper.ps1')
