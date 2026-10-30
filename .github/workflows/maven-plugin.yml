@@ -3,10 +3,10 @@ name: Maven plugin
 on:
   pull_request:
     branches: [main]
-    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml']
+    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml', '.github/workflows/maven-central*.yml', 'scripts/test_maven_publication.py']
   push:
     branches: [main]
-    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml']
+    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml', '.github/workflows/maven-central*.yml', 'scripts/test_maven_publication.py']
 
 permissions:
   contents: read
@@ -23,29 +23,75 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, java: '17' }
+          - { os: ubuntu-latest, java: '21' }
+          - { os: macos-latest, java: '17' }
           - { os: windows-latest, java: '21' }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: maven
           cache-dependency-path: maven-plugin/pom.xml
-      - name: Verify Maven plugin and bootstrap security fixtures
-        run: mvn -B -ntp -f maven-plugin/pom.xml verify
-      - name: Verify six generated plugin goal descriptors
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Build and install plugin into isolated Maven repository
         shell: pwsh
         run: |
-          $descriptor = 'maven-plugin/target/classes/META-INF/maven/plugin.xml'
-          if (-not (Test-Path $descriptor)) { throw 'Missing Maven plugin descriptor' }
-          [xml]$xml = Get-Content $descriptor -Raw
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          mvn -B -ntp "-Dmaven.repo.local=$repo" -f maven-plugin/pom.xml install
+          if ($LASTEXITCODE -ne 0) { throw 'Maven plugin build failed' }
+      - name: Verify reproducible plugin archive
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.java == '17' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/maven-it-repository"
+          before="$(sha256sum maven-plugin/target/distroplane-maven-plugin-1.0.0-SNAPSHOT.jar | cut -d' ' -f1)"
+          mvn -B -ntp "-Dmaven.repo.local=$repo" -f maven-plugin/pom.xml clean package
+          after="$(sha256sum maven-plugin/target/distroplane-maven-plugin-1.0.0-SNAPSHOT.jar | cut -d' ' -f1)"
+          test "$before" = "$after"
+      - name: Prefetch runtime plugin dependencies before testing Maven offline mode
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          mvn -B -ntp "-Dmaven.repo.local=$repo" -f maven-plugin/it/simple/pom.xml org.apache.maven.plugins:maven-dependency-plugin:3.9.0:resolve-plugins
+          if ($LASTEXITCODE -ne 0) { throw 'Could not prime the isolated offline Maven plugin dependency graph' }
+      - name: Verify plugin descriptor and pinned platform package
+        shell: pwsh
+        run: |
+          [xml]$xml = Get-Content maven-plugin/target/classes/META-INF/maven/plugin.xml -Raw
           $goals = @($xml.plugin.mojos.mojo | ForEach-Object { $_.goal } | Sort-Object)
-          $required = @('init', 'validate', 'plan', 'publish', 'status', 'resume') | Sort-Object
-          if ($goals.Count -ne 6 -or (Compare-Object $goals $required)) {
-            throw "Maven goal descriptor mismatch: $($goals -join ', ')"
-          }
+          $expected = @('init', 'validate', 'plan', 'publish', 'status', 'resume') | Sort-Object
+          if ($goals.Count -ne 6 -or (Compare-Object $goals $expected)) { throw 'Maven plugin goal descriptor mismatch' }
+          if ([string]$xml.plugin.requiredMavenVersion -ne '3.9.0') { throw 'Minimum Maven version not in descriptor' }
+      - name: Build controlled native execution fixture
+        shell: pwsh
+        run: |
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          $native = Join-Path $env:RUNNER_TEMP "distroplane-maven-fixture$extension"
+          go build -o $native ./maven-plugin/it/fixture-cli/main.go
+          if ($LASTEXITCODE -ne 0) { throw 'Native fixture build failed' }
+          $platform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'darwin' } else { 'linux' }
+          $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'arm64' } else { 'amd64' }
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          python maven-plugin/it/make-cache.py --repo $repo --binary $native --platform $platform --arch $arch
+          if ($LASTEXITCODE -ne 0) { throw 'Verified fixture cache preparation failed' }
+      - name: Verify offline execution, pending recovery, cancellation and reactor artifact mapping
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          python maven-plugin/it/run-smoke.py --repo $repo --fixture 'controlled' --source "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw 'Maven integration smoke failed' }
+      - name: Verify Central release requirements without uploading
+        run: python maven-plugin/it/check-publication.py

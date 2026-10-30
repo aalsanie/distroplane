@@ -1,7 +1,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
   <groupId>example.release</groupId><artifactId>release-from-maven</artifactId><version>1.0.0</version><packaging>pom</packaging>
-  <properties><distroplane.plugin.version>0.0.0-NOT-PUBLISHED</distroplane.plugin.version></properties>
+  <properties><distroplane.plugin.version>1.0.0</distroplane.plugin.version></properties>
   <build><plugins><plugin>
     <groupId>io.github.aalsanie</groupId><artifactId>distroplane-maven-plugin</artifactId>
     <version>${distroplane.plugin.version}</version>

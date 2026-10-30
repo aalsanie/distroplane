@@ -1,0 +1,5 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+  <parent><groupId>test.integration</groupId><artifactId>reactor</artifactId><version>1.0.0</version></parent>
+  <artifactId>beta</artifactId><packaging>jar</packaging>
+  <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-source-plugin</artifactId><version>3.4.0</version><executions><execution><id>attach</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin></plugins></build>
+</project>

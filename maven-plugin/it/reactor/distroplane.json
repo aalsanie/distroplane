@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2",
+  "release": {"id":"multi-module-test", "artifacts":{
+    "app": {"source":"alpha/target/alpha-1.0.0.jar"},
+    "sources": {"source":"beta/target/beta-1.0.0-sources.jar"}
+  }},
+  "destinations":{"npm":{"artifact":"app","options":{
+    "packagePath":"alpha/target/alpha-1.0.0.jar",
+    "registry":"https://registry.npmjs.org/",
+    "authentication":{"mode":"token","credential":"npm-publish"}
+  }}}
+}
