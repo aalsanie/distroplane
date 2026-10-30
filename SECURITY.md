@@ -1,9 +1,7 @@
-# Security policy
+# Security
 
-Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/aalsanie/distroplane/security/advisories/new). If that channel is unavailable, open an issue asking for a private contact without including exploit details, credentials, or sensitive logs.
+Report vulnerabilities privately through [GitHub Security Advisories](https://github.com/aalsanie/distroplane/security/advisories/new). Do not post tokens or exploit details publicly.
 
-Keep vulnerability details private while the maintainer investigates and coordinates a fix and disclosure.
+If a release or signing key is compromised: pause publishing, revoke affected credentials, preserve plans and journals, and investigate the destination before resuming. Do not replace immutable release tags or retry uncertain publication blindly.
 
-Distroplane is pre-1.0. Security fixes target the latest development line; older prereleases are not maintained separately.
-
-See the [security model](docs/security-model.md) for provider trust, credential handling, verification, and accepted risks.
+See the [security model](docs/security-model.md).

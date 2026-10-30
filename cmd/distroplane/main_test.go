@@ -23,6 +23,41 @@ func TestExecuteHelpVariants(t *testing.T) {
 	}
 }
 
+func TestHelpPrioritizesEverydayCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := execute([]string{"help"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	help := stdout.String()
+	start := strings.Index(help, "Get started:")
+	advanced := strings.Index(help, "Commands:")
+	if start < 0 || advanced <= start {
+		t.Fatalf("expected short getting-started flow before advanced commands: %s", help)
+	}
+	for _, command := range []string{"  distroplane init", "  distroplane doctor", "  distroplane publish", "  distroplane status", "  distroplane resume"} {
+		if !strings.Contains(help[:advanced], command) {
+			t.Fatalf("missing primary command %s from concise help", command)
+		}
+	}
+}
+
+func TestCommandHelp(t *testing.T) {
+	for _, command := range []string{"init", "doctor", "publish", "status", "resume", "validate", "plan", "runs", "apply", "reconcile", "retry", "evidence", "version"} {
+		for _, flag := range []string{"--help", "-h"} {
+			var stdout, stderr bytes.Buffer
+			if code := execute([]string{command, flag}, &stdout, &stderr); code != exitOK {
+				t.Fatalf("%s %s returned %d: %s", command, flag, code, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "distroplane "+command+" ") && !strings.Contains(stdout.String(), "distroplane "+command+"\n") {
+				t.Fatalf("%s help lacks a usable command: %q", command, stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("%s help wrote to stderr: %s", command, stderr.String())
+			}
+		}
+	}
+}
+
 func TestExecuteHelpRejectsArguments(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := execute([]string{"help", "extra"}, &stdout, &stderr); code != 2 {

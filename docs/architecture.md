@@ -45,4 +45,4 @@ Protocol v1 is documented by its [schema](../protocol/schema/v1/protocol.schema.
 
 ## Evidence and guarantees
 
-Evidence exports the journal-derived run and operation states, artifact/provider identities, external references, and journal digest. It is not an independent destination query, signature, or attestation. Provider results vary in what they prove; consult each [provider guide](../README.md#providers). There is no daemon, distributed execution service, universal rollback, or exactly-once publication guarantee.
+Evidence exports the journal-derived run and operation states, artifact/provider identities, external references, and journal digest. It is not an independent destination query, signature, or attestation. Provider results vary in what they prove; consult the [provider guides](configuration.md). There is no daemon, distributed execution service, universal rollback, or exactly-once publication guarantee.

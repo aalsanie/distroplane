@@ -20,4 +20,4 @@ The Action downloads executables over HTTPS and verifies each against `SHA256SUM
 
 `oidc: required` checks the availability of GitHub's OIDC request environment; it does not request or validate an ID token. The npm provider can exchange a separately provided npm-audience token for trusted publication.
 
-Provider-reported `PUBLISHED` is not uniform proof of downstream availability. SDKMAN may report API acceptance; WinGet requires subsequent destination observation. See [provider contracts](../README.md#providers). Report vulnerabilities using [private vulnerability reporting](../SECURITY.md).
+Provider-reported `PUBLISHED` is not uniform proof of downstream availability. SDKMAN may report API acceptance; WinGet requires subsequent destination observation. See the [provider guides](configuration.md). Report vulnerabilities using [private vulnerability reporting](../SECURITY.md).
