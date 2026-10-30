@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "2",
+  "release": {"id": "fixture-release", "artifacts": {"package": {"source": "release.tgz"}}},
+  "destinations": {"npm": {"artifact": "package", "options": {
+    "packagePath": "release.tgz", "registry": "https://registry.npmjs.org/",
+    "authentication": {"mode": "token", "credential": "npm-publish"}
+  }}}
+}

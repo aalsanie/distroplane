@@ -84,7 +84,7 @@ final class CliBootstrap {
         if (!VERSION.matcher(version).matches()) throw new IOException("Unsupported CLI version format");
         if (pinnedHash != null && !pinnedHash.isBlank() && !SHA.matcher(pinnedHash).matches())
             throw new IOException("Invalid pinned CLI archive SHA-256");
-        Path root = cacheRoot.toAbsolutePath().normalize().resolve(version).resolve(platform.os() + "-" + platform.arch());
+        Path root = canonicalSystemCachePath(cacheRoot).resolve(version).resolve(platform.os() + "-" + platform.arch());
         mkdirsNoLinks(root);
         Path lock = root.resolve(".bootstrap.lock");
         if (Files.isSymbolicLink(lock)) throw new IOException("Unsafe bootstrap lock");
@@ -129,6 +129,19 @@ final class CliBootstrap {
             } finally { deleteTree(staging); }
             return destination.resolve(platform.cli());
         }
+    }
+
+    // macOS exposes /var through the OS-owned /private/var symlink. Normalize
+    // exactly that well-known root before enforcing no-symlink checks on all
+    // cache directories; user-created redirects are still rejected.
+    private static Path canonicalSystemCachePath(Path cache) throws IOException {
+        Path absolute = cache.toAbsolutePath().normalize();
+        Path var = Path.of("/var");
+        if (absolute.startsWith(var) && Files.isSymbolicLink(var) &&
+            var.toRealPath().equals(Path.of("/private/var"))) {
+            return Path.of("/private").resolve(Path.of("/").relativize(absolute));
+        }
+        return absolute;
     }
 
     private static void mkdirsNoLinks(Path path) throws IOException {

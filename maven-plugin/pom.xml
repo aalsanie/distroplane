@@ -4,16 +4,19 @@
   <artifactId>distroplane-maven-plugin</artifactId>
   <version>1.0.0-SNAPSHOT</version>
   <packaging>maven-plugin</packaging>
+  <prerequisites><maven>3.9.0</maven></prerequisites>
   <name>Distroplane Maven Plugin</name>
-  <description>Verified Maven integration for the Distroplane release control plane</description>
+  <description>Maven release integration for the Distroplane CLI with verified native bootstrap and explicit publication goals</description>
   <url>https://github.com/aalsanie/distroplane</url>
   <licenses><license><name>Apache License, Version 2.0</name><url>https://www.apache.org/licenses/LICENSE-2.0</url></license></licenses>
   <developers><developer><id>aalsanie</id><name>Distroplane maintainers</name></developer></developers>
   <scm><connection>scm:git:https://github.com/aalsanie/distroplane.git</connection><developerConnection>scm:git:ssh://git@github.com/aalsanie/distroplane.git</developerConnection><url>https://github.com/aalsanie/distroplane</url></scm>
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
+    <project.build.outputTimestamp>2026-10-30T00:00:00Z</project.build.outputTimestamp>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.plugin.tools.version>3.16.0</maven.plugin.tools.version>
+    <gpg.passphraseEnvName>MAVEN_GPG_PASSPHRASE</gpg.passphraseEnvName>
   </properties>
   <dependencies>
     <dependency><groupId>org.apache.maven</groupId><artifactId>maven-plugin-api</artifactId><version>3.9.6</version><scope>provided</scope></dependency>
@@ -25,7 +28,37 @@
   </dependencies>
   <build><plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-plugin-plugin</artifactId><version>${maven.plugin.tools.version}</version><configuration><goalPrefix>distroplane</goalPrefix><skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound></configuration><executions><execution><id>descriptor</id><goals><goal>descriptor</goal></goals></execution></executions></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-plugin-plugin</artifactId><version>${maven.plugin.tools.version}</version><configuration><goalPrefix>distroplane</goalPrefix><skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound><requiredMavenVersion>3.9.0</requiredMavenVersion><requiredJavaVersion>17</requiredJavaVersion></configuration><executions><execution><id>descriptor</id><goals><goal>descriptor</goal></goals></execution></executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
   </plugins></build>
+  <profiles>
+    <profile>
+      <id>central-release</id>
+      <build><plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId><artifactId>maven-source-plugin</artifactId><version>3.4.0</version>
+          <executions><execution><id>sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId><artifactId>maven-javadoc-plugin</artifactId><version>3.11.2</version>
+          <executions><execution><id>javadoc</id><goals><goal>jar</goal></goals></execution></executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId><artifactId>maven-gpg-plugin</artifactId><version>3.2.8</version>
+          <executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions>
+          <configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId>
+          <version>0.12.0</version><extensions>true</extensions>
+          <configuration>
+            <publishingServerId>central</publishingServerId>
+            <autoPublish>false</autoPublish>
+            <waitUntil>validated</waitUntil>
+          </configuration>
+        </plugin>
+      </plugins></build>
+    </profile>
+  </profiles>
 </project>

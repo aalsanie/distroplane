@@ -68,3 +68,32 @@ No secret appears in CLI arguments. To opt into a credential source:
 ```
 
 The plugin passes only explicitly mapped environment values to the spawned CLI, plus minimal operating-system process variables. It suppresses command output containing those secrets and does not persist them in the configuration. The CLI and providers remain the authority for credential resolution, review, journaling, publication, and reconciliation. Terminated or timed-out goals preserve existing release state; inspect and resume rather than restarting publication.
+
+## Compatibility and external publication
+
+Maven plugin integration tests cover Maven 3.9+ with JDK 17/21 on Linux,
+macOS, and Windows native runners. They verify the six explicit goals,
+immutable cache imports, offline execution, cancellation after durable state
+creation, pending-to-resume handoff, duplicate-publication rejection, and
+multi-module/classifier selection. The controlled test fixture **never publishes**
+to a remote registry. Maven plugin version and CLI version are independently
+versioned; CLI `0.9.2` is the current tested bootstrap target.
+
+The Central Portal release profile (`-Pcentral-release`) prepares main,
+source, JavaDoc, POM, and GPG-signed artifacts. The manual
+`Stage Maven plugin in Central Portal` workflow requires an exact protected
+`maven-plugin/vX.Y.Z` tag, verified namespace ownership for
+`io.github.aalsanie`, GitHub environment `maven-central` approval, Central
+Portal user token secrets, and a GPG signing key. It uploads a bundle for
+**manual Central Portal approval** (`autoPublish=false`); the GitHub workflow
+does not make artifacts public. Required repository secrets are:
+`MAVEN_CENTRAL_TOKEN_USERNAME`, `MAVEN_CENTRAL_TOKEN_PASSWORD`,
+`MAVEN_GPG_PRIVATE_KEY`, and `MAVEN_GPG_PASSPHRASE`.
+
+Once a Central Portal deployment is publicly published, run the manual
+`Verify published Maven plugin consumer` workflow with that version. It creates
+a **fresh Maven local repository**, resolves the plugin from Maven Central
+without any local plugin installation, and invokes the real Distroplane CLI
+bootstrap. Public coordinates should only be advertised after that workflow
+passes. [The npm consumer example](examples/npm/README.md) must be updated
+with a verified release version when public publication is complete.

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "2",
+  "release": {"id": "my-package-release", "artifacts": {"package": {"source": "package.tgz"}}},
+  "destinations": {"npm": {"artifact": "package", "options": {
+    "packagePath": "package.tgz", "registry": "https://registry.npmjs.org/",
+    "authentication": {"mode": "token", "credential": "npm-publish"}
+  }}}
+}
