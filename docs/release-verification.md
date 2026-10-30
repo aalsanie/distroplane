@@ -22,15 +22,15 @@ For releases produced by the staged publication workflow, `RELEASE-STAGING.json`
 
 A stable tagged release proposes a change to `aalsanie/homebrew-tap` **after** the release is published. This requires the repository secret `HOMEBREW_TAP_TOKEN` with permission to create branches and pull requests in the tap. The update uses published `RELEASE-METADATA.json`, `SHA256SUMS`, and the four macOS/Linux unified archives; it verifies their bytes, embedded CLI/provider digests, and tagged source commit. An absent archive or incomplete release blocks the update. Existing formula edits, closed review PRs, and downgrades are never overwritten. A successful proposal is **not** an installed or approved release: the tap formula must pass macOS Intel/ARM and Linuxbrew audit/install/test/uninstall checks before a maintainer merges its PR.
 
-The `v0.9.0` release predates unified archives and is not eligible for an archive-backed tap formula. A stable release with these archives may propose a formula, but that proposal does not publish the formula. Do not advertise `brew install aalsanie/tap/distroplane` until the first reviewed, tested formula is merged into the tap.
+The `v0.9.0` release predates unified archives. The `aalsanie/homebrew-tap` formula for `v0.9.2` has been merged and is available through `brew install aalsanie/tap/distroplane` on supported hosts. The maintained formula still requires clean-host verification when preparing a new release; a formula PR alone does not publish an update.
 
 ## Direct Linux installation
 
-For a released version with unified archives, download the versioned installer script from the matching source tag and run it without Go or Homebrew. For example, after `v0.9.1` is published:
+For a released version with unified archives, download the versioned installer script from the matching source tag and run it without Go or Homebrew. For the published `v0.9.2` release:
 
 ```sh
-curl --fail --location --show-error https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.1/scripts/install-linux.py -o install-linux.py
-python3 install-linux.py --version 0.9.1
+curl --fail --location --show-error https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.2/scripts/install-linux.py -o install-linux.py
+python3 install-linux.py --version 0.9.2
 $HOME/.local/bin/distroplane version
 ```
 

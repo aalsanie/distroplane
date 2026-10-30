@@ -9,13 +9,13 @@ The x64 and ARM64 MSIs have separate, immutable upgrade identities. Major upgrad
 On a supported Windows build host, first run `scripts/build.ps1` to generate and verify the release archives. Install the pinned WiX .NET tool with `dotnet tool install --tool-path .tools/wix wix --version 6.0.0`, then build with:
 
 ```powershell
-./scripts/build-msi.ps1 -Version 0.9.1 -Architecture amd64 -ReleaseDir dist -OutputDir msi -WixExe .tools/wix/wix.exe
+./scripts/build-msi.ps1 -Version 0.9.2 -Architecture amd64 -ReleaseDir dist -OutputDir msi -WixExe .tools/wix/wix.exe
 ```
 
 This creates a **local unsigned test MSI**, not a distributable signed release. Execute native acceptance tests only on the matching Windows architecture:
 
 ```powershell
-./scripts/test-msi.ps1 -Version 0.9.1 -Architecture amd64 -Msi msi/distroplane_0.9.1_windows_amd64.msi
+./scripts/test-msi.ps1 -Version 0.9.2 -Architecture amd64 -Msi msi/distroplane_0.9.2_windows_amd64.msi
 ```
 
 GitHub CI additionally tests a synthetic predecessor MSI upgrade, repair, provider describe calls, machine PATH registration, and uninstall while retaining user state. The ARM64 test runs on a native Windows ARM64 host.
@@ -27,7 +27,7 @@ Stable releases require the Actions variable **`WINDOWS_MSI_SIGNING_MODE`** to b
 - `unsigned`: explicitly distribute **unsigned** MSI installers; signing secrets must be absent. The release job verifies both installers are unsigned and appends a visible warning to its published release notes. Windows SmartScreen or organizational policy may warn or block installation. This mode provides SHA-256 checksums and GitHub Actions provenance, **not** Authenticode publisher identity.
 - `pfx`: require a valid Authenticode signature on both MSIs. This mode requires the existing `MSI_SIGNING_PFX_BASE64` and `MSI_SIGNING_PFX_PASSWORD` repository secrets for an approved exportable PFX. Timestamp and signature validation failures block publication. Hardware-backed or managed signing requires a separate approved integration.
 
-Never put signing keys into source control. Both modes retain versioned release-archive byte parity, `MSI-SHA256SUMS` for the two MSI files, and GitHub Actions attestations. The existing 36-asset release metadata contract is unchanged. The already published `v0.9.1` release must not be modified.
+Never put signing keys into source control. Both modes retain versioned release-archive byte parity, `MSI-SHA256SUMS` for the two MSI files, and GitHub Actions attestations. The existing 36-asset release metadata contract is unchanged. The already published `v0.9.2` release must not be modified.
 
 ## WinGet community submission
 

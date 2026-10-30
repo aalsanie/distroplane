@@ -31,3 +31,7 @@ Historical measurements from a 0.9.0 release-candidate commit (identified below)
 | Provider process startup | 1.397 ms/op | 111,580 B/op | 200 allocs/op |
 
 The planning fixture excludes real hashing, subprocesses, and operation-DAG construction. Journal append uses no-op writes/syncs and measures CPU/allocation overhead rather than durable disk throughput. The 1,000-operation execution sample uses the durable journal path and is sensitive to hosted-runner filesystem performance.
+
+## Reviewable comparisons
+
+CI records benchmark stdout, runner OS/CPU/Go version, CLI workflow timings, and `performance-comparison.json` in a `performance-evidence` artifact. The comparator in `scripts/compare-benchmarks.py` verifies that critical benchmark names are present; it flags values exceeding twice the historical baseline for investigation. A flag is not a service-level failure, and the absence of a flag is not a regression waiver. Cross-runner differences require hardware and variance review before accepting a new production baseline. See [production readiness](production-readiness.md#performance-review-protocol).

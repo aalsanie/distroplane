@@ -4,57 +4,43 @@
 [![Release](https://img.shields.io/github/v/release/aalsanie/distroplane?include_prereleases&sort=semver)](https://github.com/aalsanie/distroplane/releases)
 [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
 
-Distroplane distributes **existing release artifacts** to npm, SDKMAN, custom Homebrew taps, and WinGet. It separates an immutable publication plan from execution, records results in a durable journal, and reconciles uncertain outcomes without blindly repeating publication.
+Distroplane publishes **existing build artifacts** to npm, SDKMAN, custom Homebrew taps and WinGet review repositories. Plans bind artifact and provider digests; execution writes a durable journal and reconciles uncertain outcomes before another side effect. It does not build/host artifacts, guarantee exactly-once publication, or undo external releases.
 
-## CLI
+## Install
 
-Install the [CLI and providers](docs/release-verification.md), then create a [configuration](docs/configuration.md) and build the artifacts it references.
+Latest published CLI release: [v0.9.2](https://github.com/aalsanie/distroplane/releases/tag/v0.9.2).
+
+- **macOS and Linuxbrew:** `brew install aalsanie/tap/distroplane` from the [published Homebrew tap](https://github.com/aalsanie/homebrew-tap). Confirm host support and test the installation with `distroplane version`.
+- **Linux (without Homebrew):** Use the [checksum-verifying direct installer](docs/release-verification.md#direct-linux-installation) or the verified release archive; no Go toolchain is required.
+- **Windows:** Download the appropriate [v0.9.2 MSI](https://github.com/aalsanie/distroplane/releases/tag/v0.9.2) and follow the [Windows installer guide](docs/windows-installer.md). MSIs for this release are **not Authenticode-signed**; verify checksums and provenance. The [WinGet community submission](https://github.com/microsoft/winget-pkgs/pull/464554) remains pending, so do not assume public catalog installation works.
+
+## First release
+
+Create a prebuilt artifact, then initialize your destination configuration with the metadata for your actual package:
 
 ```sh
-distroplane validate --config distroplane.json
-distroplane plan --config distroplane.json
-distroplane apply --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
-distroplane status --plan PLAN.json --journal run.journal
-distroplane reconcile --config distroplane.json --plan PLAN.json --journal run.journal --credential npm-publish=NPM_TOKEN
-distroplane evidence --plan PLAN.json --journal run.journal --output evidence.json
+distroplane init --destination npm --release my-package-1.2.3 --artifact dist/package.tgz
+distroplane doctor --config distroplane.json
+distroplane publish --config distroplane.json
 ```
 
-Use the path printed by `plan` in place of `PLAN.json`. `--credential REF=ENV` names an environment variable; it does not contain a secret. Preserve the plan, journal, artifacts, and provider binaries for recovery. See the [CLI guide](docs/cli.md) for states, exit codes, and operator-authorized retries.
+`init` may require provider-specific `--set` fields or an interactive choice; it never invents package identity or credentials. `publish` reviews the immutable plan and requires exact confirmation before dispatch. For automation, use `--yes` or `--confirm-plan` only after independent review. Configure the required credential environment variable without writing its value into configuration or logs.
 
-## GitHub Actions
+Recover a pending or blocked run **without creating a new publication**:
 
-After the `v0.9.1` tag is published, an npm target with credential reference `npm-publish` can use:
-
-```yaml
-- id: plan
-  uses: aalsanie/distroplane@v0.9.1
-  with:
-    command: plan
-
-- uses: aalsanie/distroplane@v0.9.1
-  env:
-    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-  with:
-    command: apply
-    plan: ${{ steps.plan.outputs.plan-path }}
-    credential-mappings: npm-publish=NPM_TOKEN
+```sh
+distroplane status --config distroplane.json
+distroplane resume --config distroplane.json
 ```
 
-The example runs in one job. A separate apply job must restore the exact planned inputs and paths; the Action's optional plan artifact alone is not sufficient. See [GitHub Actions](docs/github-actions.md).
+Keep the project `.distroplane/` state, provider snapshots, original artifacts and credentials necessary to settle a run. See the [CLI and recovery guide](docs/cli.md), [configuration reference](docs/configuration.md), and [security model](docs/security-model.md).
 
-## Providers
+## Integrations and providers
 
-| Provider | Publication boundary |
-| --- | --- |
-| [npm](providers/npm/README.md) | Publishes a package tarball to an npm-compatible registry |
-| [SDKMAN](providers/sdkman/README.md) | Registers a hosted archive via the vendor API |
-| [Homebrew](providers/homebrew/README.md) | Updates a formula or cask in a custom tap |
-| [WinGet](providers/winget/README.md) | Opens a manifest pull request; publication is checked separately |
+The [GitHub Action](docs/github-actions.md) supports reviewed publication and verified cross-job recovery. The published [Maven plugin `1.0.0`](maven-plugin/README.md) invokes the same native CLI and supports fresh Maven Central consumers; its version is independent of the CLI.
 
-Distroplane does not build or host artifacts, guarantee exactly-once delivery, or roll back external changes.
+Provider options: [npm](providers/npm/README.md), [SDKMAN](providers/sdkman/README.md), [Homebrew](providers/homebrew/README.md), [WinGet](providers/winget/README.md). A created provider PR or vendor API acceptance is **not** necessarily public consumer availability.
 
-## Engineering documentation
-
-[Architecture](docs/architecture.md) · [Security model](docs/security-model.md) · [Reliability](docs/reliability-validation.md) · [Release verification](docs/release-verification.md) · [Contributing](CONTRIBUTING.md)
+[Architecture](docs/architecture.md) · [Release verification](docs/release-verification.md) · [Reliability](docs/reliability-validation.md) · [Security policy](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 Apache-2.0.

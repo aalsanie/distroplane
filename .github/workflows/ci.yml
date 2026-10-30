@@ -57,6 +57,11 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
       - name: Verify Action recovery handoff integrity
         run: python3 -m unittest discover -s scripts -p 'test_action_recovery.py' -v
+      - name: Verify documentation and benchmark evidence contracts
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_readiness.py' -v
+          python3 -m unittest discover -s scripts -p 'test_compare_benchmarks.py' -v
+          python3 scripts/verify-readiness.py
       - name: Vet
         run: go vet ./...
       - name: Dependency budget
@@ -131,26 +136,62 @@ jobs:
       - name: Record benchmark environment
         shell: bash
         run: |
-          uname -a
-          go version
-          printf 'CPU: '
-          lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2; exit}'
+          {
+            uname -a
+            go version
+            printf 'CPU: '
+            lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2; exit}'
+          } | tee "$RUNNER_TEMP/performance-env.txt"
       - name: CLI startup
-        run: go test ./cmd/distroplane -run '^$' -bench '^BenchmarkColdProcessStartup$' -benchmem -benchtime=5x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./cmd/distroplane -run '^$' -bench '^BenchmarkColdProcessStartup$' -benchmem -benchtime=5x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Config parsing
-        run: go test ./internal/config -run '^$' -bench '^BenchmarkDecodeConfig$' -benchmem -benchtime=20x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/config -run '^$' -bench '^BenchmarkDecodeConfig$' -benchmem -benchtime=20x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Planning and hashing
-        run: go test ./internal/planner -run '^$' -bench '^(BenchmarkBuildTargets|BenchmarkFileHasher1MiB)$' -benchmem -benchtime=3x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/planner -run '^$' -bench '^(BenchmarkBuildTargets|BenchmarkFileHasher1MiB)$' -benchmem -benchtime=3x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Scheduling
-        run: go test ./internal/executor -run '^$' -bench '^(BenchmarkSchedulerOneThousandOperations|BenchmarkSchedulerTenThousandOperations)$' -benchmem -benchtime=3x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/executor -run '^$' -bench '^(BenchmarkSchedulerOneThousandOperations|BenchmarkSchedulerTenThousandOperations)$' -benchmem -benchtime=3x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Execution resource sample
-        run: go test ./internal/executor -run '^$' -bench '^BenchmarkExecuteOneThousandOperationsPeakMemory$' -benchmem -benchtime=1x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/executor -run '^$' -bench '^BenchmarkExecuteOneThousandOperationsPeakMemory$' -benchmem -benchtime=1x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Journal
-        run: go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceOneHundredThousandEvents)$' -benchmem -benchtime=3x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceOneHundredThousandEvents)$' -benchmem -benchtime=3x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: Provider process startup
-        run: go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/providerhost -run '^$' -bench '^BenchmarkProviderProcessStartup$' -benchmem -benchtime=5x | tee -a "$RUNNER_TEMP/performance-bench.txt"
       - name: CLI workflow timings (isolated fixture)
-        run: ./scripts/measure-cli-flow.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          ./scripts/measure-cli-flow.sh 2>&1 | tee "$RUNNER_TEMP/performance-flow.txt"
+      - name: Compare benchmark evidence against historical baseline
+        run: |
+          python3 scripts/compare-benchmarks.py --input "$RUNNER_TEMP/performance-bench.txt" --output "$RUNNER_TEMP/performance-comparison.json" --commit "$GITHUB_SHA" --environment "$RUNNER_TEMP/performance-env.txt"
+      - name: Upload reviewable performance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-evidence
+          path: ${{ runner.temp }}/performance-*
+          if-no-files-found: error
+          retention-days: 30
 
   build:
     name: Build (${{ matrix.os }})

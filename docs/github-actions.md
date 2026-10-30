@@ -6,11 +6,11 @@ The composite Action calls the same CLI used locally. It supports `publish`, `re
 
 An invocation without `binary` installs the verified unified CLI/provider release archive for the runner's OS/architecture, checking its `SHA256SUMS` entry, safe members, embedded package identity, and executable hashes. Old standalone releases retain checksum-verified compatibility. The Action requires PowerShell 7; release targets are Linux, macOS, and Windows on amd64/arm64. Homebrew and WinGet providers additionally require Git.
 
-Once published, `uses: aalsanie/distroplane@v0.9.0` selects that binary release by default. When pinning the Action to a commit SHA, set `version: 0.9.0` (or another published binary release) explicitly. A supplied `binary` skips managed installation and verification.
+The published CLI version is `0.9.2`; the newer Action publishing interface is available on `main` until it is included in a later immutable release tag. Use a reviewed commit SHA with `version: 0.9.2` for a pinned workflow. Older `@v0.9.0` tags do not include later one-command publication and recovery inputs. A supplied `binary` skips managed installation and verification.
 
 ## One-step publishing
 
-Until a release tag includes this Action interface, use `@main` with an explicit published binary `version`; pin to the versioned Action tag when available.
+Until an immutable release tag includes the current Action interface, use a reviewed `@main` revision with an explicit published binary `version`; prefer pinning the Action to an audited commit SHA in production. Do not assume older tags expose current inputs.
 
 An unattended publication requires an explicit approval. A high-level Action
 invocation uses the same immutable-plan, durable-journal, and reconciliation
@@ -81,10 +81,11 @@ The optional `upload-plan: 'true'` artifact contains **only the plan file**. It 
 Persist the journal after `apply` before the runner is destroyed. A later job can restore all inputs and run:
 
 ```yaml
-- uses: aalsanie/distroplane@v0.9.0
+- uses: aalsanie/distroplane@main
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
+    version: 0.9.2
     command: reconcile
     plan: reviewed-plan/PLAN.json
     journal: run.journal
