@@ -1,16 +1,16 @@
 # Distroplane Maven plugin
 
-A Maven **build plugin** which runs the same native Distroplane CLI and providers as the regular release distribution. This plugin does not build artifacts, publish them directly, or attach any goal to the Maven lifecycle. Maven Central publication and externally consumable coordinates remain pending until the separate release work is finished.
+A Maven **build plugin** which runs the native Distroplane CLI and providers. It does not build artifacts, publish directly, or attach publication goals to the normal Maven lifecycle.
 
-Supported baseline: **JDK 17+**, **Maven 3.9+**, and Distroplane **CLI 0.9.2**. The implementation uses `io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT` for local development only. These coordinates are not an assertion of public Maven Central availability.
+Published Maven Central coordinates: `io.github.aalsanie:distroplane-maven-plugin:1.0.0`. Supported baseline: **JDK 17+**, **Maven 3.9+**, and Distroplane **CLI 0.9.2**. The Maven plugin and native CLI are versioned independently.
 
-For a locally installed development plugin, add the following to `<build><plugins>`:
+Add the published plugin to `<build><plugins>`:
 
 ```xml
 <plugin>
   <groupId>io.github.aalsanie</groupId>
   <artifactId>distroplane-maven-plugin</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0</version>
   <configuration>
     <cliVersion>0.9.2</cliVersion>
     <config>distroplane.json</config>
@@ -18,18 +18,18 @@ For a locally installed development plugin, add the following to `<build><plugin
 </plugin>
 ```
 
-Run `mvn -f maven-plugin/pom.xml install` from the Distroplane source checkout, then in a project with a prebuilt release artifact:
+In a project with a configured destination and a prebuilt release artifact:
 
 ```sh
 mvn package
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:validate
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:plan
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:publish -Ddistroplane.approve=true
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:status
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:resume
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:validate
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:plan
+mvn -Ddistroplane.approve=true io.github.aalsanie:distroplane-maven-plugin:1.0.0:publish
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:status
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:resume
 ```
 
-`init` requires a selected provider, release, artifact and provider-specific nonsecret metadata (configure `<initFields><field>value</field></initFields>` for the native `--set` options): `mvn distroplane:init -Ddistroplane.destination=npm -Ddistroplane.release=v1`. No prompts or secret values are supported for Maven `init`; missing metadata fails without generating a guessed configuration. `publish` refuses to execute unless either `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>` is supplied. `resume` uses the original plan and journal and never generates a replacement publication run. Exit code 4 (`WAITING_EXTERNAL`) fails the Maven goal rather than falsely reporting completion.
+`init` requires a selected provider, release, artifact and provider-specific nonsecret metadata (configure `<initFields><field>value</field></initFields>` for the native `--set` options): `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:init -Ddistroplane.destination=npm -Ddistroplane.release=v1`. No prompts or secret values are supported for Maven `init`; missing metadata fails without generating a guessed configuration. `publish` refuses to execute unless either `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>` is supplied. `resume` uses the original plan and journal and never generates a replacement publication run. Exit code 4 (`WAITING_EXTERNAL`) fails the Maven goal rather than falsely reporting completion.
 
 ## Verified bootstrap and offline usage
 
@@ -90,10 +90,8 @@ does not make artifacts public. Required repository secrets are:
 `MAVEN_CENTRAL_TOKEN_USERNAME`, `MAVEN_CENTRAL_TOKEN_PASSWORD`,
 `MAVEN_GPG_PRIVATE_KEY`, and `MAVEN_GPG_PASSPHRASE`.
 
-Once a Central Portal deployment is publicly published, run the manual
-`Verify published Maven plugin consumer` workflow with that version. It creates
-a **fresh Maven local repository**, resolves the plugin from Maven Central
-without any local plugin installation, and invokes the real Distroplane CLI
-bootstrap. Public coordinates should only be advertised after that workflow
-passes. [The npm consumer example](examples/npm/README.md) must be updated
-with a verified release version when public publication is complete.
+Version `1.0.0` was signed, staged, and manually published through the Central
+Portal. [The clean-consumer verification](https://github.com/aalsanie/distroplane/actions/runs/41023374518)
+passed on Linux, macOS, and Windows with fresh Maven repositories and the
+real native CLI bootstrap. [The npm example](examples/npm/README.md) uses
+the published `1.0.0` version.
