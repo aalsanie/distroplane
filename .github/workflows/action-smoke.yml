@@ -520,6 +520,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Validate npm OIDC binding and audience failure paths
+        shell: pwsh
+        run: ./action/oidc-smoke.ps1
       - name: Verify absent OIDC request environment
         shell: pwsh
         run: |
@@ -602,6 +605,85 @@ jobs:
           config: ${{ steps.fixture.outputs.config }}
           state-dir: oidc-state
           oidc: required
+      - name: Verify actual GitHub npm OIDC acquisition and CLI-only handoff
+        shell: bash
+        run: |
+          mkdir -p oidc-publish
+          cat > oidc-publish/config.json <<'JSON'
+          {
+            "schemaVersion":"1",
+            "release":{"id":"oidc-smoke","artifacts":[{"name":"pkg","source":"file.tgz"}]},
+            "targets":[{"id":"npm-release","provider":{"name":"npm"},"configuration":{
+              "artifact":"pkg","packagePath":"/tmp/file.tgz","registry":"https://registry.npmjs.org/",
+              "authentication":{"mode":"trusted-publishing","credential":"npm-publish"}
+            }}]
+          }
+          JSON
+          cat > oidc-publish/cli <<'SH'
+          #!/bin/sh
+          set -eu
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || exit 21
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || exit 22
+          test -n "${DISTROPLANE_ACTION_NPM_OIDC_TOKEN:-}" || exit 23
+          case " $* " in
+            *" --credential npm-publish=DISTROPLANE_ACTION_NPM_OIDC_TOKEN "*) ;;
+            *) exit 24 ;;
+          esac
+          printf '%s\n' '{"plan":{"planId":"oidc-test-plan","path":"/tmp/oidc-plan.json"},"run":{"runId":"oidc-test-run","completed":true},"journalPath":"/tmp/oidc-journal.json"}'
+          SH
+          chmod +x oidc-publish/cli
+      - name: Execute with a freshly acquired npm-audience JWT
+        id: npm-oidc
+        uses: ./
+        with:
+          command: publish
+          binary: oidc-publish/cli
+          config: oidc-publish/config.json
+          approve: 'true'
+          oidc: npm
+          npm-oidc-ref: npm-publish
+      - name: Verify authenticated mock execution
+        shell: pwsh
+        env:
+          PLAN_ID: ${{ steps.npm-oidc.outputs.plan-id }}
+          RUN_ID: ${{ steps.npm-oidc.outputs.run-id }}
+          COMPLETED: ${{ steps.npm-oidc.outputs.completed }}
+          EXIT_CODE: ${{ steps.npm-oidc.outputs.exit-code }}
+        run: |
+          if ($env:PLAN_ID -ne 'oidc-test-plan' -or $env:RUN_ID -ne 'oidc-test-run' -or
+              $env:COMPLETED -ne 'true' -or $env:EXIT_CODE -ne '0') {
+            throw 'npm OIDC token was not passed through an isolated CLI credential source'
+          }
+      - name: Build secret-canary output fixture
+        shell: bash
+        run: |
+          cat > oidc-publish/cli-leak <<'SH'
+          #!/bin/sh
+          printf '%s\n' "${SENSITIVE_CANARY:-}" >&2
+          printf '%s\n' '{"plan":{"planId":"canary-plan","path":"/tmp/plan.json"},"run":{"runId":"canary-run","completed":true}}'
+          SH
+          chmod +x oidc-publish/cli-leak
+      - name: Reject provider stderr that contains a credential value
+        id: secret-canary
+        continue-on-error: true
+        uses: ./
+        env:
+          SENSITIVE_CANARY: action-sensitive-credential-canary-9c8a2d
+        with:
+          command: publish
+          binary: oidc-publish/cli-leak
+          config: oidc-publish/config.json
+          approve: 'true'
+          credential-mappings: npm-publish=SENSITIVE_CANARY
+      - name: Verify sensitive command output was suppressed
+        shell: pwsh
+        env:
+          CANARY_OUTCOME: ${{ steps.secret-canary.outcome }}
+          CANARY_RESULT: ${{ steps.secret-canary.outputs.result-json }}
+        run: |
+          if ($env:CANARY_OUTCOME -ne 'failure' -or $env:CANARY_RESULT -match 'action-sensitive-credential-canary') {
+            throw 'sensitive provider stderr escaped the Action output guard'
+          }
       - name: Verify OIDC availability
         shell: pwsh
         env:

@@ -87,9 +87,13 @@ inputs:
     required: false
     default: ''
   oidc:
-    description: 'Set to required to check GitHub OIDC request environment availability. Does not acquire or forward an ID token.'
+    description: 'none (disabled), required (availability only), or npm (obtain a fresh npm-audience GitHub OIDC token for a trusted-publishing destination).'
     required: false
     default: none
+  npm-oidc-ref:
+    description: 'Exclusive credential reference of a single npm trusted-publishing destination. Required for oidc: npm.'
+    required: false
+    default: ''
   evidence-path:
     description: 'Optional path for a release evidence bundle after apply or reconcile.'
     required: false
@@ -216,6 +220,7 @@ runs:
         DISTROPLANE_INSTALL_PROVIDERS: ${{ inputs.install-providers }}
         DISTROPLANE_JOURNAL: ${{ inputs.journal }}
         DISTROPLANE_OIDC: ${{ inputs.oidc }}
+        DISTROPLANE_NPM_OIDC_REF: ${{ inputs.npm-oidc-ref }}
         DISTROPLANE_PLAN: ${{ inputs.plan }}
         DISTROPLANE_RUN_ID: ${{ inputs.run-id }}
         DISTROPLANE_STATE_DIR: ${{ inputs.state-dir }}
