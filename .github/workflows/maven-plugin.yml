@@ -1,0 +1,51 @@
+name: Maven plugin
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml']
+  push:
+    branches: [main]
+    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    name: Maven plugin (${{ matrix.os }}, JDK ${{ matrix.java }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, java: '17' }
+          - { os: windows-latest, java: '21' }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: maven-plugin/pom.xml
+      - name: Verify Maven plugin and bootstrap security fixtures
+        run: mvn -B -ntp -f maven-plugin/pom.xml verify
+      - name: Verify six generated plugin goal descriptors
+        shell: pwsh
+        run: |
+          $descriptor = 'maven-plugin/target/classes/META-INF/maven/plugin.xml'
+          if (-not (Test-Path $descriptor)) { throw 'Missing Maven plugin descriptor' }
+          [xml]$xml = Get-Content $descriptor -Raw
+          $goals = @($xml.plugin.mojos.mojo | ForEach-Object { $_.goal } | Sort-Object)
+          $required = @('init', 'validate', 'plan', 'publish', 'status', 'resume') | Sort-Object
+          if ($goals.Count -ne 6 -or (Compare-Object $goals $required)) {
+            throw "Maven goal descriptor mismatch: $($goals -join ', ')"
+          }
