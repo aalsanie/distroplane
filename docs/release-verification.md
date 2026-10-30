@@ -37,4 +37,6 @@ The latest [GitHub release](https://github.com/aalsanie/distroplane/releases/lat
 
 ## Release maintainers
 
+Before tagging, manually run the **Release** workflow on `main` with confirmation `REHEARSE`. It builds and verifies the same staged assets and six native installation targets as the publishing workflow, but does not create a GitHub release or update package catalogs. Review the successful run and its staged artifact inventory before approving publication.
+
 A stable release must have matching `VERSION` and versioned release notes. Merge the changes, verify CI and Action smoke on the **exact commit**, then tag that commit with `v<VERSION>`. The release workflow checks asset integrity, staged inventories, native execution, and the Windows MSI signing policy before publication. No tag should be pushed before the checks pass. See [Windows signing details](windows-installer.md).

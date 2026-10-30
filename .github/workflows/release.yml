@@ -4,13 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type REHEARSE to verify assets without publication'
+        required: true
+        type: string
 
 permissions:
   actions: read
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -27,10 +30,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout tagged revision
+      - name: Require confirmed rehearsal on main
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        env:
+          REHEARSAL_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if ($env:GITHUB_REF -cne 'refs/heads/main' -or $env:REHEARSAL_CONFIRMATION -cne 'REHEARSE') {
+            throw 'Release rehearsal must run on main with REHEARSE confirmation'
+          }
+      - name: Checkout source revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -51,8 +63,9 @@ jobs:
           MSI_SIGNING_PFX_PASSWORD: ${{ secrets.MSI_SIGNING_PFX_PASSWORD }}
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or $env:GITHUB_REF_NAME -cne "v$version") {
-            throw 'Stable MSI release requires matching VERSION and tag'
+          $sourceRef = if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') { 'main' } else { "v$version" }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or $env:GITHUB_REF_NAME -cne $sourceRef) {
+            throw 'Stable MSI requires matching VERSION and source reference'
           }
           $mode = ./scripts/validate-windows-msi-mode.ps1 -Mode $env:WINDOWS_MSI_SIGNING_MODE
           "mode=$mode" >> $env:GITHUB_OUTPUT
@@ -110,7 +123,7 @@ jobs:
       - name: Checkout tagged revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -123,6 +136,8 @@ jobs:
       - name: Validate release identity
         id: version
         shell: bash
+        env:
+          REHEARSAL_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -euo pipefail
           version="$(tr -d '\r\n' < VERSION)"
@@ -131,7 +146,12 @@ jobs:
             echo "invalid VERSION: $version" >&2
             exit 1
           fi
-          if [[ "${GITHUB_REF_NAME}" != "$tag" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == 'workflow_dispatch' ]]; then
+            if [[ "${GITHUB_REF}" != 'refs/heads/main' || "${REHEARSAL_CONFIRMATION}" != 'REHEARSE' ]]; then
+              echo 'rehearsal requires main and explicit confirmation' >&2
+              exit 1
+            fi
+          elif [[ "${GITHUB_REF_NAME}" != "$tag" ]]; then
             echo "tag ${GITHUB_REF_NAME} does not match VERSION $version" >&2
             exit 1
           fi
@@ -161,6 +181,11 @@ jobs:
               exit 1
             fi
           }
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$main_sha" != "$SHA" ]]; then
+            echo "release source $SHA is not current main $main_sha" >&2
+            exit 1
+          fi
           require_success "ci.yml" "CI"
           require_success "action-smoke.yml" "GitHub Action smoke"
 
@@ -276,7 +301,7 @@ jobs:
       - name: Checkout tagged revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Download exact staged release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -286,22 +311,52 @@ jobs:
       - name: Execute unpacked release on native runner
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = (Get-Content VERSION -Raw).Trim()
           $commit = (git rev-parse --short=12 HEAD).Trim()
           $python = if ($IsWindows) { 'python' } else { 'python3' }
           & $python scripts/smoke-release-native.py --directory dist --version $version --commit $commit --expected-os '${{ matrix.native_os }}' --expected-arch '${{ matrix.native_arch }}'
           if ($LASTEXITCODE -ne 0) { throw 'Native release installability check failed' }
 
+  rehearsal-report:
+    name: Record non-publishing release rehearsal
+    needs: [stage, native-install]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record verified source and artifacts
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SIGNING_MODE: ${{ needs.stage.outputs.signing_mode }}
+        run: |
+          {
+            echo '### Release rehearsal passed'
+            echo ''
+            echo "Source commit: $SOURCE_SHA"
+            echo "Windows MSI signing mode: $SIGNING_MODE"
+            echo 'Staged assets and all six native release installs verified.'
+            echo 'No GitHub release or package-manager update was published.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     name: Publish verified release
     needs: [stage, native-install]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Checkout tagged revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Download verified release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -387,10 +442,84 @@ jobs:
           PY
           gh release edit "$TAG" --draft=false
           
+  public-smoke:
+    name: Verify public release (${{ matrix.os }})
+    needs: publish
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            native_os: linux
+            native_arch: amd64
+          - os: ubuntu-24.04-arm
+            native_os: linux
+            native_arch: arm64
+          - os: macos-15-intel
+            native_os: darwin
+            native_arch: amd64
+          - os: macos-15
+            native_os: darwin
+            native_arch: arm64
+          - os: windows-2025
+            native_os: windows
+            native_arch: amd64
+          - os: windows-11-arm
+            native_os: windows
+            native_arch: arm64
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download and verify published native release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($env:GITHUB_REF_NAME -cne "v$version") { throw 'Published version mismatch' }
+          $os = '${{ matrix.native_os }}'
+          $arch = '${{ matrix.native_arch }}'
+          $ext = if ($os -ceq 'windows') { '.exe' } else { '' }
+          $packageExt = if ($os -ceq 'windows') { '.zip' } else { '.tar.gz' }
+          $archive = "distroplane_${version}_${os}_${arch}${packageExt}"
+          $assets = @('RELEASE-METADATA.json', 'SHA256SUMS', $archive, "distroplane_${version}_${os}_${arch}${ext}")
+          foreach ($provider in @('npm', 'sdkman', 'homebrew', 'winget')) {
+            $assets += "distroplane-provider-${provider}_${version}_${os}_${arch}${ext}"
+          }
+          New-Item -ItemType Directory -Path 'public-dist' | Out-Null
+          foreach ($asset in $assets) {
+            & gh release download $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --dir public-dist --pattern $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cannot download published asset: $asset" }
+          }
+          $checksumLines = @(Get-Content public-dist/SHA256SUMS)
+          foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' -and $_ -ne 'RELEASE-METADATA.json' }) {
+            $pattern = '^([a-f0-9]{64})  ' + [regex]::Escape($asset) + '$'
+            $entries = @($checksumLines | Where-Object { $_ -cmatch $pattern })
+            if ($entries.Count -ne 1) { throw "Missing or ambiguous published checksum: $asset" }
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path 'public-dist' $asset)).Hash.ToLowerInvariant()
+            $expected = $entries[0].Substring(0, 64)
+            if ($actual -cne $expected) { throw "Published asset checksum mismatch: $asset" }
+          }
+          & gh attestation verify (Join-Path 'public-dist' $archive) --repo $env:GITHUB_REPOSITORY --source-digest $env:GITHUB_SHA --source-ref $env:GITHUB_REF --signer-workflow "$($env:GITHUB_REPOSITORY)/.github/workflows/release.yml"
+          if ($LASTEXITCODE -ne 0) { throw 'Published archive provenance verification failed' }
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          $sourceCommit = $env:GITHUB_SHA.Substring(0, 12)
+          & $python scripts/smoke-release-native.py --directory public-dist --version $version --commit $sourceCommit --expected-os $os --expected-arch $arch
+          if ($LASTEXITCODE -ne 0) { throw 'Published native release smoke failed' }
+
   homebrew-tap-update:
     name: Propose verified Homebrew formula update
-    needs: publish
-    if: ${{ !contains(github.ref_name, '-rc.') }}
+    needs: [publish, public-smoke]
+    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '-rc.') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -399,7 +528,7 @@ jobs:
       - name: Checkout released revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Validate published assets and propose tap PR
         shell: bash
