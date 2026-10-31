@@ -103,12 +103,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Download immutable plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: action-plan-${{ matrix.os }}
           path: smoke/action-plan
       - name: Download runtime handoff
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: action-runtime-${{ matrix.os }}
           path: smoke
@@ -377,7 +377,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Download action evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: action-evidence-${{ matrix.os }}
           path: evidence
