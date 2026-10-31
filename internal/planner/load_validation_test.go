@@ -99,3 +99,35 @@ func TestVerifyArtifactsFailureModes(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestPlanFromDocumentRejectsAdditionalUnsafeIdentities(t *testing.T) {
+	cases := map[string]func(*planDocument){
+		"invalid plan identifier": func(d *planDocument) {
+			d.PlanID = "not-a-content-addressed-plan"
+		},
+		"malformed provider executable digest": func(d *planDocument) {
+			d.Targets[0].Provider.Digest = "sha256:broken"
+		},
+		"operation provider executable mismatch": func(d *planDocument) {
+			d.Operations[0].Provider.Digest = "sha256:broken"
+		},
+		"invalid operation provider version": func(d *planDocument) {
+			d.Operations[0].Provider.Version = ""
+		},
+		"operation references another target": func(d *planDocument) {
+			d.Operations[0].TargetID = "different-target"
+		},
+		"invalid operation kind": func(d *planDocument) {
+			d.Operations[0].Kind = ""
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			document := persistedDocument(t)
+			mutate(&document)
+			if _, err := planFromDocument(document); err == nil {
+				t.Fatal("unsafe persisted plan accepted")
+			}
+		})
+	}
+}

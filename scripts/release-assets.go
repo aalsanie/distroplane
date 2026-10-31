@@ -83,6 +83,10 @@ func main() {
 
 // releaseAssetsCommand keeps CLI input validation and failure mapping unit-testable.
 func releaseAssetsCommand(args []string, getenv func(string) string) (int, error) {
+	return releaseAssetsCommandWithReader(args, getenv, buildinfo.ReadFile)
+}
+
+func releaseAssetsCommandWithReader(args []string, getenv func(string) string, read func(string) (*debug.BuildInfo, error)) (int, error) {
 	if len(args) != 1 || (args[0] != "build" && args[0] != "verify") {
 		return 2, fmt.Errorf("usage: go run ./scripts/release-assets.go build|verify")
 	}
@@ -94,7 +98,7 @@ func releaseAssetsCommand(args []string, getenv func(string) string) (int, error
 	if args[0] == "build" {
 		version, goVersion := getenv("VERSION"), getenv("GO_VERSION")
 		if err = validIdentity(version, getenv("COMMIT"), getenv("BUILD_DATE"), goVersion); err == nil {
-			err = verifyExecutableToolchains(out, version, goVersion, buildinfo.ReadFile)
+			err = verifyExecutableToolchains(out, version, goVersion, read)
 		}
 		if err == nil {
 			err = build(out, version, getenv("COMMIT"), getenv("BUILD_DATE"), goVersion)
@@ -106,7 +110,7 @@ func releaseAssetsCommand(args []string, getenv func(string) string) (int, error
 			err = strictJSON(data, &metadata)
 		}
 		if err == nil {
-			err = verifyExecutableToolchains(out, metadata.Version, metadata.GoVersion, buildinfo.ReadFile)
+			err = verifyExecutableToolchains(out, metadata.Version, metadata.GoVersion, read)
 		}
 	}
 	if err != nil {

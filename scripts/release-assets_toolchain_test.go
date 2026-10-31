@@ -108,3 +108,29 @@ func TestBuildInfoReaderRejectsNonGoExecutable(t *testing.T) {
 		t.Fatal("malformed Go build info accepted")
 	}
 }
+
+func TestReleaseCommandAcceptsVerifiedCompilerMetadata(t *testing.T) {
+	root := t.TempDir()
+	seedExecutables(t, root)
+	environment := map[string]string{
+		"OUT_DIR": root, "VERSION": "1.0.0", "COMMIT": "0123456789ab",
+		"BUILD_DATE": "2026-10-25T00:00:00Z", "GO_VERSION": releaseGoToolchain,
+	}
+	getenv := func(name string) string { return environment[name] }
+	read := func(path string) (*debug.BuildInfo, error) {
+		for _, target := range platforms {
+			for _, executable := range executables {
+				if filepath.Base(path) == assetName(executable, environment["VERSION"], target.os, target.arch) {
+					return compiledFixture(executable, target.os, target.arch), nil
+				}
+			}
+		}
+		return nil, errors.New("unexpected executable")
+	}
+	if code, err := releaseAssetsCommandWithReader([]string{"build"}, getenv, read); code != 0 || err != nil {
+		t.Fatalf("verified release build rejected: code=%d err=%v", code, err)
+	}
+	if code, err := releaseAssetsCommandWithReader([]string{"verify"}, getenv, read); code != 0 || err != nil {
+		t.Fatalf("verified release inventory rejected: code=%d err=%v", code, err)
+	}
+}
