@@ -17,16 +17,16 @@ func TestReleaseRejectsInvalidBuildInputs(t *testing.T) {
 	for _, tc := range []struct {
 		version, commit, date, goVersion string
 	}{
-		{"../version", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"},
-		{"1.0.0", "wrong-commit", "2026-10-25T00:00:00Z", "go1.27.1"},
-		{"1.0.0", "0123456789ab", "not-a-date", "go1.27.1"},
+		{"../version", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"},
+		{"1.0.0", "wrong-commit", "2026-10-25T00:00:00Z", "go1.27.3"},
+		{"1.0.0", "0123456789ab", "not-a-date", "go1.27.3"},
 		{"1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "invalid-toolchain"},
 	} {
 		if err := build(t.TempDir(), tc.version, tc.commit, tc.date, tc.goVersion); err == nil {
 			t.Fatalf("invalid build identity accepted: %+v", tc)
 		}
 	}
-	if err := build(t.TempDir(), "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err == nil {
+	if err := build(t.TempDir(), "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err == nil {
 		t.Fatal("build with missing executables succeeded")
 	}
 }
@@ -93,7 +93,7 @@ func TestReleaseVerificationRejectsMissingManifestsAndWrongEnvironment(t *testin
 
 func TestReleaseArchiveRejectsUnexpectedEntriesAndByteSubstitution(t *testing.T) {
 	root := prepareRelease(t)
-	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "windows", "amd64")
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3", "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,14 +202,19 @@ func TestReleasePackagingEntrypointAndOutputFailures(t *testing.T) {
 	t.Setenv("VERSION", "1.0.0")
 	t.Setenv("COMMIT", "0123456789ab")
 	t.Setenv("BUILD_DATE", "2026-10-25T00:00:00Z")
-	t.Setenv("GO_VERSION", "go1.27.1")
+	t.Setenv("GO_VERSION", "go1.27.3")
 	t.Setenv("OUT_DIR", root)
-	original := os.Args
-	defer func() { os.Args = original }()
-	os.Args = []string{"release-assets", "build"}
-	main()
-	os.Args = []string{"release-assets", "verify"}
-	main()
+	// Low-level archive fixtures intentionally use synthetic bytes.
+	// Production release commands require compiler build information.
+	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(root); err != nil {
+		t.Fatal(err)
+	}
+	if code, err := releaseAssetsCommand([]string{"verify"}, os.Getenv); code != 1 || err == nil {
+		t.Fatalf("synthetic binary passed production verification: code=%d err=%v", code, err)
+	}
 
 	for _, blocked := range []string{
 		archiveName("1.0.0", "linux", "amd64"),
@@ -223,7 +228,7 @@ func TestReleasePackagingEntrypointAndOutputFailures(t *testing.T) {
 			if err := os.Mkdir(filepath.Join(other, blocked), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := build(other, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err == nil {
+			if err := build(other, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err == nil {
 				t.Fatal("invalid output destination accepted")
 			}
 		})
@@ -238,7 +243,7 @@ func TestReleasePackagingEntrypointAndOutputFailures(t *testing.T) {
 
 func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 	root := prepareRelease(t)
-	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "windows", "amd64")
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3", "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +290,7 @@ func TestReleaseArchiveVerifierRejectsRepublishedContents(t *testing.T) {
 
 func TestReleaseRejectsMalformedArchiveStreams(t *testing.T) {
 	root := prepareRelease(t)
-	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "windows", "amd64")
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3", "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +331,7 @@ func TestReleaseRejectsMalformedArchiveStreams(t *testing.T) {
 
 func TestReleaseTarArchiveDetectsChangedPayload(t *testing.T) {
 	root := prepareRelease(t)
-	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1", "linux", "amd64")
+	want, err := archiveContents(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3", "linux", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}

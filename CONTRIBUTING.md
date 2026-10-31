@@ -4,7 +4,7 @@ Keep the core provider-neutral, package-specific behavior in separate provider e
 
 ## Checks
 
-Use Go 1.27.1 and run:
+Use Go 1.27.3 and run:
 
 ```sh
 ./scripts/check-dependencies.sh
