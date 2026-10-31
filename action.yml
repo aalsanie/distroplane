@@ -247,7 +247,7 @@ runs:
     - name: Upload recovery
       id: upload-recovery
       if: ${{ always() && steps.recovery.outcome == 'success' && steps.recovery.outputs.path != '' }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.recovery-artifact-name }}
         path: ${{ steps.recovery.outputs.path }}
@@ -256,7 +256,7 @@ runs:
     - name: Upload plan
       id: upload-plan
       if: ${{ always() && inputs.command == 'plan' && inputs.upload-plan == 'true' && steps.execute.outputs.plan-path != '' }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.plan-artifact-name }}
         path: ${{ steps.execute.outputs.plan-path }}
@@ -265,7 +265,7 @@ runs:
     - name: Upload evidence
       id: upload-evidence
       if: ${{ always() && inputs.upload-evidence == 'true' && steps.execute.outputs.evidence-path != '' }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.evidence-artifact-name }}
         path: ${{ steps.execute.outputs.evidence-path }}

@@ -187,7 +187,7 @@ jobs:
         run: |
           python3 scripts/compare-benchmarks.py --input "$RUNNER_TEMP/performance-bench.txt" --output "$RUNNER_TEMP/performance-comparison.json" --commit "$GITHUB_SHA" --environment "$RUNNER_TEMP/performance-env.txt"
       - name: Upload reviewable performance evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: performance-evidence
           path: ${{ runner.temp }}/performance-*
@@ -457,7 +457,7 @@ jobs:
         run: |
           ./scripts/test-msi.ps1 -Version $env:VERSION -Architecture amd64 -Msi "msi/distroplane_$($env:VERSION)_windows_amd64.msi" -PreviousMsi 'msi/previous_amd64.msi'
       - name: Hand off Arm64 MSIs for native verification
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-msi-arm64-candidate
           path: |
