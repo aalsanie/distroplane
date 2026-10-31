@@ -24,7 +24,7 @@ func prepareRelease(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	seedExecutables(t, root)
-	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err != nil {
+	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -46,7 +46,7 @@ func TestReleaseArchiveReproducibleAndComplete(t *testing.T) {
 		}
 		before[e.Name()] = hash(b)
 	}
-	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err != nil {
+	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range before {
@@ -136,10 +136,10 @@ func TestReleaseVerificationRejectsSymlinkAndBadIdentity(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "distroplane_1.0.0_darwin_amd64"), target); err != nil {
 		t.Skipf("host does not support symlinks: %v", err)
 	}
-	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err == nil {
+	if err := build(root, "1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err == nil {
 		t.Fatal("symlink executable accepted")
 	}
-	if err := validIdentity("../1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.1"); err == nil {
+	if err := validIdentity("../1.0.0", "0123456789ab", "2026-10-25T00:00:00Z", "go1.27.3"); err == nil {
 		t.Fatal("unsafe version accepted")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,12 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
 )
 
 const maxExecutableSize = 128 << 20
+const releaseGoToolchain = "go1.27.3"
 
 var platforms = []struct{ os, arch string }{
 	{"linux", "amd64"}, {"linux", "arm64"},
@@ -89,15 +92,71 @@ func releaseAssetsCommand(args []string, getenv func(string) string) (int, error
 	}
 	var err error
 	if args[0] == "build" {
-		err = build(out, getenv("VERSION"), getenv("COMMIT"), getenv("BUILD_DATE"), getenv("GO_VERSION"))
-	} else {
-		err = verify(out)
+		version, goVersion := getenv("VERSION"), getenv("GO_VERSION")
+		if err = validIdentity(version, getenv("COMMIT"), getenv("BUILD_DATE"), goVersion); err == nil {
+			err = verifyExecutableToolchains(out, version, goVersion, buildinfo.ReadFile)
+		}
+		if err == nil {
+			err = build(out, version, getenv("COMMIT"), getenv("BUILD_DATE"), goVersion)
+		}
+	} else if err = verify(out); err == nil {
+		var metadata releaseRecord
+		var data []byte
+		if data, err = readRegular(filepath.Join(out, "RELEASE-METADATA.json"), 1<<20); err == nil {
+			err = strictJSON(data, &metadata)
+		}
+		if err == nil {
+			err = verifyExecutableToolchains(out, metadata.Version, metadata.GoVersion, buildinfo.ReadFile)
+		}
 	}
 	if err != nil {
 		return 1, err
 	}
 	return 0, nil
 }
+
+// validateExecutableBuildInfo checks the compiler and target embedded by Go
+// in a release executable, independently of its filename and release metadata.
+func validateExecutableBuildInfo(info *debug.BuildInfo, executable, osName, arch string) error {
+	if info == nil || info.GoVersion != releaseGoToolchain {
+		return fmt.Errorf("unexpected Go toolchain for %s/%s/%s: require %s", executable, osName, arch, releaseGoToolchain)
+	}
+	wantPath := "github.com/aalsanie/distroplane/cmd/" + executable
+	if info.Path != wantPath || info.Main.Path != "github.com/aalsanie/distroplane" {
+		return fmt.Errorf("unexpected Go module or command for %s/%s/%s", executable, osName, arch)
+	}
+	settings := make(map[string]string, len(info.Settings))
+	for _, setting := range info.Settings {
+		settings[setting.Key] = setting.Value
+	}
+	if settings["GOOS"] != osName || settings["GOARCH"] != arch ||
+		settings["CGO_ENABLED"] != "0" || settings["-trimpath"] != "true" {
+		return fmt.Errorf("unexpected Go build settings for %s/%s/%s", executable, osName, arch)
+	}
+	return nil
+}
+
+// verifyExecutableToolchains rejects stale, foreign or incorrectly targeted
+// binaries before packaging and again when release assets are verified.
+func verifyExecutableToolchains(root, version, claimedGoVersion string, read func(string) (*debug.BuildInfo, error)) error {
+	if claimedGoVersion != releaseGoToolchain {
+		return fmt.Errorf("release Go version %q does not match required %s", claimedGoVersion, releaseGoToolchain)
+	}
+	for _, target := range platforms {
+		for _, executable := range executables {
+			name := assetName(executable, version, target.os, target.arch)
+			info, err := read(filepath.Join(root, name))
+			if err != nil {
+				return fmt.Errorf("read Go build info for %s: %w", name, err)
+			}
+			if err := validateExecutableBuildInfo(info, executable, target.os, target.arch); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
 func validIdentity(version, commit, date, goVersion string) error {
 	if !regexp.MustCompile(`^(0\.0\.0-dev|[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)$`).MatchString(version) {
 		return fmt.Errorf("invalid release version %q", version)
