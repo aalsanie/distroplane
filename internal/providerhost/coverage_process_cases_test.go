@@ -32,7 +32,7 @@ func TestProviderProcessDiagnosticAndEnvironmentBoundaries(t *testing.T) {
 	if providerErr.Error() != "" {
 		t.Fatal("nil structured provider error was formatted")
 	}
-	if _, err := decodeResponsePayload([]byte("{}"), &struct{}{}); err == nil {
+	if err := decodeResponsePayload([]byte("{}"), &struct{}{}); err == nil {
 		t.Fatal("unsupported protocol response type accepted")
 	}
 	for _, destination := range []any{

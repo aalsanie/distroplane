@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for path in cmd/distroplane/coverage_preconditions_test.go providers/winget/coverage_git_failures_test.go providers/homebrew/coverage_git_failures_test.go providers/winget/coverage_archive_safety_test.go internal/providerhost/coverage_process_cases_test.go internal/planner/coverage_storage_cases_test.go internal/journal/coverage_outcome_cases_test.go; do
+          for path in cmd/distroplane/coverage_preconditions_test.go providers/winget/coverage_git_failures_test.go providers/homebrew/coverage_git_failures_test.go providers/winget/coverage_archive_safety_test.go internal/providerhost/coverage_process_cases_test.go internal/planner/coverage_storage_cases_test.go internal/journal/coverage_outcome_cases_test.go internal/journal/coverage_io_cases_test.go; do
             echo "FMT_BEGIN::$path"
             gofmt "$path" | base64 -w0
             echo

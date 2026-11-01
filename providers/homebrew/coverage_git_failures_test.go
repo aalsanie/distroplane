@@ -39,7 +39,7 @@ func TestGitOperationsFailWhenTemporaryWorkspaceUnavailable(t *testing.T) {
 	t.Setenv("TMPDIR", blocked)
 	payload := operationPayload{
 		Repository: "/tmp/example.git", Branch: "main", UpdateBranch: "update",
-		Path: "Formula/demo.rb", Content: "metadata",,
+		Path: "Formula/demo.rb", Content: "metadata",
 	}
 	if _, err := (Provider{Git: coverageGitRunner{}}).commitAndPush(
 		context.Background(), payload, payload.UpdateBranch, "token"); err == nil {
