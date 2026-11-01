@@ -52,8 +52,7 @@ def run():
     assert (ROOT/'maven-plugin/it/simple/pom.xml').read_text().find('<cliVersion>') < 0
     assert (ROOT/'maven-plugin/it/reactor/pom.xml').read_text().find('<cliVersion>') < 0
     workflow_policy=(ROOT/'.github/workflows/maven-plugin.yml').read_text()
-    assert 'dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294' in workflow_policy
-    assert 'fail-on-severity: high' in workflow_policy
+    assert 'check_dependency_tree.py' in workflow_policy and '--osv' in workflow_policy
     assert 'package-ecosystem: maven' in (ROOT/'.github/dependabot.yml').read_text()
     assert node('name') and node('description') and node('url')
     assert pom.find(N+'licenses/'+N+'license/'+N+'name') is not None
