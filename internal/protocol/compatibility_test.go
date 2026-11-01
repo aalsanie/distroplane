@@ -33,7 +33,7 @@ func TestProtocolV1CompatibilityManifest(t *testing.T) {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Status != "candidate" || manifest.ProtocolVersion != Version || manifest.UnknownFields != "ignored" {
+	if manifest.Status != "frozen" || manifest.ProtocolVersion != Version || manifest.UnknownFields != "ignored" {
 		t.Fatalf("manifest=%+v", manifest)
 	}
 	if manifest.UnknownOperations != "rejected" || manifest.UnknownCapabilities != "rejected" || manifest.VersionNegotiation.Current != Version {

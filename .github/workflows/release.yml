@@ -403,10 +403,7 @@ jobs:
           MSI_SIGNING_MODE: ${{ needs.stage.outputs.signing_mode }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG already exists" >&2
-            exit 1
-          fi
+          python3 scripts/github-release-gate.py check --repo "$GITHUB_REPOSITORY" --tag "$TAG"
           VERSION="${VERSION#v}"
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then
@@ -424,23 +421,8 @@ jobs:
           fi
           # Draft-first publication prevents an incomplete upload from appearing in public feeds.
           gh release create "$TAG" dist/* --draft --verify-tag "${prerelease[@]}" --title "$TAG" --notes-file "$notes_file"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/release.json"
-          python3 - "$RUNNER_TEMP/release.json" dist <<'PY'
-          import hashlib, json, pathlib, sys
-          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
-          directory = pathlib.Path(sys.argv[2])
-          expected = {p.name: p for p in directory.iterdir() if p.is_file()}
-          actual = {a["name"]: a for a in release["assets"]}
-          if not release.get("draft") or set(actual) != set(expected):
-              raise SystemExit("draft release is incomplete or unexpectedly public")
-          for name, file in expected.items():
-              asset = actual[name]
-              digest = "sha256:" + hashlib.sha256(file.read_bytes()).hexdigest()
-              if asset.get("size") != file.stat().st_size or (asset.get("digest") and asset["digest"] != digest):
-                  raise SystemExit("uploaded release asset mismatch: " + name)
-          PY
-          gh release edit "$TAG" --draft=false
-          
+          python3 scripts/github-release-gate.py publish --repo "$GITHUB_REPOSITORY" --tag "$TAG" --directory dist
+
   public-smoke:
     name: Verify public release (${{ matrix.os }})
     needs: publish
