@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
 )
 
 func TestCLIRejectsDurabilityAndExecutionPreconditions(t *testing.T) {
@@ -41,7 +40,9 @@ func TestCLIRejectsDurabilityAndExecutionPreconditions(t *testing.T) {
 		"missing catalog selectors": func() int { code, _ := run("status", "--config", configPath, "--run", "not-found"); return code },
 		"empty journal": func() int {
 			path := filepath.Join(root, "empty.journal")
-			if err := os.WriteFile(path, nil, 0o600); err != nil { t.Fatal(err) }
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
 			code, _ := run("status", "--plan", planned.Path, "--journal", path)
 			return code
 		},
@@ -51,7 +52,9 @@ func TestCLIRejectsDurabilityAndExecutionPreconditions(t *testing.T) {
 		},
 		"corrupt journal": func() int {
 			path := filepath.Join(root, "corrupt.journal")
-			if err := os.WriteFile(path, []byte("not-journal"), 0o600); err != nil { t.Fatal(err) }
+			if err := os.WriteFile(path, []byte("not-journal"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			code, _ := run("status", "--plan", planned.Path, "--journal", path)
 			return code
 		},
@@ -61,7 +64,9 @@ func TestCLIRejectsDurabilityAndExecutionPreconditions(t *testing.T) {
 		},
 		"plan output filesystem": func() int {
 			blocked := filepath.Join(root, "blocked")
-			if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil { t.Fatal(err) }
+			if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			code, _ := run("plan", "--config", configPath, "--state-dir", blocked)
 			return code
 		},

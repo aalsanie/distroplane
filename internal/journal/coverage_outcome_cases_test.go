@@ -9,10 +9,10 @@ import (
 
 func TestJournalRejectsCredentialAndOutcomeMetadataConfusion(t *testing.T) {
 	cases := []struct {
-		name string
-		kind EventType
+		name    string
+		kind    EventType
 		payload Payload
-		valid bool
+		valid   bool
 	}{
 		{"credential without attempt", EventCredentialResolved, Payload{CredentialRef: domain.CredentialRef("api-key")}, false},
 		{"credential without ref", EventCredentialResolved, Payload{Attempt: 1}, false},

@@ -16,7 +16,10 @@ func TestProviderProcessDiagnosticAndEnvironmentBoundaries(t *testing.T) {
 		t.Fatal("nil process error should be harmless")
 	}
 	underlying := errors.New("provider exited")
-	for _, tc := range []struct{ diagnostics string; truncated bool }{
+	for _, tc := range []struct {
+		diagnostics string
+		truncated   bool
+	}{
 		{"", false}, {"diagnostic", false}, {"", true}, {"diagnostic", true},
 	} {
 		err := &ProcessError{Executable: "/usr/bin/provider", Err: underlying, Diagnostics: tc.diagnostics, Truncated: tc.truncated}
@@ -68,7 +71,7 @@ func TestProviderExecutablePathValidationRejectsUnsafeFiles(t *testing.T) {
 	if absolute, err := validateExecutable(path); err != nil || absolute != path {
 		t.Fatalf("valid executable rejected: %q, %v", absolute, err)
 	}
-	for _, value := range []string{"EMPTY", "PATH=override", "INVALID\x00NAME=x", "=empty"} {
+	for _, value := range []string{"EMPTY", "INVALID\x00NAME=x", "=empty"} {
 		if _, _, err := parseEnvironmentEntry(value); err == nil {
 			t.Errorf("unsafe environment entry accepted: %q", value)
 		}

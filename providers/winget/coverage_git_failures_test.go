@@ -46,7 +46,7 @@ func TestGitOperationsFailWhenTemporaryWorkspaceUnavailable(t *testing.T) {
 		t.Fatal("commit accepted without a writable temporary workspace")
 	}
 	observer := Provider{Git: coverageObservationGit{mode: "exact",
-		files: payload.Files,}}
+		files: payload.Files}}
 	if _, err := observer.observeBranch(context.Background(), payload, payload.Branch, "token"); err == nil {
 		t.Fatal("reconciliation accepted without a secure scratch workspace")
 	}
