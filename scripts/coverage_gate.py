@@ -121,6 +121,7 @@ def branch_counts(root, tool):
     if not shutil.which(tool) and not Path(tool).is_file():
         raise ValueError(f"gobco executable not found: {tool}")
     total_hit = total_arms = 0
+    failures = []
     with tempfile.TemporaryDirectory(prefix="distroplane-branch-") as location:
         checkout = sanitized_checkout(root, Path(location), packages)
         for directory, package in packages:
@@ -128,9 +129,10 @@ def branch_counts(root, tool):
                 [tool, "-branch", "."], cwd=checkout / directory, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=240)
             if result.returncode:
-                raise ValueError(
-                    f"branch instrumentation failed for {package['ImportPath']}:\n"
-                    + result.stdout[-2500:])
+                failures.append(package["ImportPath"])
+                print(f"branch instrumentation failed for {package['ImportPath']}:", file=sys.stderr)
+                print(result.stdout[:9000], file=sys.stderr)
+                continue
             found = BRANCHES.search(result.stdout)
             if not found:
                 if "nothing to instrument" in result.stdout:
@@ -143,7 +145,18 @@ def branch_counts(root, tool):
                 raise ValueError("invalid branch counter output")
             total_hit += hit
             total_arms += arms
-            print(f"{package['ImportPath']}: {hit}/{arms} ({100 * hit / arms:.2f}%)")
+            if arms:
+                print(f"{package['ImportPath']}: {hit}/{arms} ({100 * hit / arms:.2f}%)", flush=True)
+                if hit * 10 <= arms * 9:
+                    missed = [line for line in result.stdout.splitlines()
+                              if ": condition " in line and ("never" in line or "not evaluated" in line)]
+                    for line in missed[:20]:
+                        print("  " + line, flush=True)
+            else:
+                print(f"{package['ImportPath']}: no branch decisions", flush=True)
+    if failures:
+        print(f"partial Go branch totals: {total_hit}/{total_arms}", file=sys.stderr)
+        raise ValueError("branch instrumentation failed: " + ", ".join(failures))
     return total_hit, total_arms
 
 
