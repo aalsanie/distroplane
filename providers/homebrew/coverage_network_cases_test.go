@@ -42,15 +42,15 @@ func TestHomebrewGitHubRequestsRespectCancellationAndTimeouts(t *testing.T) {
 	stop()
 	expired, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancel()
-	for _, tc := range []struct{
-		name string
-		ctx context.Context
-		readCode protocol.ErrorCode
+	for _, tc := range []struct {
+		name      string
+		ctx       context.Context
+		readCode  protocol.ErrorCode
 		writeCode protocol.ErrorCode
 	}{
 		{"cancelled", cancelled, protocol.ErrorCancelled, protocol.ErrorCancelled},
 		{"timeout", expired, protocol.ErrorTimeout, protocol.ErrorAmbiguousOutcome},
-	}{
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := (Provider{}).lookupPullRequest(tc.ctx, payload, "token"); err == nil ||
 				err.Code != tc.readCode {

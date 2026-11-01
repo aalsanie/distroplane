@@ -97,11 +97,11 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Export additional Go test formatting
+      - name: Export new test formatting
         shell: bash
         run: |
           set -euo pipefail
-          for path in providers/winget/coverage_apply_failures_test.go providers/winget/coverage_network_cases_test.go providers/homebrew/coverage_network_cases_test.go internal/executor/coverage_lease_authority_test.go; do
+          for path in internal/protocol/coverage_coordinates_test.go internal/config/coverage_v2_error_paths_test.go internal/journal/coverage_lease_extension_test.go; do
             echo "FMT_BEGIN::$path"
             gofmt "$path" | base64 -w0
             echo

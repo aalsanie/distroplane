@@ -16,9 +16,9 @@ func TestWinGetGitHubReadAndSubmissionFailuresPreserveCertainty(t *testing.T) {
 	expired, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancel()
 	for _, scenario := range []struct {
-		name string
-		ctx context.Context
-		readCode protocol.ErrorCode
+		name      string
+		ctx       context.Context
+		readCode  protocol.ErrorCode
 		writeCode protocol.ErrorCode
 	}{
 		{"cancelled", cancelled, protocol.ErrorCancelled, protocol.ErrorCancelled},

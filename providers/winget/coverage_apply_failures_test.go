@@ -23,10 +23,10 @@ func (absentThenFailGitRunner) Run(_ context.Context, _ string, _ []string, args
 
 func TestWinGetApplyFailsClosedOnUncertainSubmissionStages(t *testing.T) {
 	for _, scenario := range []struct {
-		name string
+		name         string
 		commitStatus int
-		git GitRunner
-		code protocol.ErrorCode
+		git          GitRunner
+		code         protocol.ErrorCode
 	}{
 		{"destination unauthorized", http.StatusUnauthorized, nil, protocol.ErrorAuthentication},
 		{"destination forbidden", http.StatusForbidden, nil, protocol.ErrorAuthorization},
