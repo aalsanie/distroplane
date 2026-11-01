@@ -46,6 +46,8 @@ class DocumentationTest(unittest.TestCase):
             with self.subTest(file=name):
                 contents = (ROOT / name).read_text(encoding="utf-8")
                 self.assertEqual(re.findall(pattern, contents), [version] * count)
+        windows = (ROOT / "docs/windows-installer.md").read_text(encoding="utf-8")
+        self.assertIn(f"$env:VERSION = '{version}'", windows)
         linux = (ROOT / "docs/release-verification.md").read_text(encoding="utf-8")
         self.assertIn(f"/v{version}/scripts/install-linux.py", linux)
         # Maven plugin versions and CLI bootstrap defaults are maintained separately.

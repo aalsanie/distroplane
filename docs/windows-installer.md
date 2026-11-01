@@ -15,6 +15,7 @@ Install, repair, upgrade, and uninstall affect package-owned files only. Project
 Use pinned WiX Toolset 6.0.0 and verified release archives:
 
 ```powershell
+$env:VERSION = '0.9.3'
 ./scripts/build.ps1
 dotnet tool install --tool-path .tools/wix wix --version 6.0.0
 ./scripts/build-msi.ps1 -Version 0.9.3 -Architecture amd64 -ReleaseDir dist -OutputDir msi -WixExe .tools/wix/wix.exe
