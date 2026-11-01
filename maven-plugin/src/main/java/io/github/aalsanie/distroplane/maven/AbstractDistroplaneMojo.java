@@ -18,7 +18,7 @@ abstract class AbstractDistroplaneMojo extends AbstractMojo {
     protected MavenSession session;
     @Parameter(property = "distroplane.config", defaultValue = "distroplane.json")
     protected String config;
-    @Parameter(property = "distroplane.cliVersion", defaultValue = "0.9.2")
+    @Parameter(property = "distroplane.cliVersion", defaultValue = "0.9.3")
     protected String cliVersion;
     @Parameter(property = "distroplane.archiveSha256")
     protected String archiveSha256;

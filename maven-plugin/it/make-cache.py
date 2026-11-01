@@ -21,7 +21,7 @@ def main():
     # This fixture is deliberately not a GitHub release checksum; it must only
     # be used with the locally-generated offline test cache.
     fixture_digest=hashlib.sha256(b'distroplane-maven-fixture-v1\0'+raw).hexdigest()
-    root=Path(a.repo).resolve()/'distroplane'/'cli'/'0.9.2'/f'{a.platform}-{a.arch}'/f'sha256-{fixture_digest}'
+    root=Path(a.repo).resolve()/'distroplane'/'cli'/'0.9.3'/f'{a.platform}-{a.arch}'/f'sha256-{fixture_digest}'
     if root.exists():
         raise SystemExit('refusing to overwrite existing fixture cache')
     root.mkdir(parents=True)
@@ -34,7 +34,7 @@ def main():
         shutil.copyfile(a.binary,f)
         if a.platform!='windows':f.chmod(0o700)
         entries.append(dict(path=rel,sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),mode='0755'))
-    (root/'PACKAGE-METADATA.json').write_text(json.dumps(dict(schemaVersion='1',version='0.9.2',os=a.platform,arch=a.arch,cgoEnabled=False,files=entries)),encoding='utf-8')
+    (root/'PACKAGE-METADATA.json').write_text(json.dumps(dict(schemaVersion='1',version='0.9.3',os=a.platform,arch=a.arch,cgoEnabled=False,files=entries)),encoding='utf-8')
     (root/'archive.sha256').write_text(fixture_digest,encoding='utf-8')
     print(fixture_digest)
 if __name__=='__main__':main()

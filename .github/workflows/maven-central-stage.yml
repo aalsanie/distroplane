@@ -54,6 +54,28 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor HEAD origin/main
           python3 maven-plugin/it/check-publication.py --release-version "$VERSION"
+      - name: Require published native CLI release before Maven Central staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_version="$(python3 maven-plugin/it/check-publication.py --print-cli-version)"
+          export CLI_VERSION="$cli_version"
+          gh release view "v$cli_version" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets |
+            python3 -c '
+          import json, os, sys
+          d = json.load(sys.stdin)
+          if d["isDraft"] or d["isPrerelease"]:
+              raise SystemExit("Maven plugin requires a published stable CLI")
+          names = {a["name"] for a in d["assets"]}
+          version = os.environ["CLI_VERSION"]
+          want = {f"distroplane_{version}_{os}_{arch}{suffix}" for os, suffix in
+                  (("linux", ".tar.gz"), ("darwin", ".tar.gz"), ("windows", ".zip"))
+                  for arch in ("amd64", "arm64")}
+          if not want.issubset(names) or not {"SHA256SUMS", "RELEASE-METADATA.json"}.issubset(names):
+              raise SystemExit("published CLI is missing platform packages or integrity metadata")
+          '
       - name: Verify Central and signing credentials
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_TOKEN_USERNAME }}
