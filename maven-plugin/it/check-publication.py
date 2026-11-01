@@ -39,6 +39,8 @@ def run():
     management=pom.find(N+'dependencyManagement/'+N+'dependencies')
     bom=next((x for x in management.findall(N+'dependency') if x.findtext(N+'artifactId')=='jackson-bom'), None)
     assert bom is not None and bom.findtext(N+'version')=='${jackson.version}' and bom.findtext(N+'scope')=='import'
+    lang=next((x for x in management.findall(N+'dependency') if x.findtext(N+'artifactId')=='commons-lang3'), None)
+    assert lang is not None and lang.findtext(N+'version')=='3.18.0'
     direct={x.findtext(N+'artifactId'):x for x in pom.findall(N+'dependencies/'+N+'dependency')}
     assert 'jackson-databind' in direct and direct['jackson-databind'].find(N+'version') is None
     assert direct['commons-compress'].findtext(N+'version')=='1.28.0'
