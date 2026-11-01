@@ -12,6 +12,7 @@ REQUIRED = {
     ("com.fasterxml.jackson.core", "jackson-core"): "2.18.12",
     ("com.fasterxml.jackson.core", "jackson-databind"): "2.18.12",
     ("org.apache.commons", "commons-compress"): "1.28.0",
+    ("org.apache.commons", "commons-lang3"): "3.18.0",
 }
 OSV_URL = "https://api.osv.dev/v1/querybatch"
 

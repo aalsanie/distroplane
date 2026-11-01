@@ -42,6 +42,7 @@ def run():
     direct={x.findtext(N+'artifactId'):x for x in pom.findall(N+'dependencies/'+N+'dependency')}
     assert 'jackson-databind' in direct and direct['jackson-databind'].find(N+'version') is None
     assert direct['commons-compress'].findtext(N+'version')=='1.28.0'
+    assert direct['commons-lang3'].findtext(N+'version')=='3.18.0'
     enforcer=next((x for x in pom.findall(N+'build/'+N+'plugins/'+N+'plugin') if x.findtext(N+'artifactId')=='maven-enforcer-plugin'),None)
     assert enforcer is not None and enforcer.findtext(N+'version')=='3.6.2'
     rules=enforcer.find(N+'configuration/'+N+'rules')
@@ -49,6 +50,7 @@ def run():
     bans=[x.text for x in rules.findall(N+'bannedDependencies/'+N+'excludes/'+N+'exclude')]
     assert 'com.fasterxml.jackson.core:*:[0,2.18.12)' in bans
     assert 'org.apache.commons:commons-compress:[0,1.28.0)' in bans
+    assert 'org.apache.commons:commons-lang3:[0,3.18.0)' in bans
     assert (ROOT/'maven-plugin/it/simple/pom.xml').read_text().find('<cliVersion>') < 0
     assert (ROOT/'maven-plugin/it/reactor/pom.xml').read_text().find('<cliVersion>') < 0
     workflow_policy=(ROOT/'.github/workflows/maven-plugin.yml').read_text()
