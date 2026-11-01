@@ -1,5 +1,5 @@
 {
-  "status": "candidate",
+  "status": "frozen",
   "protocolVersion": "1",
   "reservedEnvelopeFields": [
     "protocolVersion",
@@ -25,5 +25,32 @@
     "advertisement": "describeResponse.protocolVersions",
     "selection": "core requires an exact supported protocol version",
     "current": "1"
+  },
+  "schemaVersions": {
+    "config": "1",
+    "plan": "1",
+    "evidence": "1",
+    "journal": 2,
+    "cliOutput": "1"
+  },
+  "normalizedStates": [
+    "PLANNED",
+    "READY",
+    "RUNNING",
+    "BLOCKED",
+    "WAITING_EXTERNAL",
+    "PUBLISHED",
+    "REJECTED",
+    "FAILED",
+    "CANCELLED"
+  ],
+  "exitCodes": {
+    "success": 0,
+    "operational": 1,
+    "usage": 2,
+    "invalid": 3,
+    "pending": 4,
+    "rejected": 5,
+    "failed": 6
   }
 }

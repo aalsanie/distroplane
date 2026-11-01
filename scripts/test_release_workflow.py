@@ -60,6 +60,18 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("## Windows MSI installer trust", publish)
         self.assertNotIn("docs/releases/", publish)
 
+    def test_draft_release_is_verified_and_published_by_id(self):
+        publish = job("publish", self.content)
+        self.assertIn('scripts/github-release-gate.py check --repo "$GITHUB_REPOSITORY" --tag "$TAG"', publish)
+        self.assertIn('gh release create "$TAG" dist/* --draft --verify-tag', publish)
+        self.assertIn('scripts/github-release-gate.py publish --repo "$GITHUB_REPOSITORY" --tag "$TAG" --directory dist', publish)
+        self.assertNotIn('releases/tags/', publish)
+        self.assertNotIn('gh release edit "$TAG"', publish)
+        self.assertLess(publish.index("github-release-gate.py check"),
+                        publish.index('gh release create "$TAG"'))
+        self.assertLess(publish.index('gh release create "$TAG"'),
+                        publish.index("github-release-gate.py publish"))
+
     def test_public_downloads_verified_before_tap_update(self):
         consumer = job("public-smoke", self.content)
         self.assertIn("needs: publish", consumer)
