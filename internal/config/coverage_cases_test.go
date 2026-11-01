@@ -28,26 +28,26 @@ func TestConfigurationInputAndValidationBranches(t *testing.T) {
 	}
 	valid := Config{
 		SchemaVersion: SchemaVersion,
-		Release: Release{ID: "release", Artifacts: []Artifact{{Name: "bin", Source: "bin.zip"}}},
-		Targets: []Target{{ID: "destination", Provider: Provider{Name: "fake"}, Configuration: []byte(`{}`)}},
+		Release:       Release{ID: "release", Artifacts: []Artifact{{Name: "bin", Source: "bin.zip"}}},
+		Targets:       []Target{{ID: "destination", Provider: Provider{Name: "fake"}, Configuration: []byte(`{}`)}},
 	}
 	if err := valid.normalizeAndValidate(); err != nil {
 		t.Fatalf("baseline config invalid: %v", err)
 	}
 	for name, mutate := range map[string]func(*Config){
-		"schema": func(c *Config) { c.SchemaVersion = "999" },
-		"release": func(c *Config) { c.Release.ID = "invalid\nrelease" },
-		"no artifacts": func(c *Config) { c.Release.Artifacts = nil },
-		"artifact name": func(c *Config) { c.Release.Artifacts[0].Name = "" },
-		"artifact source": func(c *Config) { c.Release.Artifacts[0].Source = "" },
+		"schema":              func(c *Config) { c.SchemaVersion = "999" },
+		"release":             func(c *Config) { c.Release.ID = "invalid\nrelease" },
+		"no artifacts":        func(c *Config) { c.Release.Artifacts = nil },
+		"artifact name":       func(c *Config) { c.Release.Artifacts[0].Name = "" },
+		"artifact source":     func(c *Config) { c.Release.Artifacts[0].Source = "" },
 		"artifact media type": func(c *Config) { c.Release.Artifacts[0].MediaType = "bad\n" },
-		"duplicate artifact": func(c *Config) { c.Release.Artifacts = append(c.Release.Artifacts, c.Release.Artifacts[0]) },
-		"no targets": func(c *Config) { c.Targets = nil },
-		"target identifier": func(c *Config) { c.Targets[0].ID = " x" },
-		"duplicate target": func(c *Config) { c.Targets = append(c.Targets, c.Targets[0]) },
-		"provider name": func(c *Config) { c.Targets[0].Provider.Name = "" },
+		"duplicate artifact":  func(c *Config) { c.Release.Artifacts = append(c.Release.Artifacts, c.Release.Artifacts[0]) },
+		"no targets":          func(c *Config) { c.Targets = nil },
+		"target identifier":   func(c *Config) { c.Targets[0].ID = " x" },
+		"duplicate target":    func(c *Config) { c.Targets = append(c.Targets, c.Targets[0]) },
+		"provider name":       func(c *Config) { c.Targets[0].Provider.Name = "" },
 		"provider executable": func(c *Config) { c.Targets[0].Provider.Executable = "bad\x00" },
-		"configuration": func(c *Config) { c.Targets[0].Configuration = []byte(`{bad`) },
+		"configuration":       func(c *Config) { c.Targets[0].Configuration = []byte(`{bad`) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := valid

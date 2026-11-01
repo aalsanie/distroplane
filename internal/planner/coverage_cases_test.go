@@ -24,13 +24,13 @@ func TestProviderDigestDocumentFailureBranches(t *testing.T) {
 		}
 	})
 	for _, tc := range []struct {
-		name string
-		digest string
+		name         string
+		digest       string
 		providerName string
 	}{
 		{"missing digest", "", "fake"},
 		{"invalid digest", "invalid", "fake"},
-		{"invalid provider", digest.String(), "bad name"},
+		{"invalid provider", digest.String(), ""},
 		{"valid digest", digest.String(), "fake"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

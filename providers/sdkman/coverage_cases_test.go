@@ -11,9 +11,9 @@ import (
 func TestVendorAPIHTTPStatusDecisionMatrix(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
-		name      string
-		code      int
-		accepted  bool
+		name     string
+		code     int
+		accepted bool
 	}{
 		{"created", http.StatusCreated, true},
 		{"accepted", http.StatusAccepted, true},
@@ -49,7 +49,7 @@ func TestVendorAPIHTTPStatusDecisionMatrix(t *testing.T) {
 func TestStateAPIHTTPStatusDecisionMatrix(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
-		code int
+		code     int
 		accepted bool
 	}{
 		{http.StatusNoContent, true},
@@ -82,7 +82,6 @@ func TestStateAPIHTTPStatusDecisionMatrix(t *testing.T) {
 	}
 }
 
-
 func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 	payload := operationPayload{
 		Mode: AuthState, Candidate: "sample", Version: "1.0.0",
@@ -90,11 +89,11 @@ func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 		Checksums: map[string]string{"SHA-256": strings.Repeat("a", 64)},
 	}
 	cases := []struct {
-		name string
+		name   string
 		status int
-		body string
+		body   string
 		exists bool
-		error bool
+		error  bool
 	}{
 		{"absent", http.StatusNotFound, "", false, false},
 		{"rate-limited", http.StatusTooManyRequests, "", false, true},
@@ -133,9 +132,12 @@ func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 		t.Fatalf("matching observation rejected: %+v", result)
 	}
 	for name, modify := range map[string]func(*operationPayload, *observedVersion){
-		"url": func(_ *operationPayload, o *observedVersion) { o.url = "https://example.test/different" },
+		"url":      func(_ *operationPayload, o *observedVersion) { o.url = "https://example.test/different" },
 		"checksum": func(_ *operationPayload, o *observedVersion) { o.sha256 = strings.Repeat("b", 64) },
-		"distribution": func(p *operationPayload, o *observedVersion) { p.StateDistribution = "vendor"; o.distribution = "other" },
+		"distribution": func(p *operationPayload, o *observedVersion) {
+			p.StateDistribution = "vendor"
+			o.distribution = "other"
+		},
 		"unexpected distribution": func(_ *operationPayload, o *observedVersion) { o.distribution = "vendor" },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -157,9 +159,9 @@ func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 
 func TestStateLoginAuthenticationFailureMatrix(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		code int
-		body string
+		name  string
+		code  int
+		body  string
 		valid bool
 	}{
 		{"ok", http.StatusOK, `{"token":"valid.token"}`, true},

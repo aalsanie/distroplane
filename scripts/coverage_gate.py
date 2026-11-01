@@ -125,9 +125,29 @@ def branch_counts(root, tool):
     with tempfile.TemporaryDirectory(prefix="distroplane-branch-") as location:
         checkout = sanitized_checkout(root, Path(location), packages)
         for directory, package in packages:
+            # Measure branches reached by consumers in other packages as well as
+            # the package's own unit tests; integration suites exercise the same
+            # instrumented production code inside this isolated module copy.
+            integrated = (directory.parts[0] == "internal" and len(directory.parts) == 2
+                          and directory.parts[1] in {
+                              "config", "evidence", "executor", "journal", "planner",
+                              "providerhost", "runstate",
+                          })
+            invocation = [tool, "-branch", "."]
+            if integrated:
+                pattern = "/".join([".."] * len(directory.parts) + ["..."])
+                invocation = [tool, "-branch", "-test", pattern, "."]
             result = subprocess.run(
-                [tool, "-branch", "."], cwd=checkout / directory, text=True,
+                invocation, cwd=checkout / directory, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=240)
+            if result.returncode and integrated:
+                # Preserve the valid package-level result if an unrelated
+                # cross-package test cannot run in the instrumented checkout.
+                print(f"cross-package branch run failed for {package['ImportPath']}; retrying package tests",
+                      file=sys.stderr, flush=True)
+                result = subprocess.run(
+                    [tool, "-branch", "."], cwd=checkout / directory, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=240)
             if result.returncode:
                 failures.append(package["ImportPath"])
                 print(f"branch instrumentation failed for {package['ImportPath']}:", file=sys.stderr)

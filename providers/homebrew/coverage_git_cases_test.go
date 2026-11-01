@@ -9,7 +9,7 @@ import (
 
 type coverageGitRunner struct {
 	failure string
-	change bool
+	change  bool
 }
 
 func (r coverageGitRunner) Run(_ context.Context, _ string, _ []string, args ...string) (gitOutput, error) {
@@ -35,9 +35,9 @@ func TestGitPublicationFailureBoundaries(t *testing.T) {
 		Path: "Formula/demo.rb", Content: "class Demo; end\n",
 	}
 	for _, scenario := range []struct {
-		name string
-		fail string
-		change bool
+		name       string
+		fail       string
+		change     bool
 		shouldFail bool
 	}{
 		{"clone", "clone", false, true},

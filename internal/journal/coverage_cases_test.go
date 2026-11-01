@@ -24,10 +24,10 @@ func TestJournalEventValidationDecisionMatrix(t *testing.T) {
 		return entry
 	}
 	cases := []struct {
-		name string
-		kind EventType
+		name    string
+		kind    EventType
 		payload Payload
-		valid bool
+		valid   bool
 	}{
 		{"ready", EventOperationReady, Payload{}, true},
 		{"ready extra", EventOperationReady, Payload{Attempt: 1}, false},
@@ -81,13 +81,13 @@ func TestJournalEventValidationDecisionMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*Event){
-		"version": func(e *Event) { e.SchemaVersion = 0 },
-		"sequence": func(e *Event) { e.Sequence = 0 },
-		"clock": func(e *Event) { e.ObservedAt = time.Time{} },
-		"run": func(e *Event) { e.RunID = "" },
-		"plan": func(e *Event) { e.PlanID = "" },
+		"version":            func(e *Event) { e.SchemaVersion = 0 },
+		"sequence":           func(e *Event) { e.Sequence = 0 },
+		"clock":              func(e *Event) { e.ObservedAt = time.Time{} },
+		"run":                func(e *Event) { e.RunID = "" },
+		"plan":               func(e *Event) { e.PlanID = "" },
 		"unexpected payload": func(e *Event) { e.Payload.Attempt = 1 },
-		"unknown type": func(e *Event) { e.Type = "FUTURE_EVENT" },
+		"unknown type":       func(e *Event) { e.Type = "FUTURE_EVENT" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			event := base
