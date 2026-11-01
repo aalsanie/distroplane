@@ -10,8 +10,8 @@ import (
 )
 
 type coverageObservationGit struct {
-	mode string
-	path string
+	mode    string
+	path    string
 	content string
 }
 
@@ -58,7 +58,7 @@ func TestObserveBranchDistinguishesMissingConflictAndExactManifest(t *testing.T)
 	}
 	payload.ContentSHA256 = sha256Hex([]byte(payload.Content))
 	for _, tc := range []struct {
-		mode string
+		mode                  string
 		exists, exact, failed bool
 	}{
 		{"absent", false, false, false},

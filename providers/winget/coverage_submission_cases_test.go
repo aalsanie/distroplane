@@ -9,9 +9,9 @@ import (
 
 func TestApplyDoesNotRepublishReviewedSubmission(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		state string
-		expected protocol.ResultState
+		name          string
+		state         string
+		expected      protocol.ResultState
 		providerState string
 	}{
 		{"open", "open", protocol.ResultWaitingExternal, "submitted"},

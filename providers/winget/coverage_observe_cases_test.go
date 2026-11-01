@@ -10,7 +10,7 @@ import (
 )
 
 type coverageObservationGit struct {
-	mode string
+	mode  string
 	files []manifestFile
 }
 
@@ -57,9 +57,9 @@ func TestObserveBranchDistinguishesMissingConflictAndExactManifest(t *testing.T)
 		Repository: "https://example.test/repo.git", Branch: "main",
 		Files: []manifestFile{{Path: "manifests/c/demo.yaml", Content: "manifest"}},
 	}
-	
+
 	for _, tc := range []struct {
-		mode string
+		mode                  string
 		exists, exact, failed bool
 	}{
 		{"absent", false, false, false},
@@ -72,7 +72,7 @@ func TestObserveBranchDistinguishesMissingConflictAndExactManifest(t *testing.T)
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			provider := Provider{Git: coverageObservationGit{
-				mode: tc.mode,
+				mode:  tc.mode,
 				files: payload.Files,
 			}}
 			observed, err := provider.observeBranch(context.Background(), payload, payload.Branch, "token")
