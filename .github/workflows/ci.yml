@@ -97,6 +97,16 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - name: Format new coverage cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in providers/sdkman/coverage_identity_cases_test.go providers/sdkman/coverage_allowlist_test.go internal/evidence/coverage_secrets_test.go internal/journal/coverage_secrets_test.go providers/winget/coverage_installer_types_test.go providers/homebrew/coverage_jvm_versions_test.go; do
+            echo "FMT_BEGIN::$path"
+            gofmt "$path" | base64 -w0
+            echo
+            echo "FMT_END::$path"
+          done
       - name: Install pinned branch instrumenter
         run: go install github.com/rillig/gobco@7a099954a61f3955163d5cef03e884c2e72622dd
       - name: Enforce branch coverage strictly above 90 percent

@@ -42,7 +42,7 @@ func TestExternalReferenceCollectionHandlesNestedValuesAndInvalidURLs(t *testing
 	}
 	values := make(map[string]struct{})
 	collectReferences(map[string]any{
-		"list": []any{"https://example.test/c", 123, nil},
+		"list":  []any{"https://example.test/c", 123, nil},
 		"other": map[string]any{"url": "https://example.test/d", "hidden": "relative"},
 	}, values)
 	if len(values) != 2 {

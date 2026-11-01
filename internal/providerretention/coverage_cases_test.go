@@ -30,8 +30,8 @@ func TestRetainedProviderNamesAndPathsFailClosed(t *testing.T) {
 		t.Fatalf("provider cache paths: %q %q %q err=%v", directory, executable, manifest, err)
 	}
 	for _, tc := range []struct {
-		root string
-		name domain.ProviderName
+		root   string
+		name   domain.ProviderName
 		digest domain.Digest
 	}{
 		{root, domain.ProviderName("bad/name"), digest},
