@@ -17,8 +17,8 @@ Use pinned WiX Toolset 6.0.0 and verified release archives:
 ```powershell
 ./scripts/build.ps1
 dotnet tool install --tool-path .tools/wix wix --version 6.0.0
-./scripts/build-msi.ps1 -Version 0.9.2 -Architecture amd64 -ReleaseDir dist -OutputDir msi -WixExe .tools/wix/wix.exe
-./scripts/test-msi.ps1 -Version 0.9.2 -Architecture amd64 -Msi msi/distroplane_0.9.2_windows_amd64.msi
+./scripts/build-msi.ps1 -Version 0.9.3 -Architecture amd64 -ReleaseDir dist -OutputDir msi -WixExe .tools/wix/wix.exe
+./scripts/test-msi.ps1 -Version 0.9.3 -Architecture amd64 -Msi msi/distroplane_0.9.3_windows_amd64.msi
 ```
 
 Use `-Architecture arm64` and a native ARM64 test host for ARM64 acceptance.

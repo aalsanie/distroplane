@@ -19,8 +19,8 @@ Alternatively download the appropriate [Windows MSI](https://github.com/aalsanie
 Without Homebrew, use the version-matched installer for the [published release](https://github.com/aalsanie/distroplane/releases/latest):
 
 ```sh
-curl -fL https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.2/scripts/install-linux.py -o install-linux.py
-python3 install-linux.py --version 0.9.2
+curl -fL https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.3/scripts/install-linux.py -o install-linux.py
+python3 install-linux.py --version 0.9.3
 ~/.local/bin/distroplane version
 ```
 

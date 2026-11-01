@@ -17,7 +17,7 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
-          version: 0.9.2
+          version: 0.9.3
           command: publish
           approve: 'true'
           credential-mappings: npm-publish=NPM_TOKEN
@@ -33,7 +33,7 @@ Build your artifact **before** this step. In production, pin `uses:` to a review
 ```yaml
 - uses: aalsanie/distroplane@main
   with:
-    version: 0.9.2
+    version: 0.9.3
     command: resume
     restore-recovery: 'true'
 ```

@@ -66,7 +66,7 @@ Publish a prebuilt artifact from a GitHub Actions workflow:
   env:
     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
   with:
-    version: 0.9.2
+    version: 0.9.3
     command: publish
     approve: 'true'
     credential-mappings: npm-publish=NPM_TOKEN
