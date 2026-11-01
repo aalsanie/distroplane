@@ -33,6 +33,25 @@ class DocumentationTest(unittest.TestCase):
                     with self.subTest(file=str(source.relative_to(ROOT)), line=line_number, link=match.group(1)):
                         self.assertTrue(target.is_relative_to(ROOT) and target.is_file())
 
+    def test_release_examples_use_project_version(self):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertRegex(version, r"^[0-9]+\.[0-9]+\.[0-9]+$")
+        expected = {
+            "README.md": (r"(?m)^\s+version: ([0-9]+\.[0-9]+\.[0-9]+)$", 1),
+            "docs/github-actions.md": (r"(?m)^\s+version: ([0-9]+\.[0-9]+\.[0-9]+)$", 2),
+            "docs/windows-installer.md": (r"-Version ([0-9]+\.[0-9]+\.[0-9]+)", 2),
+            "docs/release-verification.md": (r"install-linux\.py --version ([0-9]+\.[0-9]+\.[0-9]+)", 1),
+        }
+        for name, (pattern, count) in expected.items():
+            with self.subTest(file=name):
+                contents = (ROOT / name).read_text(encoding="utf-8")
+                self.assertEqual(re.findall(pattern, contents), [version] * count)
+        windows = (ROOT / "docs/windows-installer.md").read_text(encoding="utf-8")
+        self.assertIn(f"$env:VERSION = '{version}'", windows)
+        linux = (ROOT / "docs/release-verification.md").read_text(encoding="utf-8")
+        self.assertIn(f"/v{version}/scripts/install-linux.py", linux)
+        # Maven plugin versions and CLI bootstrap defaults are maintained separately.
+
     def test_readme_starts_with_install_and_publish(self):
         contents = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("brew install aalsanie/tap/distroplane", contents)

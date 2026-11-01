@@ -19,8 +19,8 @@ Alternatively download the appropriate [Windows MSI](https://github.com/aalsanie
 Without Homebrew, use the version-matched installer for the [published release](https://github.com/aalsanie/distroplane/releases/latest):
 
 ```sh
-curl -fL https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.2/scripts/install-linux.py -o install-linux.py
-python3 install-linux.py --version 0.9.2
+curl -fL https://raw.githubusercontent.com/aalsanie/distroplane/v0.9.3/scripts/install-linux.py -o install-linux.py
+python3 install-linux.py --version 0.9.3
 ~/.local/bin/distroplane version
 ```
 
@@ -39,4 +39,4 @@ The latest [GitHub release](https://github.com/aalsanie/distroplane/releases/lat
 
 Before tagging, manually run the **Release** workflow on `main` with confirmation `REHEARSE`. It builds and verifies the same staged assets and six native installation targets as the publishing workflow, but does not create a GitHub release or update package catalogs. Review the successful run and its staged artifact inventory before approving publication.
 
-A stable release must have matching `VERSION` and versioned release notes. Merge the changes, verify CI and Action smoke on the **exact commit**, then tag that commit with `v<VERSION>`. The release workflow checks asset integrity, staged inventories, native execution, and the Windows MSI signing policy before publication. No tag should be pushed before the checks pass. See [Windows signing details](windows-installer.md).
+A stable release must have matching `VERSION` and a current `CHANGELOG.md` entry. Merge the changes, verify CI and Action smoke on the **exact commit**, then tag that commit with `v<VERSION>`. The release workflow checks asset integrity, staged inventories, native execution, and the Windows MSI signing policy before publication. No tag should be pushed before the checks pass. See [Windows signing details](windows-installer.md).
