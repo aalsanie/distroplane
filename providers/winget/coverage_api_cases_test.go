@@ -13,11 +13,11 @@ import (
 
 func TestGitHubValidationResponseMatrix(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		body string
+		name   string
+		body   string
 		status int
-		want string
-		error bool
+		want   string
+		error  bool
 	}{
 		{"none", `{"check_runs":[]}`, 200, "pending", false},
 		{"success", `{"check_runs":[{"name":"package","status":"completed","conclusion":"success"}]}`, 200, "passed", false},
@@ -34,7 +34,7 @@ func TestGitHubValidationResponseMatrix(t *testing.T) {
 		{"bad-json", "{", 200, "", true},
 		{"forbidden", "denied", http.StatusForbidden, "", true},
 		{"rate", "denied", http.StatusTooManyRequests, "", true},
-	}{
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if !strings.Contains(r.URL.Path, "/check-runs") {
@@ -59,9 +59,9 @@ func TestGitHubValidationResponseMatrix(t *testing.T) {
 
 func TestGitHubPullRequestLookupFiltersAndIdempotentConflict(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		body string
-		state string
+		name   string
+		body   string
+		state  string
 		exists bool
 	}{
 		{"empty", `[]`, "", false},
@@ -69,7 +69,7 @@ func TestGitHubPullRequestLookupFiltersAndIdempotentConflict(t *testing.T) {
 		{"mismatched-base", `[{"number":1,"html_url":"https://example.test/1","head":{"ref":"update"},"base":{"ref":"other"}}]`, "", false},
 		{"open", `[{"number":3,"html_url":"https://example.test/3","state":"open","head":{"ref":"update","sha":"commit"},"base":{"ref":"main"}}]`, "open", true},
 		{"merged", `[{"number":3,"html_url":"https://example.test/3","state":"closed","merged_at":"2026-11-01T00:00:00Z","head":{"ref":"update"},"base":{"ref":"main"}}]`, "merged", true},
-	}{
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			posts := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,17 +115,17 @@ func TestPriorPullRequestEvidenceBindingDecisionMatrix(t *testing.T) {
 		t.Fatal("invalid prior evidence accepted")
 	}
 	for _, mutate := range []func(*evidence){
-		func(e *evidence){e.PullRequestNumber=0},
-		func(e *evidence){e.Repository="other/repo"},
-		func(e *evidence){e.BaseBranch="wrong"},
-		func(e *evidence){e.UpdateBranch="wrong"},
-		func(e *evidence){e.ManifestTreeSHA="wrong"},
-	}{
-		change:=valid
+		func(e *evidence) { e.PullRequestNumber = 0 },
+		func(e *evidence) { e.Repository = "other/repo" },
+		func(e *evidence) { e.BaseBranch = "wrong" },
+		func(e *evidence) { e.UpdateBranch = "wrong" },
+		func(e *evidence) { e.ManifestTreeSHA = "wrong" },
+	} {
+		change := valid
 		mutate(&change)
-		raw,_:=json.Marshal(change)
-		if _,ok:=priorPullRequestNumber(payload,&protocol.DistributionResult{Evidence:raw});ok{
-			t.Fatalf("unbound prior evidence accepted: %+v",change)
+		raw, _ := json.Marshal(change)
+		if _, ok := priorPullRequestNumber(payload, &protocol.DistributionResult{Evidence: raw}); ok {
+			t.Fatalf("unbound prior evidence accepted: %+v", change)
 		}
 	}
 }
