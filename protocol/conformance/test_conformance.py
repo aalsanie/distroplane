@@ -72,12 +72,12 @@ class ProtocolConformance(unittest.TestCase):
     def run_external(self, message, mode="normal", **kwargs):
         return invoke([sys.executable, str(FIXTURE), "--mode", mode], message, **kwargs)
 
-    def check_envelope(self, process, sent, status="ok"):
+    def check_envelope(self, process, sent, status="ok", expected_version=None):
         self.assertEqual(process.returncode, 0, process.stderr.decode(errors="replace")[-1500:])
         self.assertLessEqual(len(process.stdout), LIMIT)
         self.assertTrue(process.stdout)
         decoded = json.loads(process.stdout.decode("utf-8"), object_pairs_hook=self.no_duplicates)
-        self.assertEqual(decoded["protocolVersion"], sent["protocolVersion"])
+        self.assertEqual(decoded["protocolVersion"], expected_version or sent["protocolVersion"])
         self.assertEqual(decoded["requestId"], sent["requestId"])
         self.assertEqual(decoded["operation"], sent["operation"])
         self.assertEqual(decoded["status"], status)
@@ -145,7 +145,7 @@ class ProtocolConformance(unittest.TestCase):
         self.assertTrue(error["retryable"])
         for changed in (request("describe", {}, version="2"),
                         request("unknown-future", {})):
-            response = self.check_envelope(self.run_external(changed), changed, "error")
+            response = self.check_envelope(self.run_external(changed), changed, "error", expected_version="1")
             self.assertEqual(response["error"]["code"], "PROTOCOL_ERROR")
 
     def test_cross_language_rejects_bad_request_framing(self):
@@ -173,7 +173,7 @@ class ProtocolConformance(unittest.TestCase):
                 response = self.check_envelope(invoke([binary], invalid), invalid, "error")
                 self.assertEqual(response["error"]["code"], "PROTOCOL_ERROR")
                 future = request("describe", {}, "future-" + name, version="2")
-                response = self.check_envelope(invoke([binary], future), future, "error")
+                response = self.check_envelope(invoke([binary], future), future, "error", expected_version="1")
                 self.assertEqual(response["error"]["code"], "PROTOCOL_ERROR")
 
     def test_native_safe_apply_and_reconcile_states(self):

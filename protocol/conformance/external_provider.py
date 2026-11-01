@@ -113,7 +113,7 @@ def main():
         if not isinstance(request.get("operation"), str) or not isinstance(request.get("protocolVersion"), str):
             raise ValueError("invalid envelope")
         response = reply(request, mode)
-        response.update(protocolVersion=request["protocolVersion"], requestId=request["requestId"],
+        response.update(protocolVersion="1", requestId=request["requestId"],
                         operation=request["operation"])
         if mode == "wrong-id":
             response["requestId"] += "-wrong"
