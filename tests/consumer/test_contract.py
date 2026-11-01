@@ -2,18 +2,21 @@
 import copy
 import json
 import os
+import signal
+import shutil
+import time
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
-from verify_evidence import sha256, verify
+from verify_evidence import journal_events, sha256, verify
 
 
-def execute(binary, *args, expected=0):
+def execute(binary, *args, expected=0, timeout=12):
     result = subprocess.run(
         [str(binary), *map(str, args)],
-        capture_output=True, timeout=12, check=False,
+        capture_output=True, timeout=timeout, check=False,
     )
     if result.returncode != expected:
         raise AssertionError(
@@ -197,6 +200,92 @@ class ConsumerContract(unittest.TestCase):
             execute(self.cli, "apply", "--config", config, "--plan", plan["path"],
                     "--journal", journal, "--json", expected=3)
             self.assertFalse(journal.exists(), "tampered artifact reached publication")
+
+
+    @unittest.skipIf(os.name != "posix", "controlled process-group crash requires POSIX")
+    def test_07_crash_after_durable_dispatch_reconciles_without_republish(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture = Path(__file__).resolve().parents[2] / "protocol/conformance/external_provider.py"
+            provider = root / "distroplane-provider-external--normal"
+            shutil.copyfile(fixture, provider)
+            provider.chmod(0o700)
+            artifact = root / "crash.bin"
+            artifact.write_bytes(b"crash recovery fixture\n")
+            audit = root / "effects.log"
+            config = root / "distroplane.json"
+            config.write_text(json.dumps({
+                "schemaVersion": "1",
+                "release": {"id": "crash-1.0.0", "artifacts": [{
+                    "name": "app", "source": str(artifact),
+                }]},
+                "targets": [{
+                    "id": "external",
+                    "provider": {"name": "external", "executable": str(provider)},
+                    "configuration": {"auditFile": str(audit), "blockAfterApply": True},
+                }],
+            }), encoding="utf-8")
+            planned = execute(self.cli, "plan", "--config", config, "--json")
+            plan = Path(planned["path"])
+            plan_id = planned["planId"]
+            journal = root / "run.journal"
+            run_id = "run-consumer-crash"
+            child = subprocess.Popen([
+                str(self.cli), "apply", "--config", str(config),
+                "--plan", str(plan), "--journal", str(journal),
+                "--run", run_id, "--json",
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            try:
+                deadline = time.monotonic() + 12
+                observed = False
+                while time.monotonic() < deadline and child.poll() is None:
+                    if audit.is_file() and audit.read_text() == "apply\n" and journal.is_file():
+                        try:
+                            events = journal_events(journal.read_bytes(), plan_id, run_id)
+                            observed = any(e["type"] == "SIDE_EFFECT_DISPATCHED" for e in events)
+                        except ValueError:
+                            pass  # A concurrent writer may be between frames.
+                        if observed:
+                            break
+                    time.sleep(0.05)
+                self.assertTrue(observed, "side effect did not occur after a durable dispatch")
+                self.assertIsNone(child.poll(), "publisher returned before forced interruption")
+            finally:
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGKILL)
+                child.communicate(timeout=8)
+
+            self.assertEqual(audit.read_text(), "apply\n", "unexpected external publication count")
+            events = journal_events(journal.read_bytes(), plan_id, run_id)
+            self.assertIn("SIDE_EFFECT_DISPATCHED", [event["type"] for event in events])
+            self.assertNotIn("PROVIDER_RESPONSE_RECEIVED", [event["type"] for event in events])
+
+            snapshot = root / "interrupted-evidence.json"
+            exported = execute(self.cli, "evidence", "--plan", plan, "--journal", journal,
+                               "--output", snapshot, "--json")
+            verify(snapshot.read_bytes(), expected_digest=exported["digest"],
+                   expected_plan=plan_id, expected_run=run_id, expected_state="RUNNING",
+                   journal=journal, artifact=("app", artifact))
+
+            # The crashed process retained a durable 30-second lease. Resume must
+            # await its expiry, reconcile with the external state, and never reapply.
+            resumed = execute(self.cli, "resume", "--config", config, "--run", run_id,
+                              "--json", timeout=75)
+            self.assertEqual(resumed["planId"], plan_id)
+            self.assertEqual(resumed["runId"], run_id)
+            self.assertTrue(resumed["completed"])
+            self.assertEqual(resumed["targets"][0]["state"], "PUBLISHED")
+            self.assertEqual(resumed["operations"][0]["attempt"], 1)
+            self.assertEqual(audit.read_text(), "apply\n", "recovery dispatched a second publication")
+            completed = root / "completed-evidence.json"
+            output = execute(self.cli, "evidence", "--plan", plan, "--journal", journal,
+                             "--output", completed, "--json")
+            verify(completed.read_bytes(), expected_digest=output["digest"],
+                   expected_plan=plan_id, expected_run=run_id, expected_state="PUBLISHED",
+                   journal=journal, artifact=("app", artifact))
+            execute(self.cli, "resume", "--config", config, "--run", run_id, "--json")
+            self.assertEqual(audit.read_text(), "apply\n", "completed replay dispatched a publication")
+
 
 
 if __name__ == "__main__":

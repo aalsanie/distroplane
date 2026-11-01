@@ -113,7 +113,7 @@ jobs:
         env:
           DISTROPLANE_CONSUMER_CLI: ${{ runner.temp }}/provider-conformance/bin/distroplane
           DISTROPLANE_CONSUMER_PROVIDER: ${{ runner.temp }}/provider-conformance/bin/distroplane-provider-fake
-        run: python3 -m unittest discover -s tests/consumer -p 'test_contract.py' -v
+        run: python3 -m unittest discover -s tests/consumer -p 'test*.py' -v
 
   fuzz:
     name: Fuzz smoke
