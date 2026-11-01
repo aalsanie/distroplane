@@ -108,6 +108,12 @@ jobs:
           python3 protocol/conformance/test_conformance.py \
             --cli "$RUNNER_TEMP/provider-conformance/bin/distroplane" \
             --bin-dir "$RUNNER_TEMP/provider-conformance/bin"
+      - name: Verify independent CLI consumer and evidence contracts
+        shell: bash
+        env:
+          DISTROPLANE_CONSUMER_CLI: ${{ runner.temp }}/provider-conformance/bin/distroplane
+          DISTROPLANE_CONSUMER_PROVIDER: ${{ runner.temp }}/provider-conformance/bin/distroplane-provider-fake
+        run: python3 -m unittest discover -s tests/consumer -p 'test*.py' -v
 
   fuzz:
     name: Fuzz smoke

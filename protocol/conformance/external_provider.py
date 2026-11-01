@@ -69,6 +69,13 @@ def reply(request, mode):
         if audit:
             with open(audit, "a", encoding="utf-8") as output:
                 output.write("apply\n")
+                if execution.get("blockAfterApply"):
+                    output.flush()
+                    os.fsync(output.fileno())
+        if execution.get("blockAfterApply"):
+            # The parent test terminates the process group after the durable side effect.
+            # A provider response must never reach the host in this crash fixture.
+            time.sleep(60)
         state = "WAITING_EXTERNAL" if execution.get("mode") == "waiting" else "PUBLISHED"
     else:
         # Reconciliation observes only; it must not append a publication event.
