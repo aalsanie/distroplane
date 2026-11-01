@@ -5,6 +5,6 @@
   <build><plugins><plugin>
     <groupId>io.github.aalsanie</groupId><artifactId>distroplane-maven-plugin</artifactId>
     <version>${distroplane.plugin.version}</version>
-    <configuration><cliVersion>0.9.2</cliVersion><config>distroplane.json</config><credentialMappings><npm-publish>NPM_TOKEN</npm-publish></credentialMappings></configuration>
+    <configuration><config>distroplane.json</config><credentialMappings><npm-publish>NPM_TOKEN</npm-publish></credentialMappings></configuration>
   </plugin></plugins></build>
 </project>

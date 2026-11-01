@@ -25,7 +25,7 @@ func main() {
 	}
 	command := os.Args[1]
 	if command == "version" {
-		fmt.Println(`{"version":"0.9.2"}`)
+		fmt.Println(`{"version":"0.9.3"}`)
 		return
 	}
 	for _, arg := range os.Args[2:] {

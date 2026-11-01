@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 final class CliBootstrapTest {
     @TempDir Path temp;
     private static final CliBootstrap.Platform WINDOWS = new CliBootstrap.Platform("windows", "amd64");
-    private static final String VERSION = "0.9.2";
+    private static final String VERSION = "0.9.3";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private static String hash(byte[] bytes) {
@@ -33,7 +33,7 @@ final class CliBootstrapTest {
         List<Map<String,Object>> records = new ArrayList<>();
         for (var entry : contents.entrySet()) records.add(Map.of("path",entry.getKey(),"sha256",hash(entry.getValue()),"size",entry.getValue().length,"mode","0755"));
         Map<String,Object> metadata = new LinkedHashMap<>();
-        metadata.put("schemaVersion", "1"); metadata.put("version", tamperMetadata ? "0.9.1" : VERSION);
+        metadata.put("schemaVersion", "1"); metadata.put("version", tamperMetadata ? "0.9.2" : VERSION);
         metadata.put("os", "windows"); metadata.put("arch", "amd64"); metadata.put("cgoEnabled", false); metadata.put("files", records);
         contents.put("PACKAGE-METADATA.json", JSON.writeValueAsBytes(metadata));
         if (extra != null) contents.put(extra, "INJECTION".getBytes(StandardCharsets.UTF_8));

@@ -30,7 +30,7 @@ def main():
     simple=root/'maven-plugin/it/simple'
     reactor=root/'maven-plugin/it/reactor'
     cmd=[args.maven,'-B','-ntp','-o',f'-Dmaven.repo.local={repo}']
-    goal='io.github.aalsanie:distroplane-maven-plugin:1.0.0-SNAPSHOT:'
+    goal='io.github.aalsanie:distroplane-maven-plugin:1.0.1-SNAPSHOT:'
     import functools
     invoke=functools.partial(run, cwd=simple)
     (simple/'.fixture-pending').unlink(missing_ok=True)
@@ -63,7 +63,7 @@ def main():
     if state['runId']!=restored['runId'] or state['planId']!=restored['planId'] or restored['attempts']!=1 or not restored['completed']:
         raise AssertionError('cancellation lost original release run')
     # CLI is only a verified bootstrap adapter: corrupted offline bytes refuse execution.
-    cli=next(repo.glob('distroplane/cli/0.9.2/*/sha256-*/bin/distroplane*'))
+    cli=next(repo.glob('distroplane/cli/0.9.3/*/sha256-*/bin/distroplane*'))
     backup=cli.read_bytes()
     try:
         cli.write_bytes(backup+b'tamper')
