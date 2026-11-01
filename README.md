@@ -74,6 +74,6 @@ Publish a prebuilt artifact from a GitHub Actions workflow:
 
 Requires `distroplane.json` in the checked-out repository and a configured npm destination. Pin the Action to a reviewed commit in production. [GitHub Action usage](docs/github-actions.md).
 
-[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Security](SECURITY.md)
+[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 Apache-2.0.

@@ -51,6 +51,15 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("needs: [stage, native-install]", job("rehearsal-report", self.content))
         self.assertIn("needs: [stage, native-install]", job("publish", self.content))
 
+    def test_release_notes_come_from_changelog(self):
+        stage = job("stage", self.content)
+        publish = job("publish", self.content)
+        self.assertIn("python3 scripts/changelog.py", stage)
+        self.assertIn("python3 scripts/changelog.py --extract", publish)
+        self.assertIn("--notes-file \"$notes_file\"", publish)
+        self.assertIn("## Windows MSI installer trust", publish)
+        self.assertNotIn("docs/releases/", publish)
+
     def test_public_downloads_verified_before_tap_update(self):
         consumer = job("public-smoke", self.content)
         self.assertIn("needs: publish", consumer)

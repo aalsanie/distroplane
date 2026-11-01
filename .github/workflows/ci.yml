@@ -37,10 +37,10 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
-      - name: Check release notes
+      - name: Check changelog
         run: |
-          ./scripts/check-release-notes.sh
-          ./scripts/test-release-notes.sh
+          python3 scripts/changelog.py
+          python3 -m unittest discover -s scripts -p 'test_changelog.py' -v
       - name: Check published-asset-to-Homebrew formula generation
         shell: bash
         run: |
