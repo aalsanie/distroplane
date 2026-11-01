@@ -79,6 +79,36 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+  provider-conformance:
+    name: External provider protocol conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build native and third-party boundary under test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/provider-conformance/bin"
+          for name in distroplane distroplane-provider-fake distroplane-provider-npm distroplane-provider-sdkman distroplane-provider-homebrew distroplane-provider-winget; do
+            go build -trimpath -o "$RUNNER_TEMP/provider-conformance/bin/$name" "./cmd/$name"
+          done
+      - name: Test independent provider and native wire protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 protocol/conformance/test_conformance.py \
+            --cli "$RUNNER_TEMP/provider-conformance/bin/distroplane" \
+            --bin-dir "$RUNNER_TEMP/provider-conformance/bin"
+
   fuzz:
     name: Fuzz smoke
     runs-on: ubuntu-latest

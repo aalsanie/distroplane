@@ -43,6 +43,8 @@ Each invocation exchanges one JSON request and response over stdin/stdout. The h
 
 Protocol v1 is documented by its [schema](../protocol/schema/v1/protocol.schema.json), [examples](../protocol/examples/v1/messages.json), and [compatibility status](../protocol/schema/v1/compatibility.json). Unknown fields are tolerated where the protocol permits; unsupported versions, operations, and capabilities are rejected.
 
+A [standalone Python protocol fixture and conformance suite](../protocol/conformance/test_conformance.py) exercise this wire contract and the CLI's subprocess boundary independently of the Go protocol implementation.
+
 ## Evidence and guarantees
 
 Evidence exports the journal-derived run and operation states, artifact/provider identities, external references, and journal digest. It is not an independent destination query, signature, or attestation. Provider results vary in what they prove; consult the [provider guides](configuration.md). There is no daemon, distributed execution service, universal rollback, or exactly-once publication guarantee.
