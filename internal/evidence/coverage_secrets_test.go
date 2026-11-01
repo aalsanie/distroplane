@@ -19,7 +19,7 @@ func TestEvidenceSecretKeyTaxonomyRejectsCredentials(t *testing.T) {
 			t.Errorf("credential-bearing field was not recognized: %q", name)
 		}
 		unsafe[name] = "credential-canary"
-		if uri, err := sanitizeURI("https://example.test/file?"+name+"=credential-canary"); err != nil ||
+		if uri, err := sanitizeURI("https://example.test/file?" + name + "=credential-canary"); err != nil ||
 			strings.Contains(uri, "credential-canary") {
 			t.Errorf("credential-bearing query parameter leaked for %q: %q, %v", name, uri, err)
 		}

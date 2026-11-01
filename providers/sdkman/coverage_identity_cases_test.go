@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"time"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStateOperationPayloadIdentityAndAuthenticationValidation(t *testing.T) {
@@ -31,16 +31,16 @@ func TestStateOperationPayloadIdentityAndAuthenticationValidation(t *testing.T) 
 		t.Fatalf("valid state API payload rejected: %v", err)
 	}
 	for name, change := range map[string]func(*operationPayload){
-		"mode": func(p *operationPayload) { p.Mode = "future" },
-		"java": func(p *operationPayload) { p.Candidate = "java" },
-		"distribution": func(p *operationPayload) { p.StateDistribution = "WRONG" },
+		"mode":                   func(p *operationPayload) { p.Mode = "future" },
+		"java":                   func(p *operationPayload) { p.Candidate = "java" },
+		"distribution":           func(p *operationPayload) { p.StateDistribution = "WRONG" },
 		"non-canonical-platform": func(p *operationPayload) { p.Platform = "LINUX_64"; p.StatePlatform = "LINUX_X64" },
-		"platform-binding": func(p *operationPayload) { p.StatePlatform = "MAC_X64" },
-		"unsupported-checksum": func(p *operationPayload) { p.Checksums["SHA-1"] = strings.Repeat("c", 40) },
-		"checksum-binding": func(p *operationPayload) { p.Checksums["SHA-256"] = strings.Repeat("b", 64) },
-		"artifact-digest": func(p *operationPayload) { p.ArtifactDigest = "md5:" + checksum },
-		"missing-artifact": func(p *operationPayload) { p.Artifact = "" },
-		"negative-size": func(p *operationPayload) { p.ArtifactSize = -1 },
+		"platform-binding":       func(p *operationPayload) { p.StatePlatform = "MAC_X64" },
+		"unsupported-checksum":   func(p *operationPayload) { p.Checksums["SHA-1"] = strings.Repeat("c", 40) },
+		"checksum-binding":       func(p *operationPayload) { p.Checksums["SHA-256"] = strings.Repeat("b", 64) },
+		"artifact-digest":        func(p *operationPayload) { p.ArtifactDigest = "md5:" + checksum },
+		"missing-artifact":       func(p *operationPayload) { p.Artifact = "" },
+		"negative-size":          func(p *operationPayload) { p.ArtifactSize = -1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := base
@@ -93,7 +93,7 @@ func TestStateLoginCancellationAndRequestConstruction(t *testing.T) {
 	}
 	bad := operationPayload{
 		StateAPI: "http://bad\x00endpoint",
-		API: "http://bad\x00endpoint",
+		API:      "http://bad\x00endpoint",
 	}
 	if _, err := p.login(context.Background(), bad, "email", "secret"); err == nil {
 		t.Fatal("invalid login request built")
