@@ -90,10 +90,6 @@ does not make artifacts public. Required repository secrets are:
 `MAVEN_CENTRAL_TOKEN_USERNAME`, `MAVEN_CENTRAL_TOKEN_PASSWORD`,
 `MAVEN_GPG_PRIVATE_KEY`, and `MAVEN_GPG_PASSPHRASE`.
 
-The source checkout prepares the unreleased `1.0.1-SNAPSHOT` patch with
-Jackson 2.18.12 and CLI 0.9.3 as its default. Central staging requires a
-published v0.9.3 CLI release; these coordinates are not public until approval.
-
 Version `1.0.0` was signed, staged, and manually published through the Central
 Portal. [The clean-consumer verification](https://github.com/aalsanie/distroplane/actions/runs/41023374518)
 passed on Linux, macOS, and Windows with fresh Maven repositories and the
