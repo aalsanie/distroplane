@@ -22,9 +22,9 @@ func TestJournalLeaseRenewalMonotonicityAndIdentity(t *testing.T) {
 		t.Fatalf("renewal not reflected in derived state: %+v", operation)
 	}
 	for name, modify := range map[string]func(*Event){
-		"same expiry": func(e *Event) { e.Payload.Lease.ExpiresAt = time.Unix(20, 0).UTC() },
-		"wrong owner": func(e *Event) { e.Payload.Lease.Owner = "other-worker" },
-		"wrong lease": func(e *Event) { e.Payload.Lease.ID = "unrelated-lease" },
+		"same expiry":     func(e *Event) { e.Payload.Lease.ExpiresAt = time.Unix(20, 0).UTC() },
+		"wrong owner":     func(e *Event) { e.Payload.Lease.Owner = "other-worker" },
+		"wrong lease":     func(e *Event) { e.Payload.Lease.ID = "unrelated-lease" },
 		"wrong operation": func(e *Event) { e.OperationID = "unknown" },
 	} {
 		t.Run(name, func(t *testing.T) {

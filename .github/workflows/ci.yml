@@ -97,16 +97,6 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Export new test formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          for path in internal/protocol/coverage_coordinates_test.go internal/config/coverage_v2_error_paths_test.go internal/journal/coverage_lease_extension_test.go; do
-            echo "FMT_BEGIN::$path"
-            gofmt "$path" | base64 -w0
-            echo
-            echo "FMT_END::$path"
-          done
       - name: Install pinned branch instrumenter
         run: go install github.com/rillig/gobco@7a099954a61f3955163d5cef03e884c2e72622dd
       - name: Enforce branch coverage strictly above 90 percent

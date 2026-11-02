@@ -14,15 +14,15 @@ func TestProtocolRejectsEveryMalformedExecutionCoordinate(t *testing.T) {
 		t.Fatalf("valid request rejected: %v", err)
 	}
 	for name, mutate := range map[string]func(*ApplyRequest){
-		"plan": func(p *ApplyRequest) { p.PlanID = "" },
-		"target": func(p *ApplyRequest) { p.TargetID = "" },
-		"operation": func(p *ApplyRequest) { p.OperationID = "" },
-		"idempotency": func(p *ApplyRequest) { p.IdempotencyKey = "" },
-		"unicode": func(p *ApplyRequest) { p.OperationID = string([]byte{0xff}) },
-		"whitespace": func(p *ApplyRequest) { p.IdempotencyKey = " trailing " },
-		"oversized": func(p *ApplyRequest) { p.PlanID = strings.Repeat("x", 513) },
-		"attempt": func(p *ApplyRequest) { p.Attempt = 0 },
-		"payload": func(p *ApplyRequest) { p.ProviderPayload = json.RawMessage(`{`) },
+		"plan":          func(p *ApplyRequest) { p.PlanID = "" },
+		"target":        func(p *ApplyRequest) { p.TargetID = "" },
+		"operation":     func(p *ApplyRequest) { p.OperationID = "" },
+		"idempotency":   func(p *ApplyRequest) { p.IdempotencyKey = "" },
+		"unicode":       func(p *ApplyRequest) { p.OperationID = string([]byte{0xff}) },
+		"whitespace":    func(p *ApplyRequest) { p.IdempotencyKey = " trailing " },
+		"oversized":     func(p *ApplyRequest) { p.PlanID = strings.Repeat("x", 513) },
+		"attempt":       func(p *ApplyRequest) { p.Attempt = 0 },
+		"payload":       func(p *ApplyRequest) { p.ProviderPayload = json.RawMessage(`{`) },
 		"empty-payload": func(p *ApplyRequest) { p.ProviderPayload = nil },
 	} {
 		t.Run(name, func(t *testing.T) {

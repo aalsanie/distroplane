@@ -7,9 +7,9 @@ import (
 )
 
 func TestV2PathResolverRejectsMalformedProviderOptions(t *testing.T) {
-	cases := []struct{
+	cases := []struct {
 		name, provider, configuration string
-		valid bool
+		valid                         bool
 	}{
 		{"malformed npm", "npm", "{", false},
 		{"npm packagePath wrong type", "npm", `{"packagePath":14}`, false},
@@ -21,7 +21,7 @@ func TestV2PathResolverRejectsMalformedProviderOptions(t *testing.T) {
 		{"homebrew options unchanged", "homebrew", `{}`, true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T){
+		t.Run(tc.name, func(t *testing.T) {
 			cfg := Config{SchemaVersion: SchemaVersionV2, Targets: []Target{{
 				Provider: Provider{Name: tc.provider}, Configuration: json.RawMessage(tc.configuration),
 			}}}
@@ -58,7 +58,9 @@ func TestV2LiteralPathsRejectInterpolationSyntax(t *testing.T) {
 	if supportedV2Provider("untrusted") {
 		t.Fatal("unsupported provider accepted")
 	}
-	var decoded struct{ A string `json:"a"` }
+	var decoded struct {
+		A string `json:"a"`
+	}
 	if err := strictV2JSON([]byte(`{"a":"ok"} {}`), &decoded); err == nil {
 		t.Fatal("extra configuration object accepted")
 	}
