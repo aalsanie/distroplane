@@ -70,8 +70,11 @@ jobs:
         run: ./scripts/check-dependencies.sh
       - name: Architecture guard
         run: ./scripts/check-architecture.sh
-      - name: Coverage
-        run: ./scripts/check-coverage.sh
+      - name: Go statement and executable-line coverage
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_coverage_gate.py' -v
+          ./scripts/check-coverage.sh
+          python3 scripts/coverage_gate.py lines --profile coverage.out --minimum 90
       - name: Race detector
         run: go test -race ./...
       - name: Module hygiene
@@ -79,6 +82,25 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+
+  branch-coverage:
+    name: Go branch coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Install pinned branch instrumenter
+        run: go install github.com/rillig/gobco@7a099954a61f3955163d5cef03e884c2e72622dd
+      - name: Enforce branch coverage strictly above 90 percent
+        run: python3 scripts/coverage_gate.py branches --gobco "$(go env GOPATH)/bin/gobco" --minimum 90
 
   provider-conformance:
     name: External provider protocol conformance
