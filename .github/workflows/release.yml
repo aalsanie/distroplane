@@ -20,11 +20,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required CI approver
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/ci-approved" --jq \
+            'if .can_admins_bypass == false then [.protection_rules[] | select(.type == "required_reviewers" and .prevent_self_review == false and (.reviewers | length) == 1 and .reviewers[0].type == "User" and .reviewers[0].reviewer.id == 22101794)] | length else 0 end' \
+            | grep -qx '1'
+
+  authorize:
+    name: Approve release CI
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: ci-approved
+      deployment: false
+    steps:
+      - run: echo "Release CI approved"
+
   windows-installer:
+    needs: authorize
     name: Build and verify Windows MSI packages
     outputs:
       signing_mode: ${{ steps.signing-policy.outputs.mode }}
-    if: ${{ !contains(github.ref_name, '-rc.') }}
+    if: ${{ needs.authorize.result == 'success' && !contains(github.ref_name, '-rc.') }}
     runs-on: windows-2025
     timeout-minutes: 45
     permissions:
@@ -113,10 +139,10 @@ jobs:
 
   stage:
     name: Stage verified release artifacts
-    needs: windows-installer
+    needs: [authorize, windows-installer]
     outputs:
       signing_mode: ${{ needs.windows-installer.outputs.signing_mode }}
-    if: ${{ always() && (needs.windows-installer.result == 'success' || (contains(github.ref_name, '-rc.') && needs.windows-installer.result == 'skipped')) }}
+    if: ${{ always() && needs.authorize.result == 'success' && (needs.windows-installer.result == 'success' || (contains(github.ref_name, '-rc.') && needs.windows-installer.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -187,7 +213,6 @@ jobs:
             exit 1
           fi
           require_success "ci.yml" "CI"
-          require_success "action-smoke.yml" "GitHub Action smoke"
 
       - name: Build and verify release assets
         shell: bash

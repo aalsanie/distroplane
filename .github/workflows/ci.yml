@@ -5,8 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -14,7 +16,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      expensive: ${{ steps.changes.outputs.expensive }}
+      maven: ${{ steps.changes.outputs.maven }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIOUS_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          event = os.environ["GITHUB_EVENT_NAME"]
+          base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+          before = os.environ["PREVIOUS_SHA"]
+          revision = None
+          if event == "pull_request":
+              revision = f"{base}...{head}"
+          elif event == "push" and before and before != "0" * 40:
+              revision = f"{before}..{os.environ['GITHUB_SHA']}"
+
+          paths = None
+          if revision:
+              changed = subprocess.check_output([
+                  "git", "diff", "--no-renames", "--name-only", "-z", revision
+              ])
+              paths = [p for p in changed.decode("utf-8", "surrogateescape").split("\0") if p]
+              subprocess.run(["git", "diff", "--check", revision], check=True)
+
+          def trivial(path):
+              return (
+                  path == "README.md"
+                  or (path.startswith("docs/") and path.endswith(
+                      (".md", ".png", ".jpg", ".jpeg", ".svg", ".webp")
+                  ))
+              )
+
+          def maven_related(path):
+              return (
+                  path.startswith("maven-plugin/")
+                  or path.startswith(".github/workflows/")
+                  or path == ".github/dependabot.yml"
+                  or path == "scripts/test_maven_publication.py"
+              )
+
+          expensive = not (paths is not None and bool(paths) and all(map(trivial, paths)))
+          maven = (paths is None or any(map(maven_related, paths))) and expensive
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"expensive={str(expensive).lower()}\n")
+              output.write(f"maven={str(maven).lower()}\n")
+          PY
+      - name: Verify required CI approver
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/ci-approved" --jq \
+            'if .can_admins_bypass == false then [.protection_rules[] | select(.type == "required_reviewers" and .prevent_self_review == false and (.reviewers | length) == 1 and .reviewers[0].type == "User" and .reviewers[0].reviewer.id == 22101794)] | length else 0 end' \
+            | grep -qx '1'
+
+  authorize:
+    name: Approve expensive CI
+    needs: preflight
+    if: needs.preflight.outputs.expensive == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ci-approved
+      deployment: false
+    steps:
+      - run: echo "CI approved"
+
   quality:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -84,6 +173,8 @@ jobs:
           git diff --exit-code -- go.mod go.sum
 
   branch-coverage:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Go branch coverage
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -103,6 +194,8 @@ jobs:
         run: python3 scripts/coverage_gate.py branches --gobco "$(go env GOPATH)/bin/gobco" --minimum 90
 
   provider-conformance:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: External provider protocol conformance
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -139,6 +232,8 @@ jobs:
         run: python3 -m unittest discover -s tests/consumer -p 'test*.py' -v
 
   fuzz:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Fuzz smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -166,6 +261,8 @@ jobs:
         run: go test ./internal/journal -run '^$' -fuzz '^FuzzReduce$' -fuzztime 2s
 
   linux-installer-arm64:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Linux installer (arm64)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 8
@@ -180,6 +277,8 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
 
   benchmark:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Benchmark record
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -254,6 +353,8 @@ jobs:
           retention-days: 30
 
   build:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -282,6 +383,8 @@ jobs:
           go build -trimpath ./cmd/distroplane-provider-winget
 
   homebrew-jvm-install:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Homebrew JVM install (macos-latest)
     runs-on: macos-latest
     timeout-minutes: 15
@@ -304,6 +407,8 @@ jobs:
           go test ./providers/homebrew -run '^TestHomebrewJVMDistributionInstallsAndRunsWithRuntimeJars$' -count=1 -v
 
   release-build:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Release build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -403,6 +508,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'native archive executable smoke failed' }
 
   windows-msi:
+    needs: authorize
+    if: needs.authorize.result == 'success'
     name: Windows MSI build and lifecycle (x64)
     runs-on: windows-2025
     timeout-minutes: 40
@@ -545,3 +652,71 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           ./scripts/test-msi.ps1 -Version $version -Architecture arm64 -Msi "msi/distroplane_${version}_windows_arm64.msi" -PreviousMsi 'msi/previous_arm64.msi'
+
+  action-smoke:
+    name: GitHub Action smoke
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    uses: ./.github/workflows/action-smoke.yml
+    permissions:
+      contents: read
+      id-token: write
+
+  maven-plugin:
+    name: Maven plugin
+    needs: [preflight, authorize]
+    if: needs.authorize.result == 'success' && needs.preflight.outputs.maven == 'true'
+    uses: ./.github/workflows/maven-plugin.yml
+    permissions:
+      contents: read
+
+  codeql:
+    name: CodeQL
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+  required:
+    name: Required checks
+    if: always()
+    needs: [preflight, authorize, quality, branch-coverage, provider-conformance, fuzz, linux-installer-arm64, benchmark, build, homebrew-jvm-install, release-build, windows-msi, windows-msi-arm64, action-smoke, maven-plugin, codeql]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require applicable checks
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          results = {name: job["result"] for name, job in needs.items()}
+          if results["preflight"] != "success":
+              sys.exit("Preflight failed")
+          expensive = needs["preflight"]["outputs"].get("expensive")
+          maven = needs["preflight"]["outputs"].get("maven")
+          if expensive not in ("true", "false") or maven not in ("true", "false"):
+              sys.exit("Invalid change classification")
+          if expensive == "false" and maven != "false":
+              sys.exit("Maven checks cannot run on a trivial-only change")
+
+          expected = "success" if expensive == "true" else "skipped"
+          for name in ("authorize", "quality", "branch-coverage", "provider-conformance",
+                       "fuzz", "linux-installer-arm64", "benchmark", "build",
+                       "homebrew-jvm-install", "release-build", "windows-msi",
+                       "windows-msi-arm64", "action-smoke", "codeql"):
+              if results[name] != expected:
+                  sys.exit(f"{name}: expected {expected}, got {results[name]}")
+          maven_expected = "success" if maven == "true" else "skipped"
+          if results["maven-plugin"] != maven_expected:
+              sys.exit(f"maven-plugin: expected {maven_expected}, got {results['maven-plugin']}")
+          print("All applicable checks passed")
+          PY

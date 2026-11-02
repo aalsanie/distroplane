@@ -1,12 +1,7 @@
 name: Maven plugin
 
 on:
-  pull_request:
-    branches: [main]
-    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml', '.github/workflows/maven-central*.yml', 'scripts/test_maven_publication.py', '.github/dependabot.yml']
-  push:
-    branches: [main]
-    paths: ['maven-plugin/**', '.github/workflows/maven-plugin.yml', '.github/workflows/maven-central*.yml', 'scripts/test_maven_publication.py', '.github/dependabot.yml']
+  workflow_call:
 
 permissions:
   contents: read
