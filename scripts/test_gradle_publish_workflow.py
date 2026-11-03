@@ -23,7 +23,9 @@ class GradlePublishWorkflowTest(unittest.TestCase):
 
     def test_published_commit_is_tested_and_unchanged_after_approval(self):
         self.assertIn('actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=', self.workflow)
-        self.assertIn('"$source_sha" != "$main_sha"', self.workflow)
+        self.assertIn('git merge-base --is-ancestor "$source_sha" "$main_sha"', self.workflow)
+        self.assertIn('git merge-base --is-ancestor "$SOURCE_SHA" "$main_sha"', self.workflow)
+        self.assertIn('git checkout --detach "$SOURCE_SHA"', self.workflow)
         self.assertIn('"$(git rev-parse HEAD)"', self.workflow)
         self.assertIn('ref: ${{ needs.preflight.outputs.source_sha }}', self.workflow)
         self.assertIn('Reverify immutable release source after approval', self.workflow)
@@ -40,10 +42,15 @@ class GradlePublishWorkflowTest(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", self.workflow)
 
     def test_validation_is_before_publication_and_coverage_remains_strict(self):
-        self.assertIn("clean check publishPlugins --validate-only", self.workflow)
-        self.assertIn("gradle -p gradle-plugin publishPlugins --no-daemon", self.workflow)
-        self.assertLess(self.workflow.index("clean check publishPlugins --validate-only"),
-                        self.workflow.index("gradle -p gradle-plugin publishPlugins --no-daemon"))
+        preflight, publication = self.workflow.split("  publish:\n", 1)
+        self.assertIn("gradle -p gradle-plugin clean check --no-daemon", preflight)
+        self.assertNotIn("publishPlugins", preflight)
+        self.assertIn("gradle -p gradle-plugin publishPlugins --validate-only --no-daemon", publication)
+        self.assertIn("gradle -p gradle-plugin publishPlugins --no-daemon", publication)
+        self.assertLess(publication.index("publishPlugins --validate-only"),
+                        publication.index("publishPlugins --no-daemon"))
+        self.assertIn("GRADLE_PUBLISH_KEY", publication)
+        self.assertIn("GRADLE_PUBLISH_SECRET", publication)
         self.assertIn('minimum = "0.9001".toBigDecimal()', self.build)
         self.assertIn('counter = "BRANCH"', self.build)
         self.assertIn('counter = "LINE"', self.build)
