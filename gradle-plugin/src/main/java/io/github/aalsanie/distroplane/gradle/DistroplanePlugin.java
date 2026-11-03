@@ -4,7 +4,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 
-/** Registers six explicit native CLI operations; never hooks a Gradle lifecycle task. */
+/** Registers explicit native CLI operations. */
 public final class DistroplanePlugin implements Plugin<Project> {
     @Override public void apply(Project project) {
         if (project != project.getRootProject()) throw new GradleException("Apply Distroplane only to the root project");
@@ -22,7 +22,7 @@ public final class DistroplanePlugin implements Plugin<Project> {
             String name = "distroplane" + Character.toUpperCase(operation.charAt(0)) + operation.substring(1);
             project.getTasks().register(name, DistroplaneTask.class, task -> {
                 task.setGroup("publishing");
-                task.setDescription("Run Distroplane " + operation + " without changing the Gradle build lifecycle.");
+                task.setDescription("Run Distroplane " + operation + ".");
                 task.setOptions(options);
                 task.setOperation(operation);
                 task.getOutputs().upToDateWhen(ignored -> false);

@@ -3,7 +3,7 @@ package io.github.aalsanie.distroplane.gradle;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 
-/** Explicit release inputs; no task is attached to a standard build or publish lifecycle. */
+/** Gradle configuration for Distroplane CLI operations. */
 public abstract class DistroplaneExtension {
     public abstract Property<String> getConfig();
     public abstract Property<String> getCliVersion();
@@ -11,7 +11,7 @@ public abstract class DistroplaneExtension {
     public abstract Property<Integer> getTimeoutSeconds();
     /** Distroplane artifact name to exact Gradle archive task path, e.g. :app:jar. */
     public abstract MapProperty<String, String> getArtifactTasks();
-    /** Distroplane credential name to environment variable name; never a secret value. */
+    /** Maps Distroplane credential IDs to environment variable names. */
     public abstract MapProperty<String, String> getCredentialMappings();
     public abstract Property<Boolean> getApprove();
     public abstract Property<String> getConfirmPlan();

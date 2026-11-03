@@ -22,7 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** A single invocation per task execution; nonzero pending and unknown outcomes are never retried. */
+/** Executes one CLI operation and propagates its exit status. */
 @DisableCachingByDefault(because = "Release operations have external and durable side effects")
 public abstract class DistroplaneTask extends DefaultTask {
     private String operation;

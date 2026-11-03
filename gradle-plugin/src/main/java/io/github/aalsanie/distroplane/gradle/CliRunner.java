@@ -9,7 +9,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** No shell, no secrets on argv, no retries of unknown publication outcomes. */
+/** Executes the native CLI with scoped environment and bounded output. */
 final class CliRunner {
     record Result(int exitCode, String stdout) { }
     static Result run(Path exe, Path workspace, List<String> args, Map<String,String> approvedEnvironment,
@@ -37,7 +37,6 @@ final class CliRunner {
             boolean done = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!done) throw new IOException("Distroplane CLI timed out; inspect the original journal before resuming");
             String stdout = get(out), stderr = get(err);
-            // A compromised command cannot leak a passed secret through Maven output.
             for (String secret : approvedEnvironment.values()) {
                 if (stdout.contains(secret) || stderr.contains(secret)) throw new IOException("CLI emitted credential contents; output suppressed");
             }

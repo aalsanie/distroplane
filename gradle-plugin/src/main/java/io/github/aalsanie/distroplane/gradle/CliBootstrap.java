@@ -27,7 +27,7 @@ import java.util.zip.ZipInputStream;
 
 import static java.nio.file.StandardOpenOption.*;
 
-/** A release archive is not trusted until both its manifest and embedded hashes match. */
+/** Verifies release archives and cached executable digests. */
 final class CliBootstrap {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ORIGIN = "https://github.com/aalsanie/distroplane/releases/download/";
@@ -49,7 +49,7 @@ final class CliBootstrap {
             try { response = client.send(req, HttpResponse.BodyHandlers.ofInputStream()); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("Interrupted during release download", e); }
             if (response.statusCode() != 200) { response.body().close(); throw new IOException("Release download failed (HTTP " + response.statusCode() + ")"); }
-            // GitHub release assets may redirect to GitHub's designated CDN; no request carries credentials.
+            // GitHub release assets may redirect to its CDN.
             try (InputStream in = response.body()) { return in.readNBytes(maximum + 1); }
         };
     }
@@ -131,9 +131,7 @@ final class CliBootstrap {
         }
     }
 
-    // macOS exposes /var through the OS-owned /private/var symlink. Normalize
-    // exactly that well-known root before enforcing no-symlink checks on all
-    // cache directories; user-created redirects are still rejected.
+    // Normalize macOS /var to /private/var before validating cache paths.
     private static Path canonicalSystemCachePath(Path cache) throws IOException {
         Path absolute = cache.toAbsolutePath().normalize();
         Path var = Path.of("/var");
@@ -220,7 +218,7 @@ final class CliBootstrap {
             Path file = dir.resolve(name);
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(file)) throw new IOException("Missing or unsafe cached Distroplane member: " + name);
         }
-        // Never trust a marker alone: every cache read re-verifies embedded hashes.
+        // Reverify executable digests on cached package reads.
         if (Files.size(dir.resolve("PACKAGE-METADATA.json")) > (1L << 20)) throw new IOException("Cached metadata is oversized");
         JsonNode meta = JSON.readTree(Files.readAllBytes(dir.resolve("PACKAGE-METADATA.json")));
         if (!meta.path("schemaVersion").asText().equals("1") || !meta.path("version").asText().equals(version) ||
@@ -239,7 +237,6 @@ final class CliBootstrap {
         }
         if (verified.size() != 5) throw new IOException("Missing executable metadata records");
         if (!platform.os().equals("windows") && !Files.isExecutable(dir.resolve(platform.cli()))) throw new IOException("Cached Distroplane CLI is not executable");
-        // Files other than the six expected members and the own checksum marker are not permitted.
         try (var paths = Files.walk(dir)) {
             Set<String> allowed = new HashSet<>(platform.members());
             allowed.add("archive.sha256"); allowed.add("bin"); allowed.add("libexec"); allowed.add("");

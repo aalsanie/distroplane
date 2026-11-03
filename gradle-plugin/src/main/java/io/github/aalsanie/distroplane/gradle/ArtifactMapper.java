@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 
-/** Materializes an explicit Gradle artifact mapping. Never guesses between modules/classifiers. */
+/** Materializes explicit Gradle artifact mappings. */
 final class ArtifactMapper {
     private static final ObjectMapper JSON = new ObjectMapper();
     record Selection(String name, String module, String classifier, String type) { }
@@ -28,9 +28,7 @@ final class ArtifactMapper {
         JsonNode artifactContainer = root.path("release").path("artifacts");
         if (!(artifactContainer.isArray() && schema.equals("1")) && !(artifactContainer.isObject() && schema.equals("2")))
             throw new IOException("Distroplane release artifacts do not match configuration schema");
-        // The managed config lives in a different directory. Rebase all *unmapped*
-        // relative sources and provider-local paths as well, or the copy would silently
-        // change release intent when Gradle invokes the CLI.
+        // Rebase relative artifact and provider paths for the generated configuration.
         for (JsonNode entry : artifactContainer) {
             if (!(entry instanceof ObjectNode object)) throw new IOException("Malformed Distroplane artifact declaration");
             anchor(object, "source", config.getParent());
