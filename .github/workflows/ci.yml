@@ -154,6 +154,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_release_stage.py' -v
           python3 -m unittest discover -s scripts -p 'test_release_workflow.py' -v
+          python3 -m unittest discover -s scripts -p 'test_gradle_publish_workflow.py' -v
           python3 -m unittest discover -s scripts -p 'test_github_release_gate.py' -v
       - name: Verify native archive execution and rejection paths
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
