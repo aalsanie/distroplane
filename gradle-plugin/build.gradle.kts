@@ -37,7 +37,7 @@ gradlePlugin {
 }
 
 dependencies {
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.18.12")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.4")
     implementation("org.apache.commons:commons-compress:1.28.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
