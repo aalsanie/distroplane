@@ -6,6 +6,7 @@ import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.io.CleanupMode;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,15 +25,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /** Executes actual isolated Gradle builds against the native nonpublishing fixture. */
 final class DistroplaneFunctionalTest {
     @TempDir Path temp;
+    @TempDir(cleanup = CleanupMode.NEVER) Path gradleHome;
     Path project;
-    Path gradleHome;
     Path fixture;
     String pin = "a".repeat(64);
     static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach void setup() throws Exception {
         project = Files.createDirectories(temp.resolve("project")).toRealPath();
-        gradleHome = Files.createDirectories(temp.resolve("gradle-home")).toRealPath();
         Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'distroplane-test'\n");
         Files.writeString(project.resolve("build.gradle"), "plugins { id 'io.github.aalsanie.distroplane' }\n");
         fixture = Path.of(System.getenv().getOrDefault("DISTROPLANE_FIXTURE_BINARY", ""));
@@ -47,8 +47,9 @@ final class DistroplaneFunctionalTest {
     private BuildResult run(boolean success, String... tasks) {
         List<String> args = new ArrayList<>(List.of("--offline", "--no-watch-fs", "--stacktrace", "--gradle-user-home", gradleHome.toString()));
         args.addAll(List.of(tasks));
+        boolean kotlinDsl = Files.isRegularFile(project.resolve("build.gradle.kts"));
         GradleRunner runner = GradleRunner.create().withProjectDir(project.toFile())
-            .withPluginClasspath().withArguments(args).withDebug(true);
+            .withPluginClasspath().withArguments(args).withDebug(!kotlinDsl);
         return success ? runner.build() : runner.buildAndFail();
     }
 
