@@ -1,27 +1,37 @@
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.plugin.compatibility.compatibility
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
-    `java-gradle-plugin`
+    id("com.gradle.plugin-publish") version "2.2.1"
     jacoco
 }
 
 group = "io.github.aalsanie"
-version = "1.0.0-SNAPSHOT"
+version = providers.environmentVariable("DISTROPLANE_GRADLE_PLUGIN_VERSION").orElse("1.0.0-SNAPSHOT").get()
 
 repositories {
     mavenCentral()
 }
 
 gradlePlugin {
+    website = "https://github.com/aalsanie/distroplane"
+    vcsUrl = "https://github.com/aalsanie/distroplane"
     plugins {
         create("distroplane") {
             id = "io.github.aalsanie.distroplane"
             implementationClass = "io.github.aalsanie.distroplane.gradle.DistroplanePlugin"
             displayName = "Distroplane"
             description = "Explicit, verified native Distroplane release tasks"
+            tags = listOf("publishing", "release", "distribution")
+            compatibility {
+                features {
+                    configurationCache = false
+                    isolatedProjects = false
+                }
+            }
         }
     }
 }
