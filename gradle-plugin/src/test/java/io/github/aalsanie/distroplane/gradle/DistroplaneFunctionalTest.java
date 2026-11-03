@@ -45,10 +45,10 @@ final class DistroplaneFunctionalTest {
     }
 
     private BuildResult run(boolean success, String... tasks) {
-        List<String> args = new ArrayList<>(List.of("--offline", "--stacktrace", "--gradle-user-home", gradleHome.toString()));
+        List<String> args = new ArrayList<>(List.of("--offline", "--no-watch-fs", "--stacktrace", "--gradle-user-home", gradleHome.toString()));
         args.addAll(List.of(tasks));
         GradleRunner runner = GradleRunner.create().withProjectDir(project.toFile())
-            .withPluginClasspath().withArguments(args);
+            .withPluginClasspath().withArguments(args).withDebug(true);
         return success ? runner.build() : runner.buildAndFail();
     }
 

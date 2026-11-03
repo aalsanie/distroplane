@@ -1,6 +1,7 @@
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
     `java-gradle-plugin`
@@ -39,10 +40,21 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     maxParallelForks = 1
+    jvmArgs(
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+        "--add-opens=java.base/java.net=ALL-UNNAMED",
+    )
 }
 
 jacoco {
     toolVersion = "0.8.13"
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.named("test"))
+    reports.xml.required.set(true)
 }
 
 tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
@@ -65,5 +77,5 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 }
 
 tasks.named("check") {
-    dependsOn(tasks.named("jacocoTestCoverageVerification"))
+    dependsOn(tasks.named("jacocoTestCoverageVerification"), tasks.named("jacocoTestReport"))
 }
