@@ -58,8 +58,8 @@ final class CliBootstrap {
     record Platform(String os, String arch) {
         static Platform current(String osName, String archName) throws IOException {
             String os = osName.toLowerCase(Locale.ROOT);
-            if (os.contains("win")) os = "windows";
-            else if (os.contains("mac") || os.contains("darwin")) os = "darwin";
+            if (os.contains("mac") || os.contains("darwin")) os = "darwin";
+            else if (os.contains("win")) os = "windows";
             else if (os.contains("linux")) os = "linux";
             else throw new IOException("Unsupported operating system for Distroplane: " + osName);
             String arch = archName.toLowerCase(Locale.ROOT);
