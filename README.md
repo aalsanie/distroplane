@@ -36,6 +36,7 @@ Preserve `.distroplane/` and the original artifacts until publication is settled
 ## Integrations
 
 - **Maven:** [Published plugin 1.0.1](https://repo1.maven.org/maven2/io/github/aalsanie/distroplane-maven-plugin/1.0.1/) · [Usage](maven-plugin/README.md)
+- **Gradle:** [Published plugin 1.0.1](https://plugins.gradle.org/plugin/io.github.aalsanie.distroplane) · [Usage](gradle-plugin/README.md)
 - **GitHub Actions:** [Workflow example and recovery](docs/github-actions.md)
 
 [Noninteractive configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)

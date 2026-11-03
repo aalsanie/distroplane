@@ -23,6 +23,7 @@ jobs:
     outputs:
       expensive: ${{ steps.changes.outputs.expensive }}
       maven: ${{ steps.changes.outputs.maven }}
+      gradle: ${{ steps.changes.outputs.gradle }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,11 +75,20 @@ jobs:
                   or path == "scripts/test_maven_publication.py"
               )
 
+          def gradle_related(path):
+              return (
+                  path.startswith("gradle-plugin/")
+                  or path.startswith(".github/workflows/")
+                  or path == ".github/dependabot.yml"
+              )
+
           expensive = not (paths is not None and bool(paths) and all(map(trivial, paths)))
           maven = (paths is None or any(map(maven_related, paths))) and expensive
+          gradle = (paths is None or any(map(gradle_related, paths))) and expensive
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"expensive={str(expensive).lower()}\n")
               output.write(f"maven={str(maven).lower()}\n")
+              output.write(f"gradle={str(gradle).lower()}\n")
           PY
       - name: Verify required CI approver
         shell: bash
@@ -144,6 +154,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_verify_release_stage.py' -v
           python3 -m unittest discover -s scripts -p 'test_release_workflow.py' -v
+          python3 -m unittest discover -s scripts -p 'test_gradle_publish_workflow.py' -v
           python3 -m unittest discover -s scripts -p 'test_github_release_gate.py' -v
       - name: Verify native archive execution and rejection paths
         run: python3 -m unittest discover -s scripts -p 'test_smoke_release_native.py' -v
@@ -670,6 +681,14 @@ jobs:
     permissions:
       contents: read
 
+  gradle-plugin:
+    name: Gradle plugin
+    needs: [preflight, authorize]
+    if: needs.authorize.result == 'success' && needs.preflight.outputs.gradle == 'true'
+    uses: ./.github/workflows/gradle-plugin.yml
+    permissions:
+      contents: read
+
   codeql:
     name: CodeQL
     needs: authorize
@@ -683,7 +702,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [preflight, authorize, quality, branch-coverage, provider-conformance, fuzz, linux-installer-arm64, benchmark, build, homebrew-jvm-install, release-build, windows-msi, windows-msi-arm64, action-smoke, maven-plugin, codeql]
+    needs: [preflight, authorize, quality, branch-coverage, provider-conformance, fuzz, linux-installer-arm64, benchmark, build, homebrew-jvm-install, release-build, windows-msi, windows-msi-arm64, action-smoke, maven-plugin, gradle-plugin, codeql]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -703,10 +722,11 @@ jobs:
               sys.exit("Preflight failed")
           expensive = needs["preflight"]["outputs"].get("expensive")
           maven = needs["preflight"]["outputs"].get("maven")
-          if expensive not in ("true", "false") or maven not in ("true", "false"):
+          gradle = needs["preflight"]["outputs"].get("gradle")
+          if any(value not in ("true", "false") for value in (expensive, maven, gradle)):
               sys.exit("Invalid change classification")
-          if expensive == "false" and maven != "false":
-              sys.exit("Maven checks cannot run on a trivial-only change")
+          if expensive == "false" and (maven != "false" or gradle != "false"):
+              sys.exit("Integration checks cannot run on a trivial-only change")
 
           expected = "success" if expensive == "true" else "skipped"
           for name in ("authorize", "quality", "branch-coverage", "provider-conformance",
@@ -718,5 +738,8 @@ jobs:
           maven_expected = "success" if maven == "true" else "skipped"
           if results["maven-plugin"] != maven_expected:
               sys.exit(f"maven-plugin: expected {maven_expected}, got {results['maven-plugin']}")
+          gradle_expected = "success" if gradle == "true" else "skipped"
+          if results["gradle-plugin"] != gradle_expected:
+              sys.exit(f"gradle-plugin: expected {gradle_expected}, got {results['gradle-plugin']}")
           print("All applicable checks passed")
           PY
