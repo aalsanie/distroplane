@@ -140,4 +140,67 @@ final class ArtifactMapperSecurityTest {
         assertThrows(IOException.class, () -> ArtifactMapper.materialize(cfg, temp,
             List.of(selection("app")), List.of(source(file))));
     }
+
+    @Test void validatesNullMappingsAndInvalidSelectionsWithoutWritingOutput() throws Exception {
+        Path config = write("config.json", schema2());
+        Path built = write("built.jar", "artifact");
+        assertEquals(config, ArtifactMapper.materialize(config, temp, null, List.of(source(built))));
+        Path directory = Files.createDirectory(temp.resolve("config-dir"));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(directory, temp,
+            List.of(selection("app")), List.of(source(built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            java.util.Arrays.asList((ArtifactMapper.Selection) null), List.of(source(built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(new ArtifactMapper.Selection(null, ":app:jar", "", "")), List.of(source(built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(new ArtifactMapper.Selection("app", null, "", "")), List.of(source(built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(selection("app")), List.of(source(directory))));
+        assertFalse(Files.exists(temp.resolve(".distroplane-gradle")));
+    }
+
+    @Test void selectsOnlyMatchingModuleClassifierAndArchiveType() throws Exception {
+        Path config = write("config.json", schema2());
+        Path built = write("built.jar", "artifact");
+        ArtifactMapper.Source actual = new ArtifactMapper.Source(":app:jar", "sources", "jar", built);
+        ArtifactMapper.Selection selection = new ArtifactMapper.Selection("app", ":app:jar", "sources", "jar");
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(selection), List.of(new ArtifactMapper.Source(":other:jar", "sources", "jar", built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(selection), List.of(new ArtifactMapper.Source(":app:jar", "", "jar", built))));
+        assertThrows(IOException.class, () -> ArtifactMapper.materialize(config, temp,
+            List.of(selection), List.of(new ArtifactMapper.Source(":app:jar", "sources", "zip", built))));
+        Path mapped = ArtifactMapper.materialize(config, temp, List.of(selection), List.of(actual));
+        assertEquals(built.toRealPath().toString(),
+            JSON.readTree(Files.readAllBytes(mapped)).path("release").path("artifacts").path("app").path("source").asText());
+    }
+
+    @Test void preservesAbsentNonStringAndAbsolutePathsWhenRebasingDestinations() throws Exception {
+        Path built = write("built.jar", "artifact");
+        Path absolute = temp.resolve("absolute.zip").toAbsolutePath();
+        Path config = write("config.json", """
+            {"schemaVersion":"2","release":{"id":"x","artifacts":{
+            "app":{"source":"original.jar"},"missing":{},"boolean":{"source":true},
+            "empty":{"source":""},"absolute":{"source":"ABSOLUTE_VALUE"}}},
+            "destinations":{"primitive":false,"array":[false,{"executable":"tool/provider"},
+            {"options":{"installer":"invalid"}}],
+            "no-options":{"executable":"tool/other"},
+            "invalid-options":{"options":false},
+            "absolute-options":{"options":{"packagePath":"ABSOLUTE_VALUE"}}}}
+            """.replace("ABSOLUTE_VALUE", absolute.toString().replace("\\", "\\\\")));
+        Path generated = ArtifactMapper.materialize(config, temp,
+            List.of(selection("app")), List.of(source(built)));
+        JsonNode tree = JSON.readTree(Files.readAllBytes(generated));
+        JsonNode artifacts = tree.path("release").path("artifacts");
+        assertTrue(artifacts.path("missing").path("source").isMissingNode());
+        assertTrue(artifacts.path("boolean").path("source").asBoolean());
+        assertEquals("", artifacts.path("empty").path("source").asText());
+        assertEquals(absolute.toString(), artifacts.path("absolute").path("source").asText());
+        assertEquals(absolute.toString(), tree.path("destinations").path("absolute-options")
+            .path("options").path("packagePath").asText());
+        assertEquals(temp.resolve("tool/provider").toString(),
+            tree.path("destinations").path("array").get(1).path("executable").asText());
+        assertEquals(temp.resolve("tool/other").toString(),
+            tree.path("destinations").path("no-options").path("executable").asText());
+    }
 }

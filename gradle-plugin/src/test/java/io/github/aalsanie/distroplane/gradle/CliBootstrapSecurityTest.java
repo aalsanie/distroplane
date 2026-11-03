@@ -223,4 +223,92 @@ final class CliBootstrapSecurityTest {
                 .resolve(malicious, VERSION, WINDOWS, false, null));
         }
     }
+
+    @Test void acceptsBlankChecksumLinesCanonicalizesAliasesAndMatchesUppercasePins() throws Exception {
+        assertEquals(new CliBootstrap.Platform("darwin", "arm64"),
+            CliBootstrap.Platform.current("Darwin", "arm64"));
+        assertEquals(new CliBootstrap.Platform("linux", "amd64"),
+            CliBootstrap.Platform.current("Linux", "amd64"));
+        Pack original = pack(WINDOWS, m -> {}, null, null, false, false);
+        String lines = "\r\n" + "0".repeat(64) + "  unrelated.zip\r\n\r\n" +
+            original.hash().toUpperCase(java.util.Locale.ROOT) + "  " + WINDOWS.archive(VERSION) + "\r\n";
+        Pack manifest = new Pack(WINDOWS, original.archive(), lines.getBytes(StandardCharsets.UTF_8), original.hash());
+        Path cache = temp.resolve("canonical-checksums");
+        Path cli = bootstrap(manifest).resolve(cache, VERSION, WINDOWS, false,
+            original.hash().toUpperCase(java.util.Locale.ROOT));
+        assertTrue(Files.isRegularFile(cli));
+        assertEquals(cli, bootstrap(manifest).resolve(cache, VERSION, WINDOWS, true, ""));
+    }
+
+    @Test void rejectsTruncatedArchiveAndUnexpectedZipDirectoryMember() throws Exception {
+        Pack original = pack(WINDOWS, m -> {}, null, null, false, false);
+        ByteArrayOutputStream rewritten = new ByteArrayOutputStream();
+        try (java.util.zip.ZipInputStream input = new java.util.zip.ZipInputStream(
+                 new java.io.ByteArrayInputStream(original.archive()));
+             ZipOutputStream zip = new ZipOutputStream(rewritten)) {
+            ZipEntry member;
+            while ((member = input.getNextEntry()) != null) {
+                if (!member.getName().equals("libexec/distroplane-provider-winget.exe")) {
+                    zip.putNextEntry(new ZipEntry(member.getName()));
+                    zip.write(input.readAllBytes());
+                    zip.closeEntry();
+                }
+                input.closeEntry();
+            }
+        }
+        byte[] archive = rewritten.toByteArray();
+        String digest = sha(archive);
+        Pack missing = new Pack(WINDOWS, archive,
+            (digest + "  " + WINDOWS.archive(VERSION) + "\n").getBytes(StandardCharsets.UTF_8), digest);
+        assertThrows(IOException.class, () -> bootstrap(missing).resolve(temp.resolve("truncated"),
+            VERSION, WINDOWS, false, null));
+        Pack directory = pack(WINDOWS, m -> {}, "unexpected/", null, false, false);
+        assertThrows(IOException.class, () -> bootstrap(directory).resolve(temp.resolve("directory-entry"),
+            VERSION, WINDOWS, false, null));
+    }
+
+    @Test void rejectsMissingCacheMarkerOversizedMetadataAndMissingExecutable() throws Exception {
+        Pack original = pack(WINDOWS, m -> {}, null, null, false, false);
+        Path cache = temp.resolve("verify-bad-cache");
+        Path cli = bootstrap(original).resolve(cache, VERSION, WINDOWS, false, original.hash());
+        Path packageRoot = cli.getParent().getParent();
+        Path marker = packageRoot.resolve("archive.sha256");
+        Files.delete(marker);
+        assertThrows(IOException.class, () -> bootstrap(original).resolve(cache, VERSION, WINDOWS, true, original.hash()));
+        Files.writeString(marker, original.hash());
+        Path metadata = packageRoot.resolve("PACKAGE-METADATA.json");
+        byte[] saved = Files.readAllBytes(metadata);
+        Files.write(metadata, new byte[(1 << 20) + 1]);
+        assertThrows(IOException.class, () -> bootstrap(original).resolve(cache, VERSION, WINDOWS, true, original.hash()));
+        Files.write(metadata, saved);
+        Files.delete(cli);
+        Files.createDirectory(cli);
+        assertThrows(IOException.class, () -> bootstrap(original).resolve(cache, VERSION, WINDOWS, true, original.hash()));
+    }
+
+    @Test void verifiesArchiveSizeRecordAndRejectsRegularFileCacheRoots() throws Exception {
+        Pack badSize = pack(WINDOWS, m -> {
+            @SuppressWarnings("unchecked")
+            List<Map<String,Object>> files = (List<Map<String,Object>>)m.get("files");
+            files.get(0).put("size", 42_424);
+        }, null, null, false, false);
+        assertThrows(IOException.class, () -> bootstrap(badSize).resolve(temp.resolve("bad-size"),
+            VERSION, WINDOWS, false, null));
+        Path file = temp.resolve("cache-is-a-file");
+        Files.writeString(file, "not a directory");
+        Pack valid = pack(WINDOWS, m -> {}, null, null, false, false);
+        assertThrows(IOException.class, () -> bootstrap(valid).resolve(file, VERSION, WINDOWS, false, null));
+        assertThrows(IOException.class, () -> bootstrap(valid).resolve(temp.resolve("missing-pin"),
+            VERSION, WINDOWS, true, "a".repeat(64)));
+    }
+
+    @Test void refusesCachedLinuxExecutableWithoutExecutePermission() throws Exception {
+        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        Pack valid = pack(LINUX, m -> {}, null, null, false, false);
+        Path cache = temp.resolve("linux-executable-check");
+        Path cli = bootstrap(valid).resolve(cache, VERSION, LINUX, false, valid.hash());
+        assertTrue(cli.toFile().setExecutable(false, false));
+        assertFalse(Files.isExecutable(cli));
+        assertThrows(IOException.class, () -> bootstrap(valid).resolve(cache, VERSION, LINUX, true, valid.hash()));
+    }
 }

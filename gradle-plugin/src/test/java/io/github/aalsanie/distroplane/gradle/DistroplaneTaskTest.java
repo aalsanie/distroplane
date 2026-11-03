@@ -201,4 +201,38 @@ final class DistroplaneTaskTest {
         options.getTimeoutSeconds().set(1);
         assertThrows(GradleException.class, () -> task("publish").invoke()); // approval required
     }
+
+    @Test void handlesBlankInitValuesAndOmittedOptionalArtifact() throws Exception {
+        options.getInitDestination().set("");
+        options.getInitRelease().set("release-1");
+        assertThrows(IOException.class, () -> arguments("init"));
+        options.getInitDestination().set("npm");
+        options.getInitRelease().set("");
+        assertThrows(IOException.class, () -> arguments("init"));
+        options.getInitRelease().set("release-1");
+        options.getInitArtifact().set("");
+        assertEquals(List.of("init", "--destination", "npm", "--release", "release-1",
+            "--output", root.resolve("distroplane.json").toString(), "--non-interactive"),
+            arguments("init"));
+        options.getInitFields().put("empty", "");
+        assertThrows(IOException.class, () -> arguments("init"));
+    }
+
+    @Test void resolvesRootProjectArchiveTasksByAbsoluteTaskPath() throws Exception {
+        project.getPlugins().apply(JavaPlugin.class);
+        var jar = (org.gradle.api.tasks.bundling.Jar)project.getTasks().getByName("jar");
+        Path archive = jar.getArchiveFile().get().getAsFile().toPath();
+        Files.createDirectories(archive.getParent());
+        Files.writeString(archive, "prebuilt");
+        Files.writeString(root.resolve("distroplane.json"), """
+            {"schemaVersion":"2","release":{"id":"root-archive",
+            "artifacts":{"app":{"source":"old.jar"}}},"destinations":{}}
+            """);
+        options.getArtifactTasks().put("app", ":jar");
+        var output = arguments("plan");
+        assertTrue(output.contains(root.resolve(".distroplane-gradle/distroplane.json").toString()));
+        var mapped = new ObjectMapper().readTree(Files.readAllBytes(root.resolve(".distroplane-gradle/distroplane.json")));
+        assertEquals(archive.toRealPath().toString(),
+            mapped.path("release").path("artifacts").path("app").path("source").asText());
+    }
 }
