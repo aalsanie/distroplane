@@ -1,35 +1,15 @@
 # Configuration
 
-Run `distroplane init` to create `distroplane.json`. It finds prebuilt artifacts in common build folders and asks for missing information. To skip prompts, specify the destination, release, artifact, and required metadata using `distroplane init --help`.
+Run `distroplane init` to generate `distroplane.json` interactively. For automation, supply all inputs explicitly. For example, after creating an npm package tarball:
 
-A minimal npm example (using a package tarball created by `npm pack`):
-
-```json
-{
-  "schemaVersion": "2",
-  "release": {
-    "id": "my-package-1.2.3",
-    "artifacts": {
-      "package": {"source": "dist/package.tgz"}
-    }
-  },
-  "destinations": {
-    "npm": {
-      "artifact": "package",
-      "options": {
-        "packagePath": "dist/package.tgz",
-        "registry": "https://registry.npmjs.org/",
-        "authentication": {"mode": "token", "credential": "npm-publish"}
-      }
-    }
-  }
-}
+```sh
+distroplane init --destination npm --release my-package-1.2.3 --artifact package.tgz --non-interactive
+distroplane doctor --credential npm-publish=NPM_TOKEN
+distroplane publish --credential npm-publish=NPM_TOKEN
 ```
 
-Set `NPM_TOKEN` in your environment; never paste a token into JSON. `npm-publish` is a **credential reference**, not the token itself. For multiple accounts, map credentials explicitly with `credentialSources` or `--credential REF=ENV`.
+Set `NPM_TOKEN` in the environment before running the last two commands. `npm-publish` is the credential reference in the config. `--credential REF=ENV` selects an environment-variable source; `credentialSources` can provide persistent reference-to-environment mappings.
 
-Other destinations: [SDKMAN](../providers/sdkman/README.md) · [Homebrew](../providers/homebrew/README.md) · [WinGet](../providers/winget/README.md). Each needs its own artifact and destination metadata; Distroplane never guesses your package name, release URL, or credentials.
+See `distroplane init --help` for provider-specific `--set FIELD=VALUE` options, or the [configuration schema](../schemas/config-v2.schema.json) for direct JSON editing.
 
-Use `distroplane doctor` to check readiness, then `distroplane publish` to review and approve.
-
-[CLI and recovery](cli.md)
+Destination-specific fields: [npm](../providers/npm/README.md) · [SDKMAN](../providers/sdkman/README.md) · [Homebrew](../providers/homebrew/README.md) · [WinGet](../providers/winget/README.md).

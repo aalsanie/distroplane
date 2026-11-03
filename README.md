@@ -1,26 +1,20 @@
 # Distroplane
 
-[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml) [![CodeQL](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml) [![CLI Release](https://img.shields.io/github/v/release/aalsanie/distroplane?label=CLI)](https://github.com/aalsanie/distroplane/releases/latest) [![Maven Central](https://img.shields.io/maven-central/v/io.github.aalsanie/distroplane-maven-plugin?label=Maven%20plugin)](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin) [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
+[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml) [![CLI Release](https://img.shields.io/github/v/release/aalsanie/distroplane?label=CLI)](https://github.com/aalsanie/distroplane/releases/latest) [![Maven Central](https://img.shields.io/maven-central/v/io.github.aalsanie/distroplane-maven-plugin?label=Maven%20plugin)](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin)
 
-Publish prebuilt releases to npm, SDKMAN, Homebrew, and WinGet.
+Distribute prebuilt artifacts to npm, SDKMAN, Homebrew taps, and WinGet.
 
-## Install
+## Start
+
+Install on macOS or Linux with Homebrew:
 
 ```sh
 brew install aalsanie/tap/distroplane
 ```
 
-On Windows:
+[Windows MSI and other installation methods](docs/install.md).
 
-```powershell
-winget install --id Aalsanie.Distroplane --exact
-```
-
-[Other installation options](docs/release-verification.md).
-
-## Use
-
-Build your artifact first, then run:
+From your project directory, after building an artifact:
 
 ```sh
 distroplane init
@@ -28,52 +22,22 @@ distroplane doctor
 distroplane publish
 ```
 
-Follow the prompts to choose a destination, provide its required metadata and approve the release. Credentials stay in environment variables, not configuration files.
+The CLI guides configuration, checks readiness, previews the release, and requests approval.
 
-To check or continue an existing release:
+For an existing release:
 
 ```sh
 distroplane status
 distroplane resume
 ```
 
-Do not delete `.distroplane/` while a release may still need recovery.
+Preserve `.distroplane/` and the original artifacts until publication is settled. [Recovery and exit codes](docs/recovery.md).
 
-## Maven plugin
+## Integrations
 
-Add the [published Maven plugin](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin/1.0.0) to `<build><plugins>` in your `pom.xml`:
+- **Maven:** [Published plugin 1.0.1](https://repo1.maven.org/maven2/io/github/aalsanie/distroplane-maven-plugin/1.0.1/) · [Usage](maven-plugin/README.md)
+- **GitHub Actions:** [Workflow example and recovery](docs/github-actions.md)
 
-```xml
-<plugin>
-  <groupId>io.github.aalsanie</groupId>
-  <artifactId>distroplane-maven-plugin</artifactId>
-  <version>1.0.0</version>
-  <configuration>
-    <cliVersion>0.9.2</cliVersion>
-    <config>distroplane.json</config>
-  </configuration>
-</plugin>
-```
-
-With a prebuilt artifact and `distroplane.json`, run `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:plan` to review a release. [Maven usage](maven-plugin/README.md).
-
-## GitHub Action
-
-Publish a prebuilt artifact from a GitHub Actions workflow:
-
-```yaml
-- uses: aalsanie/distroplane@main
-  env:
-    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-  with:
-    version: 0.9.3
-    command: publish
-    approve: 'true'
-    credential-mappings: npm-publish=NPM_TOKEN
-```
-
-Requires `distroplane.json` in the checked-out repository and a configured npm destination. Pin the Action to a reviewed commit in production. [GitHub Action usage](docs/github-actions.md).
-
-[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Noninteractive configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 Apache-2.0.

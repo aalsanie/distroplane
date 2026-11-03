@@ -9,7 +9,7 @@ import json
 import re
 from pathlib import Path
 
-# Historical Ubuntu x86-64 baseline recorded in docs/performance-baseline.md.
+# Historical Ubuntu x86-64 reference at REFERENCE_COMMIT.
 # These ns/op numbers are comparisons, never runtime service-level guarantees.
 REFERENCE_COMMIT = '47e40cbc21605c7ddaa84fe62a8535b52f789eea'
 BASELINE_NS = {

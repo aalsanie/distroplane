@@ -1,6 +1,6 @@
 # GitHub Action
 
-Publish a prebuilt artifact from a GitHub Actions workflow using the same `distroplane.json` as the CLI.
+Run an explicit publication workflow after building the release artifact:
 
 ```yaml
 name: Publish
@@ -24,11 +24,11 @@ jobs:
           upload-recovery: 'true'
 ```
 
-Build your artifact **before** this step. In production, pin `uses:` to a reviewed commit SHA; the current Action interface is not included in the older release tags. Set `version` to an actually published CLI release. `approve: 'true'` authorizes real publication.
+Pin the Action to a reviewed commit SHA for production. `approve: 'true'` authorizes publication. The input `version` selects the published CLI.
 
-## Pending releases
+## Resume a pending release
 
-`upload-recovery: 'true'` saves the verified plan, journal, artifacts and retained providers as a protected workflow artifact. A subsequent job can continue without creating a new release:
+Use the verified recovery bundle in a later job with the same absolute workspace path, OS, and CPU architecture:
 
 ```yaml
 - uses: aalsanie/distroplane@main
@@ -38,10 +38,8 @@ Build your artifact **before** this step. In production, pin `uses:` to a review
     restore-recovery: 'true'
 ```
 
-The restored workspace must have the **same absolute path, OS and CPU architecture**. Never use a missing or corrupted recovery artifact as permission to republish. A pending result is not a completed release.
+A pending outcome needs reconciliation with the original state. Check the Action's `pending`, `completed`, and `exit-code` outputs.
 
-## npm trusted publishing
+For npm trusted publishing, configure the npm trusted publisher for the workflow, grant `id-token: write`, and set `oidc: npm` plus `npm-oidc-ref: npm-publish` with `authentication.mode: trusted-publishing` in the destination.
 
-Configure the npm package's trusted publisher for this GitHub workflow, grant the job `id-token: write`, then use `oidc: npm` and `npm-oidc-ref: npm-publish` instead of an npm token mapping. The destination must use `authentication.mode: trusted-publishing`. `oidc: required` only checks availability; it does not acquire a token.
-
-All other inputs and outputs are defined in [action.yml](../action.yml). [CLI](cli.md) · [Configuration](configuration.md)
+All inputs and outputs are defined in [action.yml](../action.yml).
