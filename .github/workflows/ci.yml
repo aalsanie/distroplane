@@ -91,7 +91,7 @@ jobs:
             | grep -qx '1'
 
   authorize:
-    name: Approve expensive CI
+    name: Approve CI
     needs: preflight
     if: needs.preflight.outputs.expensive == 'true'
     runs-on: ubuntu-latest
