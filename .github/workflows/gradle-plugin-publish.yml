@@ -53,8 +53,9 @@ jobs:
           fi
           source_sha="$(git rev-parse 'FETCH_HEAD^{commit}')"
           main_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
-          if [[ "$source_sha" != "$main_sha" || "$source_sha" != "$(git rev-parse HEAD)" ]]; then
-            echo 'Release tag must point to the current tested main commit' >&2
+          git fetch --no-tags origin refs/heads/main
+          if ! git merge-base --is-ancestor "$source_sha" "$main_sha"; then
+            echo 'Gradle release tag must point to a commit reachable from main' >&2
             exit 1
           fi
           gh api "repos/${GITHUB_REPOSITORY}/environments/gradle-plugin" |
@@ -68,6 +69,14 @@ jobs:
               exit 1
             }
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout exact tested release tag
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -76,10 +85,10 @@ jobs:
         with:
           gradle-version: '8.14.6'
           cache-provider: basic
-      - name: Verify tests, coverage and Portal publication metadata without uploading
+      - name: Verify tests and strict coverage without publishing
         env:
           DISTROPLANE_GRADLE_PLUGIN_VERSION: ${{ inputs.version }}
-        run: gradle -p gradle-plugin clean check publishPlugins --validate-only --no-daemon
+        run: gradle -p gradle-plugin clean check --no-daemon
 
   publish:
     name: Publish approved Gradle plugin
@@ -107,7 +116,9 @@ jobs:
           test "$(git cat-file -t FETCH_HEAD)" = tag
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$SOURCE_SHA"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$SOURCE_SHA"
+          main_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          git fetch --no-tags origin refs/heads/main
+          git merge-base --is-ancestor "$SOURCE_SHA" "$main_sha"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -116,7 +127,7 @@ jobs:
         with:
           gradle-version: '8.14.6'
           cache-provider: basic
-      - name: Publish immutable version to Gradle Plugin Portal
+      - name: Validate and publish immutable version to Gradle Plugin Portal
         shell: bash
         env:
           DISTROPLANE_GRADLE_PLUGIN_VERSION: ${{ inputs.version }}
@@ -128,6 +139,7 @@ jobs:
             echo 'Gradle Plugin Portal publishing credentials are not configured' >&2
             exit 1
           fi
+          gradle -p gradle-plugin publishPlugins --validate-only --no-daemon
           gradle -p gradle-plugin publishPlugins --no-daemon
       - name: Record submission
         env:
