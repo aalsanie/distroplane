@@ -35,6 +35,11 @@ class GradlePublishWorkflowTest(unittest.TestCase):
         self.assertIn("environments/gradle-plugin", self.workflow)
         self.assertIn(".can_admins_bypass == false", self.workflow)
         self.assertIn("name: gradle-plugin", self.workflow)
+        # Plugin Portal publishing must create a deployment so GitHub App
+        # environment protection rules can run before granting credentials.
+        preflight, publication = self.workflow.split("  publish:\n", 1)
+        self.assertNotIn("deployment: false", self.workflow)
+        self.assertIn("    environment:\n      name: gradle-plugin\n      deployment: true", publication)
         before_publish, publish = self.workflow.split("  publish:\n", 1)
         self.assertNotIn("secrets.GRADLE_PUBLISH_", before_publish)
         self.assertIn("secrets.GRADLE_PUBLISH_KEY", publish)
