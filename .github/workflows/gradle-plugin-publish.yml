@@ -95,7 +95,7 @@ jobs:
     needs: preflight
     environment:
       name: gradle-plugin
-      deployment: false
+      deployment: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
