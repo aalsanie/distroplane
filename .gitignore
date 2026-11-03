@@ -2,3 +2,8 @@
 /coverage.out
 /coverage-packages.txt
 *.test
+
+/gradle-plugin/.gradle/
+/gradle-plugin/build/
+/gradle-plugin/.distroplane/
+/gradle-plugin/.distroplane-gradle/
