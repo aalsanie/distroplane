@@ -122,6 +122,9 @@ def artifact(env, prefix):
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
             or not ARTIFACT_DIGEST.fullmatch(digest)):
         return None
+    # Python URL parsing removes embedded CR/LF/TAB; reject raw URL bytes first.
+    if not isinstance(url, str) or len(url) > 512 or not re.fullmatch(r"[A-Za-z0-9:/._-]+", url):
+        return None
     try:
         parts = urlsplit(url)
     except ValueError:
