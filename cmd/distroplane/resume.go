@@ -59,11 +59,11 @@ func runResumeContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 	if record.Completed {
 		// Finished work must not be re-executed or require retained artifacts.
-		args := []string{"--plan", record.PlanPath, "--journal", record.JournalPath}
+		args := []string{"--config", configPath, "--plan", record.PlanPath, "--journal", record.JournalPath}
 		if jsonMode {
 			args = append(args, "--json")
 		}
-		return runStatus(args, stdout, stderr)
+		return runStatusWithSelection(args, stdout, stderr, true)
 	}
 	// All actual recovery is delegated to the existing verified executor,
 	// including lease recovery and reconcile-before-retry requirements.
@@ -76,5 +76,5 @@ func runResumeContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	for ref, environment := range mappings {
 		operation = append(operation, "--credential", string(ref)+"="+environment)
 	}
-	return runExecutionContext(ctx, operation, stdout, stderr, reconcileOnly)
+	return runExecutionContextForSelection(ctx, operation, stdout, stderr, reconcileOnly, true)
 }
