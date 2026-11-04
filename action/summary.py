@@ -120,6 +120,7 @@ def artifact(env, prefix):
     if (not re.fullmatch(r"[1-9][0-9]{0,19}", aid)
             or not re.fullmatch(r"[1-9][0-9]{0,19}", run)
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            or any(part in (".", "..") for part in repo.split("/"))
             or not ARTIFACT_DIGEST.fullmatch(digest)):
         return None
     # Python URL parsing removes embedded CR/LF/TAB; reject raw URL bytes first.
