@@ -271,6 +271,43 @@ runs:
         path: ${{ steps.execute.outputs.evidence-path }}
         if-no-files-found: error
 
+    - name: Summarize Distroplane result
+      if: ${{ always() }}
+      shell: pwsh
+      env:
+        SUMMARY_COMMAND: ${{ inputs.command }}
+        SUMMARY_EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+        SUMMARY_EXIT_CODE: ${{ steps.execute.outputs.exit-code }}
+        SUMMARY_RESULT_JSON: ${{ steps.execute.outputs.result-json }}
+        SUMMARY_PLAN_ID: ${{ steps.execute.outputs.plan-id }}
+        SUMMARY_RUN_ID: ${{ steps.execute.outputs.run-id }}
+        SUMMARY_RECOVERY_OUTCOME: ${{ steps.upload-recovery.outcome }}
+        SUMMARY_RECOVERY_ID: ${{ steps.upload-recovery.outputs.artifact-id }}
+        SUMMARY_RECOVERY_URL: ${{ steps.upload-recovery.outputs.artifact-url }}
+        SUMMARY_RECOVERY_DIGEST: ${{ steps.upload-recovery.outputs.artifact-digest }}
+        SUMMARY_PLAN_ARTIFACT_OUTCOME: ${{ steps.upload-plan.outcome }}
+        SUMMARY_PLAN_ARTIFACT_ID: ${{ steps.upload-plan.outputs.artifact-id }}
+        SUMMARY_PLAN_ARTIFACT_URL: ${{ steps.upload-plan.outputs.artifact-url }}
+        SUMMARY_PLAN_ARTIFACT_DIGEST: ${{ steps.upload-plan.outputs.artifact-digest }}
+        SUMMARY_EVIDENCE_OUTCOME: ${{ steps.upload-evidence.outcome }}
+        SUMMARY_EVIDENCE_ID: ${{ steps.upload-evidence.outputs.artifact-id }}
+        SUMMARY_EVIDENCE_URL: ${{ steps.upload-evidence.outputs.artifact-url }}
+        SUMMARY_EVIDENCE_DIGEST: ${{ steps.upload-evidence.outputs.artifact-digest }}
+      run: |
+        $python = if ($IsWindows) { 'python' } else { 'python3' }
+        if (-not (Get-Command $python -ErrorAction SilentlyContinue)) {
+          Write-Host "::warning::Distroplane summary unavailable."
+        } else {
+          try {
+            & $python "$env:GITHUB_ACTION_PATH/action/summary.py"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::warning::Distroplane summary unavailable."
+            }
+          } catch {
+            Write-Host "::warning::Distroplane summary unavailable."
+          }
+        }
+
     - name: Enforce Distroplane result
       if: ${{ always() && steps.execute.outcome == 'success' }}
       shell: pwsh

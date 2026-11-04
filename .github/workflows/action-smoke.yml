@@ -33,6 +33,12 @@ jobs:
         id: fixture
         shell: pwsh
         run: ./action/smoke-fixture.ps1
+      - name: Verify post-upload Action summary safety
+        shell: pwsh
+        run: |
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python scripts/test_action_summary.py
+          if ($LASTEXITCODE -ne 0) { throw 'Action summary contract tests failed' }
       - name: Plan with local action
         id: plan
         uses: ./
