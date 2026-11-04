@@ -52,7 +52,9 @@ def main():
         raise AssertionError('pending Maven result lost native status')
     state=json.loads((simple/'.distroplane/fixture-run.json').read_text())
     if state!={'planId':'fixture-plan','runId':'fixture-run','attempts':1,'completed':False}:raise AssertionError(state)
-    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    duplicate=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    if 'RUN_ALREADY_EXISTS' not in duplicate or 'code 3' not in duplicate:
+        raise AssertionError('duplicate publication did not preserve native error')
     if json.loads((simple/'.distroplane/fixture-run.json').read_text())!=state:raise AssertionError('duplicate publication mutated state')
     pending_status=invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'],ok=False)
     if 'code 4' not in pending_status or 'awaiting external acceptance' not in pending_status:

@@ -44,9 +44,14 @@ final class CliRunnerTest {
         script.toFile().setExecutable(true);
         assertThrows(IOException.class, () -> CliRunner.run(script, root, List.of("status"),
             Map.of("MY_SECRET", "canary-secret"), Duration.ofSeconds(3), new SystemStreamLog()));
-        Files.writeString(script, "#!/bin/sh\nhead -c 1100000 /dev/zero\n");
-        assertThrows(IOException.class, () -> CliRunner.run(script, root, List.of("status"),
+        Files.writeString(script, "#!/bin/sh\nhead -c 4194305 /dev/zero\n");
+        IOException stdoutError = assertThrows(IOException.class, () -> CliRunner.run(script, root, List.of("status"),
             Map.of(), Duration.ofSeconds(3), new SystemStreamLog()));
+        assertTrue(stdoutError.getMessage().contains("Could not read bounded CLI output"));
+        Files.writeString(script, "#!/bin/sh\nhead -c 1048577 /dev/zero >&2\n");
+        IOException stderrError = assertThrows(IOException.class, () -> CliRunner.run(script, root, List.of("status"),
+            Map.of(), Duration.ofSeconds(3), new SystemStreamLog()));
+        assertTrue(stderrError.getMessage().contains("Could not read bounded CLI output"));
     }
 
     @Test void reportsPendingWithoutReissuingCommand() throws Exception {

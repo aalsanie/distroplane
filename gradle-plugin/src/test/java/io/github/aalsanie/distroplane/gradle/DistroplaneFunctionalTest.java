@@ -110,9 +110,9 @@ final class DistroplaneFunctionalTest {
         Path stateFile = project.resolve(".distroplane/fixture-run.json");
         var before = JSON.readTree(Files.readAllBytes(stateFile));
         assertEquals(1, before.path("attempts").asInt());
-        assertTrue(run(false, "distroplanePublish").getOutput().contains("exited with code 6"));
+        assertTrue(run(false, "distroplanePublish").getOutput().contains("exited with code 3"));
         assertEquals(before, JSON.readTree(Files.readAllBytes(stateFile)));
-        run(true, "distroplaneStatus");
+        assertTrue(run(false, "distroplaneStatus").getOutput().contains("exited with code 4"));
         Files.delete(project.resolve(".fixture-pending"));
         run(true, "distroplaneResume");
         var after = JSON.readTree(Files.readAllBytes(stateFile));

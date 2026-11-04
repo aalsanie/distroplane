@@ -31,7 +31,7 @@ func emit(value any) {
 func fail(code, diagnostic string, exit int) {
 	data, _ := json.Marshal(map[string]any{
 		"outputSchemaVersion": schema,
-		"error": map[string]any{"kind": "fixture_failure", "code": code, "message": "controlled fixture failure"},
+		"error":               map[string]any{"kind": "fixture_failure", "code": code, "message": "controlled fixture failure"},
 	})
 	fmt.Fprintln(os.Stderr, string(data))
 	os.Exit(exit)
@@ -122,7 +122,7 @@ func main() {
 	case "init":
 		emit(map[string]any{
 			"outputSchemaVersion": schema, "configPath": filepath.Join(dir, "distroplane.json"),
-			"artifact": map[string]any{"path": "", "sha256": "", "size": 0},
+			"artifact":  map[string]any{"path": "", "sha256": "", "size": 0},
 			"artifacts": map[string]any{}, "destinations": []string{"npm"},
 		})
 	case "doctor":
