@@ -34,7 +34,7 @@
   </dependencies>
   <build><plugins>
     <plugin>
-      <groupId>org.apache.maven.plugins</groupId><artifactId>maven-enforcer-plugin</artifactId><version>3.6.2</version>
+      <groupId>org.apache.maven.plugins</groupId><artifactId>maven-enforcer-plugin</artifactId><version>3.7.0</version>
       <executions><execution><id>secure-dependencies</id><goals><goal>enforce</goal></goals></execution></executions>
       <configuration><rules>
         <bannedDependencies><searchTransitive>true</searchTransitive><excludes>
