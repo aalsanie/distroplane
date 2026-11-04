@@ -91,12 +91,31 @@ final class DistroplaneFunctionalTest {
             """;
     }
 
-    @Test void registersSixOptInTasksWithoutLifecyclePublication() throws Exception {
+    @Test void registersSevenOptInTasksWithoutLifecyclePublication() throws Exception {
         BuildResult tasks = run(true, "tasks", "--all");
         for (String name : List.of("distroplaneInit", "distroplaneValidate", "distroplanePlan",
-            "distroplanePublish", "distroplaneStatus", "distroplaneResume")) assertTrue(tasks.getOutput().contains(name));
+            "distroplanePublish", "distroplaneStatus", "distroplaneResume", "distroplaneDoctor")) assertTrue(tasks.getOutput().contains(name));
         run(true, "help");
         assertFalse(Files.exists(project.resolve(".distroplane")));
+    }
+
+    @Test void doctorChecksReadinessWithoutPublicationAndHandlesUnsetCredentials() throws Exception {
+        cacheFixture();
+        configure("doctorRemote = false");
+        Files.writeString(project.resolve("distroplane.json"), config());
+        BuildResult healthy = run(true, "distroplaneDoctor");
+        assertTrue(healthy.getOutput().contains("readiness checks passed"));
+        assertFalse(Files.exists(project.resolve(".distroplane/fixture-run.json")));
+        configure("doctorRemote = true");
+        BuildResult remote = run(true, "distroplaneDoctor");
+        assertTrue(remote.getOutput().contains("readiness checks passed"));
+        assertFalse(Files.exists(project.resolve(".distroplane/fixture-run.json")));
+        configure("credentialMappings.put('npm-publish', 'MISSING_DISTROPLANE_GRADLE_SECRET_39755')");
+        BuildResult missing = run(false, "distroplaneDoctor");
+        assertTrue(missing.getOutput().contains("MISSING_CREDENTIAL"));
+        assertTrue(missing.getOutput().contains("exited with code 3"));
+        assertTrue(missing.getOutput().contains("distroplaneDoctor"));
+        assertFalse(Files.exists(project.resolve(".distroplane/fixture-run.json")));
     }
 
     @Test void verifiesOfflineBootstrapAndOriginalRunRecovery() throws Exception {
@@ -112,7 +131,10 @@ final class DistroplaneFunctionalTest {
         assertEquals(1, before.path("attempts").asInt());
         assertTrue(run(false, "distroplanePublish").getOutput().contains("exited with code 3"));
         assertEquals(before, JSON.readTree(Files.readAllBytes(stateFile)));
-        assertTrue(run(false, "distroplaneStatus").getOutput().contains("exited with code 4"));
+        BuildResult pending = run(false, "distroplaneStatus");
+        assertTrue(pending.getOutput().contains("exited with code 4"));
+        assertTrue(pending.getOutput().contains("awaiting external acceptance"));
+        assertFalse(pending.getOutput().contains("recorded as published"));
         Files.delete(project.resolve(".fixture-pending"));
         run(true, "distroplaneResume");
         var after = JSON.readTree(Files.readAllBytes(stateFile));
@@ -205,9 +227,11 @@ final class DistroplaneFunctionalTest {
             distroplane {
                 cliVersion.set("0.9.3")
                 config.set("distroplane.json")
+                doctorRemote.set(true)
             }
             """);
         BuildResult result = run(true, "tasks", "--all");
         assertTrue(result.getOutput().contains("distroplaneResume"));
+        assertTrue(result.getOutput().contains("distroplaneDoctor"));
     }
 }

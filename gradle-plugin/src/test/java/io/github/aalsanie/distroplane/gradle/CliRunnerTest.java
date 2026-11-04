@@ -25,6 +25,18 @@ final class CliRunnerTest {
         Files.writeString(script, "#!/bin/sh\necho \"$MY_NPM_SECRET\"\n");
         assertThrows(IOException.class, () -> CliRunner.run(script, root, List.of("version"), Map.of("MY_NPM_SECRET", "canary-secret-value"), Duration.ofSeconds(3), Logging.getLogger(CliRunnerTest.class)));
     }
+    @Test void preservesStructuredStreamsWithoutLoggingUntrustedProviderText() throws Exception {
+        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        Path script = root.resolve("cli");
+        Files.writeString(script, "#!/bin/sh\nprintf '{\"outputSchemaVersion\":\"1\"}\\n'\nprintf 'UNTRUSTED-PROVIDER-CONTENT\\n' >&2\nexit 3\n");
+        script.toFile().setExecutable(true);
+        CliRunner.Result result = CliRunner.run(script, root, List.of("status", "--json"),
+            Map.of(), Duration.ofSeconds(3), Logging.getLogger(CliRunnerTest.class));
+        assertEquals(3, result.exitCode());
+        assertTrue(result.stdout().contains("outputSchemaVersion"));
+        assertTrue(result.stderr().contains("UNTRUSTED-PROVIDER-CONTENT"));
+    }
+
     @Test void reportsPendingWithoutReissuingCommand() throws Exception {
         if (System.getProperty("os.name").toLowerCase().contains("win")) return;
         Path script = root.resolve("cli"); Files.writeString(script, "#!/bin/sh\nexit 4\n"); script.toFile().setExecutable(true);

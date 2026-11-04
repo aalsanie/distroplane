@@ -13,6 +13,8 @@ public abstract class DistroplaneExtension {
     public abstract MapProperty<String, String> getArtifactTasks();
     /** Maps Distroplane credential IDs to environment variable names. */
     public abstract MapProperty<String, String> getCredentialMappings();
+    /** Opt-in network connectivity checks; doctor never publishes. */
+    public abstract Property<Boolean> getDoctorRemote();
     public abstract Property<Boolean> getApprove();
     public abstract Property<String> getConfirmPlan();
     public abstract Property<String> getRelease();

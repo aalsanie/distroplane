@@ -53,7 +53,7 @@ final class DistroplaneTaskTest {
     }
 
     @Test void registersAllTasksWithoutImplicitDependencies() {
-        for (String name : List.of("init", "validate", "plan", "publish", "status", "resume")) {
+        for (String name : List.of("init", "doctor", "validate", "plan", "publish", "status", "resume")) {
             DistroplaneTask entry = task(name);
             assertEquals(name, entry.getOperation());
             assertSame(options, entry.getOptions());
@@ -62,6 +62,7 @@ final class DistroplaneTaskTest {
         assertEquals("0.9.3", options.getCliVersion().get());
         assertEquals(900, options.getTimeoutSeconds().get());
         assertFalse(options.getApprove().get());
+        assertFalse(options.getDoctorRemote().get());
         assertEquals("distroplane.json", options.getConfig().get());
     }
 
@@ -87,6 +88,39 @@ final class DistroplaneTaskTest {
         options.getReconcileOnly().set(false);
         assertEquals(List.of("resume", "--config", root.resolve("distroplane.json").toString()),
             arguments("resume"));
+    }
+
+    @Test void doctorIsOptInAndNeverOverridesPublishApproval() throws Exception {
+        assertEquals(List.of("doctor", "--config", root.resolve("distroplane.json").toString()),
+            arguments("doctor"));
+        options.getDoctorRemote().set(true);
+        assertEquals(List.of("doctor", "--remote", "--config", root.resolve("distroplane.json").toString()),
+            arguments("doctor"));
+        assertThrows(IOException.class, () -> arguments("publish"));
+        assertTrue(task("doctor").getTaskDependencies().getDependencies(task("doctor")).isEmpty());
+        options.getDoctorRemote().set(false);
+        assertEquals(List.of("doctor", "--config", root.resolve("distroplane.json").toString()),
+            arguments("doctor"));
+    }
+
+    @Test void doctorReportsUnsetMappedCredentialsWithoutBypassingPublicationGuards() throws Exception {
+        var cmd = new java.util.ArrayList<String>();
+        options.getCredentialMappings().put("publish-auth", "MISSING_DISTROPLANE_GRADLE_SECRET_39755");
+        assertTrue(credentials("doctor", cmd).isEmpty());
+        assertEquals(List.of("--credential", "publish-auth=MISSING_DISTROPLANE_GRADLE_SECRET_39755"), cmd);
+        assertThrows(IOException.class, () -> credentials("publish", new java.util.ArrayList<>()));
+        assertThrows(IOException.class, () -> credentials("resume", new java.util.ArrayList<>()));
+        options.getCredentialMappings().put("publish-auth", "PATH");
+        cmd.clear();
+        assertTrue(credentials("doctor", cmd).containsKey("PATH"));
+        assertEquals(List.of("--credential", "publish-auth=PATH"), cmd);
+        options.getCredentialMappings().put("another", "path");
+        assertThrows(IOException.class, () -> credentials("doctor", new java.util.ArrayList<>()));
+        options.getCredentialMappings().put("another", "BAD-NAME");
+        assertThrows(IOException.class, () -> credentials("doctor", new java.util.ArrayList<>()));
+        options.getCredentialMappings().put("another", "GOOD_ENV");
+        options.getCredentialMappings().put("publish-auth", "?");
+        assertThrows(IOException.class, () -> credentials("doctor", new java.util.ArrayList<>()));
     }
 
     @Test void rejectsUnapprovedOrDoubleApprovedPublication() throws Exception {

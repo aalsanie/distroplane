@@ -47,13 +47,23 @@ public abstract class DistroplaneTask extends DefaultTask {
                 CliBootstrap.Platform.current(System.getProperty("os.name"), System.getProperty("os.arch")),
                 getProject().getGradle().getStartParameter().isOffline(), archivePin);
             CliRunner.Result result = CliRunner.run(cli, root, command, sources, Duration.ofSeconds(timeout), getLogger());
-            if (result.exitCode() != 0) throw new GradleException(
-                "Distroplane " + operation + " exited with code " + result.exitCode() + "; inspect the existing release run");
+            CliFeedback.Detail feedback = CliFeedback.interpret(operation, result);
+            getLogger().lifecycle("Distroplane {}: {}", operation, feedback.summary());
+            if (result.exitCode() != 0) {
+                throw new GradleException("Distroplane " + operation + " exited with code " +
+                    result.exitCode() + ": " + feedback.summary() + ". " + feedback.action() + "." +
+                    (feedback.nextGoal() == null ? "" : TaskGuidance.next(root, feedback.nextGoal(), System.getProperty("os.name"))));
+            }
+            if (!feedback.action().isEmpty()) getLogger().lifecycle("Next: {}", feedback.action());
+            if (feedback.nextGoal() != null)
+                getLogger().lifecycle("{}", TaskGuidance.next(root, feedback.nextGoal(), System.getProperty("os.name")).trim());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GradleException("Distroplane invocation interrupted; recover the existing run", e);
+            throw new GradleException("Distroplane invocation interrupted; inspect the original journal before resuming");
         } catch (IOException e) {
-            throw new GradleException("Distroplane invocation failed safely: " + e.getMessage(), e);
+            // The underlying failure may embed provider output, paths or credential bytes.
+            // Preserve only fixed, reviewed messages, including in --stacktrace output.
+            throw new GradleException("Distroplane " + operation + " could not complete safely: " + TaskGuidance.preCli(e));
         }
     }
 
@@ -84,6 +94,7 @@ public abstract class DistroplaneTask extends DefaultTask {
             if (approved) args.add("--yes");
             else args.addAll(List.of("--confirm-plan", confirmed));
         }
+        if ("doctor".equals(operation) && options.getDoctorRemote().get()) args.add("--remote");
         if ("status".equals(operation) || "resume".equals(operation)) {
             String release = options.getRelease().getOrNull();
             String run = options.getRun().getOrNull();
@@ -119,7 +130,7 @@ public abstract class DistroplaneTask extends DefaultTask {
     }
 
     private Map<String, String> credentialSources(List<String> args) throws IOException {
-        if (!"publish".equals(operation) && !"resume".equals(operation)) return Map.of();
+        if (!"publish".equals(operation) && !"resume".equals(operation) && !"doctor".equals(operation)) return Map.of();
         Map<String, String> approved = new HashMap<>();
         Set<String> unique = new HashSet<>();
         for (var mapping : options.getCredentialMappings().get().entrySet()) {
@@ -129,9 +140,12 @@ public abstract class DistroplaneTask extends DefaultTask {
                 !unique.add(variable.toUpperCase(Locale.ROOT)))
                 throw new IOException("Invalid or conflicting credential mapping");
             String value = System.getenv(variable);
-            if (value == null || value.isEmpty())
-                throw new IOException("Required credential environment variable is unavailable: " + variable);
-            approved.put(variable, value);
+            // Diagnostic-only doctor must receive the reference even if the
+            // environment source is empty, so it can report MISSING_CREDENTIAL.
+            if (value == null || value.isEmpty()) {
+                if (!"doctor".equals(operation))
+                    throw new IOException("Required credential environment variable is unavailable");
+            } else approved.put(variable, value);
             args.addAll(List.of("--credential", key + "=" + variable));
         }
         return approved;
