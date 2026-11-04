@@ -16,7 +16,7 @@ import (
 func guidanceState(state string, completed, reconcile, ambiguous bool, code string) stateOutput {
 	return stateOutput{
 		OutputSchemaVersion: outputSchemaVersion,
-		PlanID: "plan-a", RunID: "run-a", Completed: completed,
+		PlanID:              "plan-a", RunID: "run-a", Completed: completed,
 		Targets: []targetStateOutput{{ID: "alpha", State: state, ReconcileRequired: reconcile, Ambiguous: ambiguous}},
 		Operations: []operationStateOutput{{
 			ID: "op-a", TargetID: "alpha", State: state, ReconcileRequired: reconcile,
@@ -246,7 +246,7 @@ func TestReleaseGuidanceHumanPublishStatusAndResume(t *testing.T) {
 	}{
 		{"published", exitOK, "recorded as published", "recorded evidence"},
 		{"waiting_external", exitPending, "waiting for external review", "--reconcile-only"},
-		{"ambiguous", exitPending, "uncertain external outcome", "--reconcile-only"},
+		{"ambiguous", exitOK, "recorded as published", "recorded evidence"},
 		{"rejected", exitRejected, "finished with rejection", "distroplane status --config"},
 		{"permanent_error", exitFailed, "failed or cancelled", "distroplane status --config"},
 	} {
@@ -273,6 +273,29 @@ func TestReleaseGuidanceHumanPublishStatusAndResume(t *testing.T) {
 				t.Fatalf("status code=%d output=%s stderr=%s", statusCode, status.String(), errOut.String())
 			}
 		})
+	}
+}
+
+func TestReleaseGuidanceAmbiguousOutcomeRemainsUncertain(t *testing.T) {
+	_, config := publishFixture(t, "{\"mode\":\"ambiguous\",\"reconcileState\":\"waiting_external\"}")
+	var output, diagnostic bytes.Buffer
+	if code := runPublishContext(context.Background(), []string{"--config", config, "--yes"}, nil, &output, &diagnostic); code != exitPending {
+		t.Fatalf("unresolved ambiguous publish code=%d stderr=%s stdout=%s", code, diagnostic.String(), output.String())
+	}
+	for _, fragment := range []string{"uncertain external outcome", "ambiguous", "may already have occurred", "distroplane resume --config", "--reconcile-only"} {
+		if !strings.Contains(output.String(), fragment) {
+			t.Fatalf("missing %q from ambiguous outcome: %s", fragment, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "distroplane publish --config") {
+		t.Fatalf("new publication suggested after uncertain dispatch: %s", output.String())
+	}
+	var status bytes.Buffer
+	if code := runStatus([]string{"--config", config}, &status, &diagnostic); code != exitPending {
+		t.Fatalf("status code=%d stderr=%s", code, diagnostic.String())
+	}
+	if !strings.Contains(status.String(), "uncertain external outcome") || !strings.Contains(status.String(), "--reconcile-only") {
+		t.Fatalf("status lost ambiguity: %s", status.String())
 	}
 }
 
