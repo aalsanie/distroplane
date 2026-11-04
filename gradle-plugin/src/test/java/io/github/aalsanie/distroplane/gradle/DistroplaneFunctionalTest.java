@@ -142,6 +142,20 @@ final class DistroplaneFunctionalTest {
         assertEquals(before.path("runId"), after.path("runId"));
         assertEquals(1, after.path("attempts").asInt());
         assertTrue(after.path("completed").asBoolean());
+        String settled = run(true, "distroplaneStatus").getOutput();
+        assertTrue(settled.contains("recorded as published"));
+        assertTrue(settled.contains("public availability unverified"));
+        byte[] original = Files.readAllBytes(stateFile);
+        try {
+            Files.writeString(stateFile, "{");
+            String corrupt = run(false, "distroplaneStatus").getOutput();
+            assertTrue(corrupt.contains("STATE_CORRUPT"));
+            assertTrue(corrupt.contains("exited with code 3"));
+            assertFalse(corrupt.contains("distroplanePublish"));
+        } finally {
+            Files.write(stateFile, original);
+        }
+        assertArrayEquals(original, Files.readAllBytes(stateFile));
     }
 
     @Test void refusesUnapprovedPublicationAndMismatchedApprovalOptions() throws Exception {
@@ -233,5 +247,10 @@ final class DistroplaneFunctionalTest {
         BuildResult result = run(true, "tasks", "--all");
         assertTrue(result.getOutput().contains("distroplaneResume"));
         assertTrue(result.getOutput().contains("distroplaneDoctor"));
+        cacheFixture();
+        Files.writeString(project.resolve("distroplane.json"), config());
+        BuildResult doctor = run(true, "distroplaneDoctor");
+        assertTrue(doctor.getOutput().contains("readiness checks passed"));
+        assertFalse(Files.exists(project.resolve(".distroplane/fixture-run.json")));
     }
 }

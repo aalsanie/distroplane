@@ -1,0 +1,382 @@
+{
+  "schemaVersion": "1",
+  "cases": [
+    {
+      "name": "published",
+      "kind": "published",
+      "exit": 0,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "external-pending",
+      "kind": "external",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "uncertain-dispatch",
+      "kind": "ambiguous",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "credential-blocked",
+      "kind": "credential",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm",
+            "errorCode": "CREDENTIAL_UNAVAILABLE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dependency-blocked",
+      "kind": "blocked",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm",
+            "errorCode": "DEPENDENCY_TERMINAL"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rejected",
+      "kind": "rejected",
+      "exit": 5,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "failed",
+      "kind": "failed",
+      "exit": 6,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cancelled",
+      "kind": "failed",
+      "exit": 6,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": true,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "CANCELLED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "CANCELLED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed-rejected-external",
+      "kind": "mixed",
+      "exit": 5,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          },
+          {
+            "id": "winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          },
+          {
+            "id": "op-winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false,
+            "targetId": "winget"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed-failed-uncertain",
+      "kind": "mixed",
+      "exit": 6,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          },
+          {
+            "id": "winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          },
+          {
+            "id": "op-winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true,
+            "targetId": "winget"
+          }
+        ]
+      }
+    },
+    {
+      "name": "truncated-complete",
+      "kind": "truncated",
+      "exit": 0,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ],
+        "journalTruncatedTail": true
+      }
+    },
+    {
+      "name": "completed-flag-with-pending-work",
+      "kind": "external",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      }
+    }
+  ]
+}
