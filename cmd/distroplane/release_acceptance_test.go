@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -68,14 +69,18 @@ func TestReleaseGuidanceSharedRecordedStates(t *testing.T) {
 			if tc.Kind != "published" && strings.Contains(message, "outcome recorded as published") {
 				t.Fatalf("non-publication treated as published: %s", message)
 			}
+			runArg, safeRun := shellArgument(state.RunID, runtime.GOOS)
+			if !safeRun {
+				t.Fatal("safe original run ID could not be quoted")
+			}
 			if tc.Kind == "ambiguous" || tc.Kind == "external" || tc.Kind == "mixed" {
-				if !strings.Contains(message, "--reconcile-only") || !strings.Contains(message, "--run run-acceptance") {
+				if !strings.Contains(message, "--reconcile-only") || !strings.Contains(message, "--run "+runArg) {
 					t.Fatalf("missing exact original-run reconciliation: %s", message)
 				}
 			}
 			if tc.Kind == "credential" || tc.Kind == "blocked" {
 				if !strings.Contains(message, "distroplane resume --config") ||
-					!strings.Contains(message, "--run run-acceptance") {
+					!strings.Contains(message, "--run "+runArg) {
 					t.Fatalf("blocked run requires exact original-state resume: %s", message)
 				}
 			}
