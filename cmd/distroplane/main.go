@@ -128,7 +128,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Get started:")
 	fmt.Fprintln(w, "  distroplane init       create release configuration")
-	fmt.Fprintln(w, "  distroplane doctor     check that everything is ready")
+	fmt.Fprintln(w, "  distroplane doctor     check local readiness and next steps")
 	fmt.Fprintln(w, "  distroplane publish    review and publish the release")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Check an existing release:")

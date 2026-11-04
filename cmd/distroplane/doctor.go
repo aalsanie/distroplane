@@ -114,13 +114,7 @@ func runDoctorContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		}
 		return report.exit()
 	}
-	for _, finding := range report.output.Checks {
-		fmt.Fprintf(stdout, "%s %s [%s]: %s", finding.Severity, finding.Code, finding.Subject, finding.Message)
-		if finding.Fix != "" {
-			fmt.Fprintf(stdout, " | Next: %s", finding.Fix)
-		}
-		fmt.Fprintln(stdout)
-	}
+	writeDoctorHuman(stdout, configPath, remote, report.output)
 	return report.exit()
 }
 
