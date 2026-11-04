@@ -46,7 +46,7 @@
       </rules></configuration>
     </plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.5.1</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-plugin-plugin</artifactId><version>${maven.plugin.tools.version}</version><configuration><goalPrefix>distroplane</goalPrefix><skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound><requiredMavenVersion>3.9.0</requiredMavenVersion><requiredJavaVersion>17</requiredJavaVersion></configuration><executions><execution><id>descriptor</id><goals><goal>descriptor</goal></goals></execution></executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
     <plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.13</version>
