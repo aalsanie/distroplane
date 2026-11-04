@@ -251,7 +251,7 @@ func TestReleaseGuidanceHumanPublishStatusAndResume(t *testing.T) {
 		{"permanent_error", exitFailed, "failed or cancelled", "distroplane status --config"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
-			_, config := publishFixture(t, `{"mode":"` + tc.mode + `"}`)
+			_, config := publishFixture(t, `{"mode":"`+tc.mode+`"}`)
 			var human, errOut bytes.Buffer
 			exit := runPublishContext(context.Background(),
 				[]string{"--config", config, "--yes"}, nil, &human, &errOut)
