@@ -49,6 +49,26 @@ class DocumentationTest(unittest.TestCase):
         self.assertIn(f"/v{version}/scripts/install-linux.py", linux)
         # Maven plugin versions and CLI bootstrap defaults are maintained separately.
 
+    def test_readme_integration_examples(self):
+        contents = (ROOT / "README.md").read_text(encoding="utf-8")
+        sections = re.findall(r"<details>\s*<summary>.*?</summary>.*?</details>", contents, re.S)
+        self.assertEqual(len(sections), 3)
+        for section, required in zip(sections, (
+            ("Maven plugin", "<artifactId>distroplane-maven-plugin</artifactId>",
+             "<version>", "mvn io.github.aalsanie:distroplane-maven-plugin:",
+             "[Maven guide](maven-plugin/README.md)"),
+            ("Gradle plugin", "io.github.aalsanie.distroplane' version '",
+             "gradle distroplanePlan", "[Gradle guide](gradle-plugin/README.md)"),
+            ("GitHub Action", "uses: aalsanie/distroplane@main", "command: publish",
+             "[GitHub Action guide](docs/github-actions.md)"),
+        )):
+            for value in required:
+                with self.subTest(section=required[0], value=value):
+                    self.assertIn(value, section)
+            fences = section.count("```")
+            self.assertGreaterEqual(fences, 2)
+            self.assertEqual(fences % 2, 0)
+
     def test_readme_starts_with_install_and_publish(self):
         contents = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("brew install aalsanie/tap/distroplane", contents)
