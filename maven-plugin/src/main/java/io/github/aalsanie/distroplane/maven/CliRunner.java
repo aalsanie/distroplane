@@ -11,7 +11,7 @@ import java.util.concurrent.*;
 
 /** No shell, no secrets on argv, no retries of unknown publication outcomes. */
 final class CliRunner {
-    record Result(int exitCode, String stdout) { }
+    record Result(int exitCode, String stdout, String stderr) { }
     static Result run(Path exe, Path workspace, List<String> args, Map<String,String> approvedEnvironment,
                       Duration timeout, Log log) throws IOException, InterruptedException {
         List<String> command = new ArrayList<>(); command.add(exe.toString()); command.addAll(args);
@@ -41,10 +41,9 @@ final class CliRunner {
             for (String secret : approvedEnvironment.values()) {
                 if (stdout.contains(secret) || stderr.contains(secret)) throw new IOException("CLI emitted credential contents; output suppressed");
             }
-            if (!stderr.isBlank()) log.warn(stderr.strip());
-            if (process.exitValue() == 4) log.warn("Distroplane is pending external completion; retain the original run state");
-            if (!stdout.isBlank()) log.info(stdout.strip());
-            return new Result(process.exitValue(), stdout);
+            // Structured output is interpreted by the Maven adapter. Neither
+            // channel may be echoed before its schema and contents are verified.
+            return new Result(process.exitValue(), stdout, stderr);
         } catch (ExecutionException e) {
             throw new IOException("Could not read bounded CLI output", e.getCause());
         } finally {

@@ -36,17 +36,29 @@ def main():
     (simple/'.fixture-pending').unlink(missing_ok=True)
     (simple/'.fixture-hang').unlink(missing_ok=True)
     shutil.rmtree(simple/'.distroplane',ignore_errors=True)
+    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.destination=npm','-Ddistroplane.release=v1',goal+'init'])
+    invoke(cmd+['-f',str(simple/'pom.xml'),goal+'doctor'])
+    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.doctorRemote=true',goal+'doctor'])
+    missing=invoke(cmd+['-f',str(simple/'pom.xml'),'-Pdoctor-credential',goal+'doctor'],ok=False)
+    if 'MISSING_CREDENTIAL' not in missing or 'Next goal:' not in missing:
+        raise AssertionError('missing mapped credential was not reported by doctor')
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'validate'])
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'plan'])
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'publish'],ok=False) # no invisible approval
     if (simple/'.distroplane').exists():raise AssertionError('unapproved publication created durable state')
     (simple/'.fixture-pending').touch()
-    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    pending=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    if 'awaiting external acceptance' not in pending or 'code 4' not in pending:
+        raise AssertionError('pending Maven result lost native status')
     state=json.loads((simple/'.distroplane/fixture-run.json').read_text())
     if state!={'planId':'fixture-plan','runId':'fixture-run','attempts':1,'completed':False}:raise AssertionError(state)
-    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    duplicate=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    if 'RUN_ALREADY_EXISTS' not in duplicate or 'code 3' not in duplicate:
+        raise AssertionError('duplicate publication did not preserve native error')
     if json.loads((simple/'.distroplane/fixture-run.json').read_text())!=state:raise AssertionError('duplicate publication mutated state')
-    invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'])
+    pending_status=invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'],ok=False)
+    if 'code 4' not in pending_status or 'awaiting external acceptance' not in pending_status:
+        raise AssertionError('pending Maven status did not preserve non-success exit')
     (simple/'.fixture-pending').unlink()
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'resume'])
     result=json.loads((simple/'.distroplane/fixture-run.json').read_text())

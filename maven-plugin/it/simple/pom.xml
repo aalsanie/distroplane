@@ -6,4 +6,8 @@
     <configuration><config>distroplane.json</config><timeoutSeconds>${distroplane.timeoutSeconds}</timeoutSeconds></configuration>
   </plugin></plugins></build>
   <properties><distroplane.timeoutSeconds>60</distroplane.timeoutSeconds></properties>
+  <profiles><profile><id>doctor-credential</id><build><plugins><plugin>
+    <groupId>io.github.aalsanie</groupId><artifactId>distroplane-maven-plugin</artifactId>
+    <configuration><credentialMappings><publish-auth>DISTROPLANE_DOCTOR_UNSET_FIXTURE_ENV</publish-auth></credentialMappings></configuration>
+  </plugin></plugins></build></profile></profiles>
 </project>

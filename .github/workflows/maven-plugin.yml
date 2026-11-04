@@ -46,6 +46,11 @@ jobs:
           $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
           mvn -B -ntp "-Dmaven.repo.local=$repo" -f maven-plugin/pom.xml install
           if ($LASTEXITCODE -ne 0) { throw 'Maven plugin build failed' }
+      - name: Verify Maven CLI feedback coverage
+        shell: pwsh
+        run: |
+          python maven-plugin/it/check_coverage.py maven-plugin/target/site/jacoco/jacoco.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Maven CLI feedback coverage gate failed' }
       - name: Verify reproducible plugin archive
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.java == '17' }}
         shell: bash
@@ -76,8 +81,13 @@ jobs:
         run: |
           [xml]$xml = Get-Content maven-plugin/target/classes/META-INF/maven/plugin.xml -Raw
           $goals = @($xml.plugin.mojos.mojo | ForEach-Object { $_.goal } | Sort-Object)
-          $expected = @('init', 'validate', 'plan', 'publish', 'status', 'resume') | Sort-Object
-          if ($goals.Count -ne 6 -or (Compare-Object $goals $expected)) { throw 'Maven plugin goal descriptor mismatch' }
+          $expected = @('init', 'doctor', 'validate', 'plan', 'publish', 'status', 'resume') | Sort-Object
+          if ($goals.Count -ne 7 -or (Compare-Object $goals $expected)) { throw 'Maven plugin goal descriptor mismatch' }
+          $doctor = @($xml.plugin.mojos.mojo | Where-Object { $_.goal -eq 'doctor' })
+          if ($doctor.Count -ne 1 -or [string]$doctor[0].aggregator -ne 'true' -or
+              [string]$doctor[0].threadSafe -ne 'true' -or [string]$doctor[0].phase -ne '') {
+            throw 'Maven doctor goal must be aggregator, thread safe and explicitly invoked'
+          }
           if ([string]$xml.plugin.requiredMavenVersion -ne '3.9.0') { throw 'Minimum Maven version not in descriptor' }
       - name: Build controlled native execution fixture
         shell: pwsh
