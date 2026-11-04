@@ -39,9 +39,9 @@ func TestReleaseGuidanceStateDecisions(t *testing.T) {
 		{"rejected", "REJECTED", "", "finished with rejection", "recorded cause", true, false, false},
 		{"failed", "FAILED", "", "failed or cancelled", "recorded cause", true, false, false},
 		{"cancelled", "CANCELLED", "", "failed or cancelled", "recorded cause", true, false, false},
-		{"planned", "PLANNED", "", "incomplete", "original run", false, false, false},
-		{"ready", "READY", "", "incomplete", "original run", false, false, false},
-		{"running", "RUNNING", "", "incomplete", "original run", false, false, false},
+		{"planned", "PLANNED", "", "incomplete", "original plan and journal", false, false, false},
+		{"ready", "READY", "", "incomplete", "original plan and journal", false, false, false},
+		{"running", "RUNNING", "", "incomplete", "original plan and journal", false, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -474,7 +474,7 @@ func TestReleaseGuidanceTargetFallbackAndUnknownStates(t *testing.T) {
 		{"FAILED", "failed or cancelled"},
 		{"CANCELLED", "failed or cancelled"},
 		{"PUBLISHED", "finished without all targets published"},
-		{"READY", "incomplete"},
+		{"READY", "finished without all targets published"},
 	} {
 		out := stateOutput{Completed: true, Targets: []targetStateOutput{{ID: "target", State: tc.state}}}
 		a := assessRelease(out)
