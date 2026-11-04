@@ -1,10 +1,10 @@
 # Distroplane Gradle plugin
 
-The Gradle plugin invokes the native Distroplane CLI; it never publishes directly. It registers six opt-in tasks only and is not attached to `build`, `assemble`, or `publish`. The plugin source targets Java 17+, Gradle 8.14.6 and Gradle 9.8.2. The native CLI version defaults to `0.9.3`; the plugin is independently versioned and is not yet published.
+The Gradle plugin invokes the native Distroplane CLI; it never publishes directly. It registers six opt-in tasks only and is not attached to `build`, `assemble`, or `publish`. The plugin source targets Java 17+, Gradle 8.14.6 and Gradle 9.8.2. The native CLI version defaults to `0.9.3`; the plugin is independently versioned and [published as version 1.0.1](https://plugins.gradle.org/plugin/io.github.aalsanie.distroplane).
 
 ```groovy
 plugins {
-    id 'io.github.aalsanie.distroplane'
+    id 'io.github.aalsanie.distroplane' version '1.0.1'
 }
 
 distroplane {

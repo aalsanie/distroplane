@@ -11,8 +11,9 @@ LINK = re.compile(r'(?<!!)\[[^\]]+\]\(([^\s)]+)(?:\s+"[^"]*")?\)')
 def markdown_files():
     for name in ("README.md", "SECURITY.md", "CONTRIBUTING.md"):
         yield ROOT / name
-    for folder in ("docs", "providers", "maven-plugin"):
-        yield from sorted((ROOT / folder).rglob("*.md"))
+    for folder in ("docs", "providers", "maven-plugin", "gradle-plugin"):
+        if (ROOT / folder).is_dir():
+            yield from sorted((ROOT / folder).rglob("*.md"))
 
 
 class DocumentationTest(unittest.TestCase):
@@ -37,20 +38,36 @@ class DocumentationTest(unittest.TestCase):
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^[0-9]+\.[0-9]+\.[0-9]+$")
         expected = {
-            "README.md": (r"(?m)^\s+version: ([0-9]+\.[0-9]+\.[0-9]+)$", 1),
             "docs/github-actions.md": (r"(?m)^\s+version: ([0-9]+\.[0-9]+\.[0-9]+)$", 2),
-            "docs/windows-installer.md": (r"-Version ([0-9]+\.[0-9]+\.[0-9]+)", 2),
-            "docs/release-verification.md": (r"install-linux\.py --version ([0-9]+\.[0-9]+\.[0-9]+)", 1),
+            "docs/install.md": (r"install-linux\.py --version ([0-9]+\.[0-9]+\.[0-9]+)", 1),
         }
         for name, (pattern, count) in expected.items():
             with self.subTest(file=name):
                 contents = (ROOT / name).read_text(encoding="utf-8")
                 self.assertEqual(re.findall(pattern, contents), [version] * count)
-        windows = (ROOT / "docs/windows-installer.md").read_text(encoding="utf-8")
-        self.assertIn(f"$env:VERSION = '{version}'", windows)
-        linux = (ROOT / "docs/release-verification.md").read_text(encoding="utf-8")
+        linux = (ROOT / "docs/install.md").read_text(encoding="utf-8")
         self.assertIn(f"/v{version}/scripts/install-linux.py", linux)
         # Maven plugin versions and CLI bootstrap defaults are maintained separately.
+
+    def test_readme_integration_examples(self):
+        contents = (ROOT / "README.md").read_text(encoding="utf-8")
+        sections = re.findall(r"<details>\s*<summary>.*?</summary>.*?</details>", contents, re.S)
+        self.assertEqual(len(sections), 3)
+        for section, required in zip(sections, (
+            ("Maven plugin", "<artifactId>distroplane-maven-plugin</artifactId>",
+             "<version>", "mvn io.github.aalsanie:distroplane-maven-plugin:",
+             "[Maven guide](maven-plugin/README.md)"),
+            ("Gradle plugin", "io.github.aalsanie.distroplane' version '",
+             "gradle distroplanePlan", "[Gradle guide](gradle-plugin/README.md)"),
+            ("GitHub Action", "uses: aalsanie/distroplane@main", "command: publish",
+             "[GitHub Action guide](docs/github-actions.md)"),
+        )):
+            for value in required:
+                with self.subTest(section=required[0], value=value):
+                    self.assertIn(value, section)
+            fences = section.count("```")
+            self.assertGreaterEqual(fences, 2)
+            self.assertEqual(fences % 2, 0)
 
     def test_readme_starts_with_install_and_publish(self):
         contents = (ROOT / "README.md").read_text(encoding="utf-8")
