@@ -202,6 +202,9 @@ func main() {
 			fail("STATE_CORRUPT", "", 3)
 		}
 		output(s, false)
+		if !s.Completed {
+			os.Exit(4)
+		}
 	default:
 		fail("INVALID_ARGUMENT", "", 2)
 	}

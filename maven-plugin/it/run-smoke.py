@@ -54,7 +54,9 @@ def main():
     if state!={'planId':'fixture-plan','runId':'fixture-run','attempts':1,'completed':False}:raise AssertionError(state)
     invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
     if json.loads((simple/'.distroplane/fixture-run.json').read_text())!=state:raise AssertionError('duplicate publication mutated state')
-    invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'])
+    pending_status=invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'],ok=False)
+    if 'code 4' not in pending_status or 'awaiting external acceptance' not in pending_status:
+        raise AssertionError('pending Maven status did not preserve non-success exit')
     (simple/'.fixture-pending').unlink()
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'resume'])
     result=json.loads((simple/'.distroplane/fixture-run.json').read_text())
