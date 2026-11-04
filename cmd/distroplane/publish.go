@@ -169,7 +169,10 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	}
 	if !jsonMode {
 		fmt.Fprintf(stdout, "plan %s\npath %s\njournal %s\n", planned.PlanID, planned.Path, journalPath)
-		writeStateText(stdout, run)
+		writeStateTextWithSelection(stdout, run, stateTextSelection{
+			configPath: configPath, planPath: planned.Path, journalPath: journalPath,
+			runID: run.RunID, catalog: true, configVerified: true,
+		})
 		return code
 	}
 	out := publishOutput{

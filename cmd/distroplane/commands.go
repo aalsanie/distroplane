@@ -200,6 +200,10 @@ func runReconcile(args []string, stdout, stderr io.Writer) int {
 }
 
 func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly bool) int {
+	return runExecutionContextForSelection(ctx, args, stdout, stderr, reconcileOnly, false)
+}
+
+func runExecutionContextForSelection(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly, catalogSelected bool) int {
 	command := "apply"
 	if reconcileOnly {
 		command = "reconcile"
@@ -279,11 +283,18 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 		}
 		return code
 	}
-	writeStateText(stdout, output)
+	writeStateTextWithSelection(stdout, output, stateTextSelection{
+		configPath: configPath, planPath: planPath, journalPath: journalPath,
+		runID: string(runID), catalog: catalogSelected, configVerified: true,
+	})
 	return code
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
+	return runStatusWithSelection(args, stdout, stderr, false)
+}
+
+func runStatusWithSelection(args []string, stdout, stderr io.Writer, knownCatalog bool) int {
 	var configPath, releaseID, runID, planPath, journalPath string
 	var jsonMode bool
 	fs := commandFlags("status")
@@ -302,6 +313,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if planPath != "" && (releaseID != "" || runID != "") {
 		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("explicit plan and journal cannot be combined with catalog selectors"))
 	}
+	catalogSelected := knownCatalog || planPath == ""
 	if planPath == "" {
 		record, err := selectRecordedRun(configPath, releaseID, runID)
 		if err != nil {
@@ -335,7 +347,10 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if read.TruncatedTail {
 		fmt.Fprintln(stderr, "warning: journal has a truncated final record; status reflects the durable prefix")
 	}
-	writeStateText(stdout, output)
+	writeStateTextWithSelection(stdout, output, stateTextSelection{
+		configPath: configPath, planPath: planPath, journalPath: journalPath,
+		runID: output.RunID, catalog: catalogSelected,
+	})
 	return code
 }
 
@@ -516,17 +531,7 @@ func stateExit(state journal.DerivedState) int {
 }
 
 func writeStateText(w io.Writer, output stateOutput) {
-	fmt.Fprintf(w, "run %s\nplan %s\ncompleted %t\n", output.RunID, output.PlanID, output.Completed)
-	for _, target := range output.Targets {
-		fmt.Fprintf(w, "target %s %s", target.ID, target.State)
-		if target.ReconcileRequired {
-			fmt.Fprint(w, " reconcile-required")
-		}
-		if target.Ambiguous {
-			fmt.Fprint(w, " ambiguous")
-		}
-		fmt.Fprintln(w)
-	}
+	writeStateTextWithSelection(w, output, stateTextSelection{})
 }
 
 func commandFlags(name string) *flag.FlagSet {
