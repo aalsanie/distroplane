@@ -49,6 +49,20 @@
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-plugin-plugin</artifactId><version>${maven.plugin.tools.version}</version><configuration><goalPrefix>distroplane</goalPrefix><skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound><requiredMavenVersion>3.9.0</requiredMavenVersion><requiredJavaVersion>17</requiredJavaVersion></configuration><executions><execution><id>descriptor</id><goals><goal>descriptor</goal></goals></execution></executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
+    <plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.13</version>
+      <executions>
+        <execution><id>prepare-test-coverage</id><goals><goal>prepare-agent</goal></goals></execution>
+        <execution><id>verify-feedback-coverage</id><phase>verify</phase><goals><goal>report</goal><goal>check</goal></goals>
+          <configuration><rules><rule><element>CLASS</element>
+            <includes><include>io.github.aalsanie.distroplane.maven.CliFeedback</include></includes>
+            <limits>
+              <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.90</minimum></limit>
+              <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.90</minimum></limit>
+            </limits>
+          </rule></rules></configuration>
+        </execution>
+      </executions>
+    </plugin>
   </plugins></build>
   <profiles>
     <profile>

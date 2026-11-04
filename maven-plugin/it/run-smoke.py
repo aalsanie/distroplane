@@ -36,12 +36,20 @@ def main():
     (simple/'.fixture-pending').unlink(missing_ok=True)
     (simple/'.fixture-hang').unlink(missing_ok=True)
     shutil.rmtree(simple/'.distroplane',ignore_errors=True)
+    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.destination=npm','-Ddistroplane.release=v1',goal+'init'])
+    invoke(cmd+['-f',str(simple/'pom.xml'),goal+'doctor'])
+    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.doctorRemote=true',goal+'doctor'])
+    missing=invoke(cmd+['-f',str(simple/'pom.xml'),'-Pdoctor-credential',goal+'doctor'],ok=False)
+    if 'MISSING_CREDENTIAL' not in missing or 'Next goal:' not in missing:
+        raise AssertionError('missing mapped credential was not reported by doctor')
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'validate'])
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'plan'])
     invoke(cmd+['-f',str(simple/'pom.xml'),goal+'publish'],ok=False) # no invisible approval
     if (simple/'.distroplane').exists():raise AssertionError('unapproved publication created durable state')
     (simple/'.fixture-pending').touch()
-    invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    pending=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    if 'awaiting external acceptance' not in pending or 'code 4' not in pending:
+        raise AssertionError('pending Maven result lost native status')
     state=json.loads((simple/'.distroplane/fixture-run.json').read_text())
     if state!={'planId':'fixture-plan','runId':'fixture-run','attempts':1,'completed':False}:raise AssertionError(state)
     invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
