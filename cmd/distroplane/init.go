@@ -220,11 +220,11 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	if jsonMode {
 		return writeJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "configuration %s\n", outputPath)
+	fmt.Fprintf(stdout, "configuration %s\n", safeDisplay(outputPath))
 	if backup != "" {
-		fmt.Fprintf(stdout, "backup %s\n", backup)
+		fmt.Fprintf(stdout, "backup %s\n", safeDisplay(backup))
 	}
-	fmt.Fprintln(stdout, "review generated metadata, then run 'distroplane plan --config' before publishing")
+	writeInitFollowUp(stdout, outputPath)
 	return exitOK
 }
 
