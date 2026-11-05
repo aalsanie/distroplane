@@ -39,6 +39,8 @@ jobs:
           $python = if ($IsWindows) { 'python' } else { 'python3' }
           & $python scripts/test_action_summary.py
           if ($LASTEXITCODE -ne 0) { throw 'Action summary contract tests failed' }
+          & $python scripts/test_release_acceptance.py
+          if ($LASTEXITCODE -ne 0) { throw 'Release outcome acceptance tests failed' }
       - name: Plan with local action
         id: plan
         uses: ./

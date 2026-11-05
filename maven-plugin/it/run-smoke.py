@@ -64,6 +64,21 @@ def main():
     result=json.loads((simple/'.distroplane/fixture-run.json').read_text())
     if not result['completed'] or result['attempts'] != 1 or result['planId'] != state['planId'] or result['runId'] != state['runId']:
         raise AssertionError('resume failed to preserve plan/run or republished')
+    # A settled run is recorded, not proof of external index visibility.
+    settled=invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'])
+    if 'recorded as published' not in settled or 'public availability unverified' not in settled:
+        raise AssertionError('completed release was not classified as recorded publication')
+    # Corrupt state fails closed without deleting or recreating the original run.
+    original=(simple/'.distroplane/fixture-run.json').read_bytes()
+    try:
+        (simple/'.distroplane/fixture-run.json').write_bytes(b'{')
+        corrupted=invoke(cmd+['-f',str(simple/'pom.xml'),goal+'status'],ok=False)
+        if 'STATE_CORRUPT' not in corrupted or 'code 3' not in corrupted:
+            raise AssertionError('corrupt original run was not rejected')
+    finally:
+        (simple/'.distroplane/fixture-run.json').write_bytes(original)
+    if (simple/'.distroplane/fixture-run.json').read_bytes()!=original:
+        raise AssertionError('corrupt-state probe changed original release record')
     # Real process timeout after durable state is created: later invocation must resume.
     shutil.rmtree(simple/'.distroplane')
     (simple/'.fixture-hang').touch()
