@@ -1,26 +1,20 @@
 # Distroplane
 
-[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml) [![CodeQL](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/codeql.yml) [![CLI Release](https://img.shields.io/github/v/release/aalsanie/distroplane?label=CLI)](https://github.com/aalsanie/distroplane/releases/latest) [![Maven Central](https://img.shields.io/maven-central/v/io.github.aalsanie/distroplane-maven-plugin?label=Maven%20plugin)](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin) [![License](https://img.shields.io/github/license/aalsanie/distroplane)](LICENSE)
+[![CI](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aalsanie/distroplane/actions/workflows/ci.yml) [![CLI Release](https://img.shields.io/github/v/release/aalsanie/distroplane?label=CLI)](https://github.com/aalsanie/distroplane/releases/latest) [![Maven Central](https://img.shields.io/maven-central/v/io.github.aalsanie/distroplane-maven-plugin?label=Maven%20plugin)](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin)
 
-Publish prebuilt releases to npm, SDKMAN, Homebrew, and WinGet.
+Distribute prebuilt artifacts to npm, SDKMAN, Homebrew taps, and WinGet.
 
-## Install
+## Start
+
+Install on macOS or Linux with Homebrew:
 
 ```sh
 brew install aalsanie/tap/distroplane
 ```
 
-On Windows:
+[Windows MSI and other installation methods](docs/install.md).
 
-```powershell
-winget install --id Aalsanie.Distroplane --exact
-```
-
-[Other installation options](docs/release-verification.md).
-
-## Use
-
-Build your artifact first, then run:
+From your project directory, after building an artifact:
 
 ```sh
 distroplane init
@@ -28,52 +22,107 @@ distroplane doctor
 distroplane publish
 ```
 
-Follow the prompts to choose a destination, provide its required metadata and approve the release. Credentials stay in environment variables, not configuration files.
+The CLI guides configuration, checks readiness, previews the release, and requests approval.
 
-To check or continue an existing release:
+For an existing release:
 
 ```sh
 distroplane status
 distroplane resume
 ```
 
-Do not delete `.distroplane/` while a release may still need recovery.
+Preserve `.distroplane/` and the original artifacts until publication is settled. [Recovery and exit codes](docs/recovery.md).
 
-## Maven plugin
+## Integrations
 
-Add the [published Maven plugin](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin/1.0.0) to `<build><plugins>` in your `pom.xml`:
+Build your release artifact and prepare `distroplane.json` before using an integration.
+
+<details>
+<summary><strong>Maven plugin</strong> · 1.0.1</summary>
+
+Add the plugin under `<build><plugins>` in `pom.xml`:
 
 ```xml
 <plugin>
   <groupId>io.github.aalsanie</groupId>
   <artifactId>distroplane-maven-plugin</artifactId>
-  <version>1.0.0</version>
-  <configuration>
-    <cliVersion>0.9.2</cliVersion>
-    <config>distroplane.json</config>
-  </configuration>
+  <version>1.0.1</version>
 </plugin>
 ```
 
-With a prebuilt artifact and `distroplane.json`, run `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:plan` to review a release. [Maven usage](maven-plugin/README.md).
+Validate and review the release before explicitly approving publication:
 
-## GitHub Action
-
-Publish a prebuilt artifact from a GitHub Actions workflow:
-
-```yaml
-- uses: aalsanie/distroplane@main
-  env:
-    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-  with:
-    version: 0.9.3
-    command: publish
-    approve: 'true'
-    credential-mappings: npm-publish=NPM_TOKEN
+```sh
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:validate
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:plan
+mvn -Ddistroplane.approve=true io.github.aalsanie:distroplane-maven-plugin:1.0.1:publish
 ```
 
-Requires `distroplane.json` in the checked-out repository and a configured npm destination. Pin the Action to a reviewed commit in production. [GitHub Action usage](docs/github-actions.md).
+[Maven guide](maven-plugin/README.md) · [Maven Central](https://repo1.maven.org/maven2/io/github/aalsanie/distroplane-maven-plugin/1.0.1/)
 
-[CLI](docs/cli.md) · [Configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+</details>
+
+<details>
+<summary><strong>Gradle plugin</strong> · 1.0.1</summary>
+
+Add the plugin to `build.gradle`:
+
+```groovy
+plugins {
+    id 'io.github.aalsanie.distroplane' version '1.0.1'
+}
+
+distroplane {
+    config = 'distroplane.json'
+}
+```
+
+Validate and review the release:
+
+```sh
+gradle distroplaneValidate
+gradle distroplanePlan
+```
+
+To run `distroplanePublish`, explicitly configure `approve = true` or `confirmPlan = '<plan ID>'` after reviewing the plan.
+
+[Gradle guide](gradle-plugin/README.md) · [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.aalsanie.distroplane)
+
+</details>
+
+<details>
+<summary><strong>GitHub Action</strong></summary>
+
+Run an explicit publishing workflow after producing your artifact and configuration:
+
+```yaml
+name: Publish
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aalsanie/distroplane@main
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        with:
+          version: 0.9.3
+          command: publish
+          approve: 'true'
+          credential-mappings: npm-publish=NPM_TOKEN
+          upload-recovery: 'true'
+```
+
+Pin the Action to a reviewed commit SHA for production. This example uses an npm destination with `NPM_TOKEN` configured as a repository secret.
+
+[GitHub Action guide](docs/github-actions.md) · [Action inputs](action.yml)
+
+</details>
+
+[Noninteractive configuration](docs/configuration.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 Apache-2.0.

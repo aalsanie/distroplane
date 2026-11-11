@@ -29,6 +29,6 @@ distroplane apply --config distroplane.json --plan PLAN.json --journal run.journ
 
 Before upload, `apply` checks the registry for the planned version. Identical integrity and shasum yield `PUBLISHED`; conflicting content yields `REJECTED`. A successful upload response yields `PUBLISHED`. A lost or uncertain upload result is **ambiguous**, not a reason for an automatic retry.
 
-`reconcile` reads registry metadata without uploading. If the version is absent, the operation remains `WAITING_EXTERNAL`; absence does not prove an earlier timed-out publish cannot still complete. An explicit one-shot retry requires the [operator authorization workflow](../../docs/cli.md#explicit-retry-of-an-ambiguous-npm-publish).
+`reconcile` reads registry metadata without uploading. If the version is absent, the operation remains `WAITING_EXTERNAL`; absence does not prove an earlier timed-out publish cannot still complete. An explicit one-shot retry requires the [operator authorization workflow](../../docs/recovery.md#explicit-retry-of-an-ambiguous-npm-publish).
 
 The provider does not change dist-tags on an already matching version or create npm provenance attestations. Preserve the tarball until the run finishes.
