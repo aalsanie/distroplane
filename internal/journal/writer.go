@@ -167,8 +167,35 @@ func (w *Writer) Append(entry Entry) (Event, error) {
 	return w.appendLocked(entry)
 }
 
+func (w *Writer) AppendWithLease(entry Entry, lease LeasePayload) (Event, error) {
+	if w == nil {
+		return Event{}, ErrWriterClosed
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.appendLockedWithLease(entry, &lease)
+}
+
+func (w *Writer) ownsLease(entry Entry, lease LeasePayload, now time.Time) bool {
+	for i := len(w.events) - 1; i >= 0; i-- {
+		event := w.events[i]
+		if event.OperationID != entry.OperationID || event.Payload.Lease == nil {
+			continue
+		}
+		active := event.Payload.Lease
+		return (event.Type == EventLeaseAcquired || event.Type == EventLeaseRenewed) &&
+			event.TargetID == entry.TargetID && active.ID == lease.ID && active.Owner == lease.Owner &&
+			active.AcquiredAt.Equal(lease.AcquiredAt) && now.Before(active.ExpiresAt)
+	}
+	return false
+}
+
 // appendLocked appends a durable record while holding w.mu.
 func (w *Writer) appendLocked(entry Entry) (Event, error) {
+	return w.appendLockedWithLease(entry, nil)
+}
+
+func (w *Writer) appendLockedWithLease(entry Entry, lease *LeasePayload) (Event, error) {
 	if w.file == nil {
 		return Event{}, ErrWriterClosed
 	}
@@ -190,6 +217,10 @@ func (w *Writer) appendLocked(entry Entry) (Event, error) {
 	if err := entry.validate(); err != nil {
 		return Event{}, err
 	}
+	now := w.clock().UTC()
+	if lease != nil && !w.ownsLease(entry, *lease, now) {
+		return Event{}, fmt.Errorf("operation %q: %w", entry.OperationID, ErrLeaseAuthority)
+	}
 	event := Event{
 		SchemaVersion: SchemaVersion,
 		Sequence:      w.next,
@@ -198,7 +229,7 @@ func (w *Writer) appendLocked(entry Entry) (Event, error) {
 		Type:          entry.Type,
 		OperationID:   entry.OperationID,
 		TargetID:      entry.TargetID,
-		ObservedAt:    w.clock().UTC(),
+		ObservedAt:    now,
 		Payload:       entry.Payload,
 	}
 	frame, err := encodeFrame(event)
