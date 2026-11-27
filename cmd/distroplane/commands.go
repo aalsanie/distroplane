@@ -205,6 +205,10 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 }
 
 func runExecutionContextForSelection(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly, catalogSelected bool) int {
+	return runExecutionContextWithApproval(ctx, args, stdout, stderr, reconcileOnly, catalogSelected, "")
+}
+
+func runExecutionContextWithApproval(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly, catalogSelected bool, approved domain.PlanID) int {
 	command := "apply"
 	if reconcileOnly {
 		command = "reconcile"
@@ -233,6 +237,9 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 	persisted, err := planner.Load(planPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
+	}
+	if approved != "" && persisted.ID() != approved {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("saved plan no longer matches the approved plan"))
 	}
 	if err := persisted.VerifyProviderDigests(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)

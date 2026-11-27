@@ -151,10 +151,6 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
 	}
 
-	verified, err := planner.Load(planned.Path)
-	if err != nil || verified.ID() != plan.ID() {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("saved plan no longer matches the approved plan"))
-	}
 	journalPath := filepath.Join(root, "runs", planned.PlanID+".journal")
 	applyArgs := []string{"--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--concurrency", strconv.Itoa(concurrency), "--json"}
 	refs := make([]domain.CredentialRef, 0, len(mappings))
@@ -166,7 +162,7 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		applyArgs = append(applyArgs, "--credential", string(ref)+"="+mappings[ref])
 	}
 	var executionJSON bytes.Buffer
-	code := runExecutionContext(ctx, applyArgs, &executionJSON, stderr, false)
+	code := runExecutionContextWithApproval(ctx, applyArgs, &executionJSON, stderr, false, false, plan.ID())
 	if executionJSON.Len() == 0 {
 		return code
 	}

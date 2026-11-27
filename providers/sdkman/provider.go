@@ -159,6 +159,28 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Checksums: checksums, API: cfg.API, StateAPI: cfg.StateAPI, StateDistribution: cfg.StateDistribution,
 		ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 	}
+	endpoint := payload.API
+	scope := "Legacy release registration"
+	if payload.Mode == AuthState {
+		endpoint = payload.StateAPI
+		scope = "State API version registration"
+	}
+	review := protocol.ReviewFields{
+		{Label: "Action", Value: scope},
+		{Label: "Registration API", Value: endpoint},
+		{Label: "Candidate", Value: payload.Candidate},
+		{Label: "Version", Value: payload.Version},
+		{Label: "Platform", Value: payload.Platform},
+	}
+	if payload.Vendor != "" {
+		review = append(review, protocol.ReviewField{Label: "Vendor", Value: payload.Vendor})
+	}
+	if payload.StateDistribution != "" {
+		review = append(review, protocol.ReviewField{Label: "State distribution", Value: payload.StateDistribution})
+	}
+	if err := review.Validate(); err != nil {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
 	encoded, _ := json.Marshal(payload)
 	requirements := make([]protocol.Requirement, 0, 2)
 	if cfg.Authentication.Mode == AuthState {
@@ -179,6 +201,7 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 			ID: "publish", Kind: "publish", SideEffecting: true, TimeoutMillis: defaultOperationTimeout, ProviderPayload: encoded,
 		}},
 		Requirements: requirements,
+		ReviewFields: review,
 	}, nil
 }
 
