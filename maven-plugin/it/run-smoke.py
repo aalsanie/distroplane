@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 def run(command, ok=True, cwd=None):
     print('testing:', ' '.join(command), flush=True)
@@ -26,13 +27,19 @@ def main():
         args.maven = 'mvn.cmd'
     root=Path(args.source).resolve()
     repo=Path(args.repo).resolve()
-    fixture=Path(args.fixture).resolve()
-    simple=root/'maven-plugin/it/simple'
-    reactor=root/'maven-plugin/it/reactor'
+    fixture=Path(args.fixture).resolve(strict=True)
+    sandbox=tempfile.TemporaryDirectory(prefix='distroplane native smoke ')
+    workspace=Path(sandbox.name).resolve()
+    simple=workspace/'simple project'
+    reactor=workspace/'reactor project'
+    shutil.copytree(root/'maven-plugin/it/simple',simple,ignore=shutil.ignore_patterns('target','.distroplane','.distroplane-maven'))
+    shutil.copytree(root/'maven-plugin/it/reactor',reactor,ignore=shutil.ignore_patterns('target','.distroplane','.distroplane-maven'))
+    original_simple=(simple/'distroplane.json').read_bytes()
+    original_reactor=(reactor/'distroplane.json').read_bytes()
     cmd=[args.maven,'-B','-ntp','-o',f'-Dmaven.repo.local={repo}']
     goal='io.github.aalsanie:distroplane-maven-plugin:1.0.1-SNAPSHOT:'
     import functools
-    invoke=functools.partial(run, cwd=simple)
+    invoke=functools.partial(run, cwd=workspace)
     (simple/'.fixture-pending').unlink(missing_ok=True)
     (simple/'.fixture-hang').unlink(missing_ok=True)
     shutil.rmtree(simple/'.distroplane',ignore_errors=True)
@@ -92,6 +99,7 @@ def main():
     # CLI is only a verified bootstrap adapter: corrupted offline bytes refuse execution.
     cli=next(repo.glob('distroplane/cli/0.9.3/*/sha256-*/bin/distroplane*'))
     backup=cli.read_bytes()
+    if backup != fixture.read_bytes():raise AssertionError('cache does not contain the controlled native fixture')
     try:
         cli.write_bytes(backup+b'tamper')
         rejected=run(cmd+['-f',str(simple/'pom.xml'),goal+'validate'],ok=False)
@@ -99,12 +107,39 @@ def main():
     finally:cli.write_bytes(backup)
     # Packaged reactor artifacts and source classifier resolve in a single Maven session.
     warm=[args.maven,'-B','-ntp',f'-Dmaven.repo.local={repo}', '-f',str(reactor/'pom.xml'), 'package']
-    run(warm, cwd=reactor)
-    run(cmd+['-f',str(reactor/'pom.xml'),'package',goal+'validate'], cwd=reactor)
+    run(warm, cwd=workspace)
+    run(cmd+['-f',str(reactor/'pom.xml'),'package',goal+'validate'], cwd=workspace)
     mapped=reactor/'.distroplane-maven/distroplane.json'
     parsed=json.loads(mapped.read_text())
     for name,suffix in [('app','alpha-1.0.0.jar'),('sources','beta-1.0.0-sources.jar')]:
         resolved=Path(parsed['release']['artifacts'][name]['source'])
         if not resolved.is_file() or not resolved.name.endswith(suffix):raise AssertionError(f'bad reactor artifact selection: {name}={resolved}')
+    if (simple/'distroplane.json').read_bytes()!=original_simple or (reactor/'distroplane.json').read_bytes()!=original_reactor:
+        raise AssertionError('adapter modified source configuration')
+    if (reactor/'.distroplane/fixture-run.json').exists():
+        raise AssertionError('package or validate implicitly published')
+    # Repeat the explicit mapping using the legacy artifact array.
+    legacy=json.loads(original_reactor)
+    legacy['schemaVersion']='1'
+    legacy['release']['artifacts']=[dict(name=name,**value) for name,value in legacy['release']['artifacts'].items()]
+    legacy.pop('destinations')
+    legacy['targets']=[]
+    source=reactor/'distroplane.json'
+    source.write_text(json.dumps(legacy),encoding='utf-8')
+    original_legacy=source.read_bytes()
+    run(cmd+['-f',str(reactor/'pom.xml'),'package',goal+'validate'], cwd=workspace)
+    parsed=json.loads(mapped.read_text())
+    for artifact in parsed['release']['artifacts']:
+        if not Path(artifact['source']).is_file():raise AssertionError('legacy artifact mapping did not resolve packaged artifact')
+    if source.read_bytes()!=original_legacy:raise AssertionError('legacy source config changed')
+    # Cache and artifact failures must not invoke publication.
+    shutil.rmtree(simple/'.distroplane')
+    try:
+        cli.write_bytes(backup+b'tamper')
+        rejected=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+        if 'corrupt' not in rejected.lower() or (simple/'.distroplane').exists():
+            raise AssertionError('corrupt cache reached publication')
+    finally:cli.write_bytes(backup)
+    sandbox.cleanup()
     print('Maven native/offline/cancellation/deduplication/multi-module smoke passed')
 if __name__=='__main__':main()

@@ -111,7 +111,7 @@ jobs:
         shell: pwsh
         run: |
           $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
-          python maven-plugin/it/run-smoke.py --repo $repo --fixture 'controlled' --source "$env:GITHUB_WORKSPACE"
+          python maven-plugin/it/run-smoke.py --repo $repo --fixture "$env:DISTROPLANE_FIXTURE_BINARY" --source "$env:GITHUB_WORKSPACE"
           if ($LASTEXITCODE -ne 0) { throw 'Maven integration smoke failed' }
       - name: Verify Central release requirements without uploading
         run: python maven-plugin/it/check-publication.py

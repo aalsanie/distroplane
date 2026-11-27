@@ -203,6 +203,9 @@ final class DistroplaneFunctionalTest {
             "destinations":{}}
             """;
         Files.writeString(project.resolve("distroplane.json"), raw);
+        assertTrue(run(false, "distroplanePlan").getOutput().contains("has not been packaged"));
+        assertFalse(Files.exists(project.resolve("alpha/build/libs")));
+        assertFalse(Files.exists(project.resolve(".distroplane")));
         run(true, ":alpha:jar", ":beta:jar");
         run(true, "distroplaneValidate");
         var mapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
@@ -213,6 +216,20 @@ final class DistroplaneFunctionalTest {
         assertEquals(raw, Files.readString(project.resolve("distroplane.json")));
         Files.delete(Path.of(mapped.path("release").path("artifacts").path("app").path("source").asText()));
         assertTrue(run(false, "distroplanePlan").getOutput().contains("has not been packaged"));
+        run(true, ":alpha:jar");
+        String legacy = """
+            {"schemaVersion":"1","release":{"id":"fixture","artifacts":[
+            {"name":"app","source":"original-a.jar"},{"name":"src","source":"original-b.jar"},
+            {"name":"unmapped","source":"untouched.txt"}]},"targets":[]}
+            """;
+        Files.writeString(project.resolve("distroplane.json"), legacy);
+        run(true, "distroplaneValidate");
+        var legacyMapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
+        assertTrue(Files.isRegularFile(Path.of(legacyMapped.path("release").path("artifacts").get(0).path("source").asText())));
+        assertEquals(project.resolve("untouched.txt").toString(),
+            legacyMapped.path("release").path("artifacts").get(2).path("source").asText());
+        assertEquals(legacy, Files.readString(project.resolve("distroplane.json")));
+        assertFalse(Files.exists(project.resolve(".distroplane")));
     }
 
     @Test void rejectsInvalidTasksAndPathsBeforeStartingCli() throws Exception {
