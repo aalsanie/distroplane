@@ -256,7 +256,7 @@
         "outputSchemaVersion": "1",
         "planId": "plan-acceptance",
         "runId": "run-acceptance",
-        "completed": true,
+        "completed": false,
         "cancelled": true,
         "targets": [
           {

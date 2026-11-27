@@ -98,7 +98,7 @@ def state_from(value, exit_code):
         return None
     ambiguous = external = blocked = rejected = failed = False
     credential = dependency = False
-    outstanding = not completed
+    outstanding = False
     all_published = completed and not cancelled
     may_exist = truncated or legacy
     affected = []
@@ -139,7 +139,7 @@ def state_from(value, exit_code):
             if kind == "target" and status != "PUBLISHED" and len(affected) < 5:
                 affected.append((ident, status, unknown))
     failed |= cancelled
-    expected = 6 if failed else 5 if rejected else 4 if outstanding else 0
+    expected = 6 if failed else 5 if rejected else 4 if not completed or outstanding else 0
     if expected != exit_code or (exit_code == 0 and not all_published):
         return None
     noop = all_published and not operations and not truncated and not legacy
@@ -281,7 +281,7 @@ def render(env):
         elif detail["external"]:
             next_action = "Check the original external submission using read-only reconciliation; do not republish."
         elif detail["manual"]:
-            next_action = "Inspect the recorded prerequisite and terminal outcomes; a human decision is required before further work on this same run."
+            next_action = "Inspect the recorded prerequisite and terminal outcomes of the original run; a human decision is required before further work on this same run."
         elif detail["blocked"]:
             source = "approved credential environment source" if detail["credential"] else "recorded prerequisite"
             next_action = f"Restore the {source}, then resume the same run; do not republish."

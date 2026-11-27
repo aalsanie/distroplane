@@ -63,7 +63,7 @@ func TestReleaseGuidanceSharedRecordedStates(t *testing.T) {
 			}
 			selection := stateTextSelection{
 				configPath: filepath.Join("release with spaces", "it's; $HOME.json"),
-				planPath: "original plan.json", journalPath: "original journal", runID: state.RunID,
+				planPath:   "original plan.json", journalPath: "original journal", runID: state.RunID,
 				catalog: true, configVerified: true,
 			}
 			var human bytes.Buffer

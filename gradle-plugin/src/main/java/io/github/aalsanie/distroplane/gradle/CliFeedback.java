@@ -212,7 +212,7 @@ final class CliFeedback {
         if (targets.isEmpty()) throw invalid();
         boolean ambiguous = false, external = false, blocked = false, rejected = false;
         boolean credentialBlocked = false, dependencyBlocked = false, mayExist = truncated || legacy;
-        boolean failed = cancelled, pending = !completed, allPublished = completed && !cancelled;
+        boolean failed = cancelled, outstanding = false, allPublished = completed && !cancelled;
         Set<String> targetIds = new HashSet<>(), operationIds = new HashSet<>();
         for (JsonNode target : targets) {
             if (!target.isObject() || !targetIds.add(requiredText(target, "id", true))) throw invalid();
@@ -236,7 +236,7 @@ final class CliFeedback {
             if (!status.equals("PUBLISHED") || reconcile || unknown) allPublished = false;
             if ("FAILED".equals(status) || "CANCELLED".equals(status)) failed = true;
             else if ("REJECTED".equals(status)) rejected = true;
-            else if (!"PUBLISHED".equals(status) || reconcile || unknown) pending = true;
+            else if (!"PUBLISHED".equals(status) || reconcile || unknown) outstanding = true;
             mayExist |= reconcile || unknown || !Set.of("PLANNED", "READY", "BLOCKED").contains(status);
             JsonNode reason = operation.get("errorCode");
             if (reason != null && !reason.isTextual()) throw invalid();
@@ -246,11 +246,11 @@ final class CliFeedback {
                 dependencyBlocked |= reason != null && "DEPENDENCY_TERMINAL".equals(reason.textValue());
             }
         }
-        int expected = failed ? 6 : rejected ? 5 : pending ? 4 : 0;
+        int expected = failed ? 6 : rejected ? 5 : !completed || outstanding ? 4 : 0;
         if (expected != exit || (exit == 0 && !allPublished)) throw invalid();
         boolean noop = allPublished && operations.isEmpty();
         mayExist |= ambiguous || external;
-        String outcome = (failed || rejected) && (ambiguous || external || blocked || pending)
+        String outcome = (failed || rejected) && (ambiguous || external || blocked || outstanding)
             ? "mixed terminal and outstanding destinations"
             : ambiguous ? "ambiguous external outcome; publication may already have occurred"
             : external ? "awaiting external acceptance"
@@ -273,7 +273,7 @@ final class CliFeedback {
             ? "Reconcile the original recorded run before any retry; do not republish; use resume with reconcile-only" + selector
             : external ? "Check the original external submission by reconciling its recorded run; use resume with reconcile-only" + selector
             : blocked && (dependencyBlocked || failed || rejected)
-                ? "Inspect the recorded prerequisite and terminal outcomes; a human decision is required before further work on this same run" + selector
+                ? "Inspect the recorded prerequisite and terminal outcomes of the original run; a human decision is required before further work on this same run" + selector
             : blocked ? (credentialBlocked ? "Restore the approved credential environment source, then resume the same run" : "Restore the recorded prerequisite, then resume the same run") + selector
             : exit != 0 ? "Inspect the recorded cause; do not create a replacement run" + selector
             : noop ? "Inspect recorded evidence if needed; no publication was attempted by this run"

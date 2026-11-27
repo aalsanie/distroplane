@@ -214,6 +214,24 @@ final class CliFeedbackTest {
         bad("status", 0, targetOnlyUncertain);
     }
 
+    @Test void terminalOutcomeDoesNotDependOnCompletionFlag() throws Exception {
+        for (String status : List.of("CANCELLED", "FAILED", "REJECTED")) {
+            int exit = status.equals("REJECTED") ? 5 : 6;
+            for (boolean completed : new boolean[]{false, true}) {
+                ObjectNode value = state(status, completed, false, false);
+                value.put("cancelled", status.equals("CANCELLED"));
+                CliFeedback.Detail terminal = inspect("status", exit, value);
+                assertFalse(terminal.summary().contains("mixed"), terminal.summary());
+                assertTrue(terminal.action().contains("recorded cause"), terminal.action());
+                value.withArray("targets").addObject().put("id", "other").put("state", "READY")
+                    .put("reconcileRequired", false).put("ambiguous", false);
+                value.withArray("operations").addObject().put("id", "other-op").put("targetId", "other")
+                    .put("state", "READY").put("reconcileRequired", false).put("ambiguous", false);
+                assertTrue(inspect("status", exit, value).summary().contains("mixed"));
+            }
+        }
+    }
+
     @Test void rejectsUntrustedOrInconsistentState() throws Exception {
         ObjectNode normal = state("PUBLISHED", true, false, false);
         for (int exit : List.of(1, 4, 5, 6)) bad("status", exit, normal);

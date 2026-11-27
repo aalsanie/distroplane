@@ -122,6 +122,24 @@ class SummaryTests(unittest.TestCase):
                 self.assertIn("do not retry automatically", output)
                 self.assertNotIn("Recorded as published", output)
 
+    def test_terminal_outcome_does_not_depend_on_run_completion_flag(self):
+        for status, exit_code in (("CANCELLED", 6), ("FAILED", 6), ("REJECTED", 5)):
+            for completed in (False, True):
+                with self.subTest(status=status, completed=completed):
+                    state = record(status, completed)
+                    state["cancelled"] = status == "CANCELLED"
+                    data = env("resume", state, exit_code)
+                    detail = MODULE.state_from(state, exit_code)
+                    self.assertFalse(detail["mixed"])
+                    self.assertNotIn("Mixed terminal", MODULE.render(data))
+                    self.assertIn("do not retry automatically", MODULE.render(data))
+                    state["targets"].append({"id": "other", "state": "READY",
+                                             "reconcileRequired": False, "ambiguous": False})
+                    state["operations"].append({"id": "op-other", "targetId": "other",
+                                                "state": "READY", "reconcileRequired": False,
+                                                "ambiguous": False})
+                    self.assertTrue(MODULE.state_from(state, exit_code)["mixed"])
+
     def test_mixed_terminal_pending_and_ambiguous_targets(self):
         data = record("REJECTED", False)
         data["targets"].append({"id": "winget", "state": "WAITING_EXTERNAL", "reconcileRequired": True, "ambiguous": True})
