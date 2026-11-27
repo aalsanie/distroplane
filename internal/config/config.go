@@ -54,7 +54,13 @@ type Loaded struct {
 	BaseDir string
 }
 
+type OptionNormalizer func(provider string, raw json.RawMessage, artifact, field string) (json.RawMessage, error)
+
 func Load(path string) (Loaded, error) {
+	return LoadWithOptions(path, nil)
+}
+
+func LoadWithOptions(path string, normalize OptionNormalizer) (Loaded, error) {
 	if strings.TrimSpace(path) == "" {
 		return Loaded{}, fmt.Errorf("config path must not be empty")
 	}
@@ -63,7 +69,7 @@ func Load(path string) (Loaded, error) {
 		return Loaded{}, err
 	}
 	defer file.Close()
-	cfg, err := Decode(file)
+	cfg, err := DecodeWithOptions(file, normalize)
 	if err != nil {
 		return Loaded{}, fmt.Errorf("config %q: %w", path, err)
 	}
@@ -71,13 +77,14 @@ func Load(path string) (Loaded, error) {
 	if err != nil {
 		return Loaded{}, err
 	}
-	if err := resolveV2Paths(&cfg, filepath.Dir(absolute)); err != nil {
-		return Loaded{}, fmt.Errorf("config %q: %w", path, err)
-	}
 	return Loaded{Config: cfg, BaseDir: filepath.Dir(absolute)}, nil
 }
 
 func Decode(reader io.Reader) (Config, error) {
+	return DecodeWithOptions(reader, nil)
+}
+
+func DecodeWithOptions(reader io.Reader, normalize OptionNormalizer) (Config, error) {
 	if reader == nil {
 		return Config{}, fmt.Errorf("config reader must not be nil")
 	}
@@ -99,7 +106,10 @@ func Decode(reader io.Reader) (Config, error) {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
 	if header.SchemaVersion == SchemaVersionV2 {
-		return decodeV2(normalized)
+		if normalize == nil {
+			return Config{}, fmt.Errorf("config v2 requires an option normalizer")
+		}
+		return decodeV2(normalized, normalize)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(normalized))
 	decoder.DisallowUnknownFields()
@@ -121,7 +131,7 @@ func (c *Config) normalizeAndValidate() error {
 	if c.SchemaVersion != SchemaVersion && c.SchemaVersion != SchemaVersionV2 {
 		return fmt.Errorf("unsupported config schema version %q", c.SchemaVersion)
 	}
-	if err := validateText("release ID", c.Release.ID, false); err != nil {
+	if err := ValidateText("release ID", c.Release.ID, false); err != nil {
 		return err
 	}
 	if len(c.Release.Artifacts) == 0 {
@@ -130,13 +140,13 @@ func (c *Config) normalizeAndValidate() error {
 	artifactNames := make(map[string]struct{}, len(c.Release.Artifacts))
 	for i := range c.Release.Artifacts {
 		artifact := &c.Release.Artifacts[i]
-		if err := validateText("artifact name", artifact.Name, false); err != nil {
+		if err := ValidateText("artifact name", artifact.Name, false); err != nil {
 			return err
 		}
-		if err := validateText("artifact source", artifact.Source, false); err != nil {
+		if err := ValidateText("artifact source", artifact.Source, false); err != nil {
 			return err
 		}
-		if err := validateText("artifact media type", artifact.MediaType, true); err != nil {
+		if err := ValidateText("artifact media type", artifact.MediaType, true); err != nil {
 			return err
 		}
 		if _, exists := artifactNames[artifact.Name]; exists {
@@ -150,17 +160,17 @@ func (c *Config) normalizeAndValidate() error {
 	targetIDs := make(map[string]struct{}, len(c.Targets))
 	for i := range c.Targets {
 		target := &c.Targets[i]
-		if err := validateText("target ID", target.ID, false); err != nil {
+		if err := ValidateText("target ID", target.ID, false); err != nil {
 			return err
 		}
 		if _, exists := targetIDs[target.ID]; exists {
 			return fmt.Errorf("duplicate target ID %q", target.ID)
 		}
 		targetIDs[target.ID] = struct{}{}
-		if err := validateText("provider name", target.Provider.Name, false); err != nil {
+		if err := ValidateText("provider name", target.Provider.Name, false); err != nil {
 			return err
 		}
-		if err := validateText("provider executable", target.Provider.Executable, true); err != nil {
+		if err := ValidateText("provider executable", target.Provider.Executable, true); err != nil {
 			return err
 		}
 		configuration, err := canonicaljson.Normalize(target.Configuration)
@@ -172,7 +182,7 @@ func (c *Config) normalizeAndValidate() error {
 	return nil
 }
 
-func validateText(name, value string, optional bool) error {
+func ValidateText(name, value string, optional bool) error {
 	if value == "" {
 		if optional {
 			return nil

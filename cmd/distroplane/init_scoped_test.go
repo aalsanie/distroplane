@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 func TestInitProviderScopedArtifactsCreateDistinctSources(t *testing.T) {
@@ -41,7 +41,7 @@ func TestInitProviderScopedArtifactsCreateDistinctSources(t *testing.T) {
 	if output.Artifacts["npm"].Path != npm || output.Artifacts["winget"].Path != winget {
 		t.Fatalf("provider scoped artifact lost: %+v", output.Artifacts)
 	}
-	loaded, err := config.Load(output.ConfigPath)
+	loaded, err := official.Load(output.ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}

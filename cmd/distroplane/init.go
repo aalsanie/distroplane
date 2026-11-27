@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 const maxDiscoveryEntries = 256
@@ -198,7 +198,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "encode_failed", err)
 	}
-	if _, err := config.Decode(strings.NewReader(string(data))); err != nil {
+	if _, err := official.Decode(strings.NewReader(string(data))); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
 	}
 	if err := ctx.Err(); err != nil {

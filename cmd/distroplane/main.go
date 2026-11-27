@@ -177,7 +177,7 @@ func printCommandHelp(command string, w io.Writer) bool {
 	case "reconcile":
 		summary = "Inspect uncertain destination outcomes without publishing.\n  distroplane reconcile --config PATH --plan PATH --journal PATH [--credential REF=ENV] [--json]"
 	case "retry":
-		summary = "Authorize one reconciled npm retry after accepting duplicate risk.\n  distroplane retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk"
+		summary = "Manual ambiguous-publication retry authorization is disabled.\n  distroplane retry --plan PATH --journal PATH --operation ID --confirm-plan ID --acknowledge-duplicate-risk"
 	case "evidence":
 		summary = "Export recorded release evidence.\n  distroplane evidence --plan PATH --journal PATH [--output PATH] [--json]"
 	case "version":

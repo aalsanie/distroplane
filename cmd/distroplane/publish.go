@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/providerretention"
@@ -62,7 +62,7 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 
 	// Compute the exact immutable plan in memory. Check the existing release
 	// before persisting it: a rejected replan must not pollute the run catalog.
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}

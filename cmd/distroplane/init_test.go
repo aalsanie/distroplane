@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 func createInitProject(t *testing.T) (string, string) {
@@ -101,7 +101,7 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 			if strings.Contains(string(data), "SECRET") || !bytes.Contains(data, []byte(`"schemaVersion": "2"`)) {
 				t.Fatalf("unsafe generated config: %s", data)
 			}
-			loaded, err := config.Load(result.ConfigPath)
+			loaded, err := official.Load(result.ConfigPath)
 			if err != nil || len(loaded.Config.Targets) != 1 {
 				t.Fatalf("invalid generated v2 config: %v %+v", err, loaded.Config.Targets)
 			}
@@ -150,7 +150,7 @@ func TestInitMultiDestinationSharedArtifact(t *testing.T) {
 		"homebrew.url=https://example.invalid/s.tar.gz", "homebrew.version=1.2.3", "homebrew.binary=sample",
 	)
 	result, _ := invokeInit(t, exitOK, "", false, append(base, flags...)...)
-	loaded, err := config.Load(result.ConfigPath)
+	loaded, err := official.Load(result.ConfigPath)
 	if err != nil || len(loaded.Config.Targets) != 3 || len(loaded.Config.Release.Artifacts) != 1 {
 		t.Fatalf("multi-destination artifact mismatch: %+v %v", loaded.Config, err)
 	}
@@ -325,7 +325,7 @@ func TestInitInteractivePromptsAndNoninteractiveRefusal(t *testing.T) {
 	if code != exitOK || !strings.Contains(out.String(), "configuration") || !strings.Contains(errOut.String(), "release ID") || !strings.Contains(errOut.String(), "SHA-256") {
 		t.Fatalf("interactive init code=%d out=%s diag=%s", code, out.String(), errOut.String())
 	}
-	loaded, err := config.Load(path)
+	loaded, err := official.Load(path)
 	if err != nil || loaded.Config.Release.ID != "release-interactive" || loaded.Config.Release.Artifacts[0].Source != filepath.ToSlash(filepath.Join("target", filepath.Base(candidate))) {
 		t.Fatalf("interactive config invalid: %+v %v", loaded.Config.Release, err)
 	}
@@ -343,7 +343,7 @@ func TestInitJSONAndExplicitArtifactOutsideProject(t *testing.T) {
 	if out.Artifact.Path != path {
 		t.Fatal("absolute artifact source changed")
 	}
-	got, err := config.Load(out.ConfigPath)
+	got, err := official.Load(out.ConfigPath)
 	if err != nil || got.Config.Release.Artifacts[0].Source != path {
 		t.Fatalf("external source invalid: %+v %v", got.Config, err)
 	}

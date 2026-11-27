@@ -1,4 +1,4 @@
-package config
+package official
 
 import (
 	"bytes"
@@ -9,14 +9,16 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/aalsanie/distroplane/internal/config"
 )
 
 func convertLegacyFixture(t *testing.T, raw []byte) []byte {
 	t.Helper()
 	var legacy struct {
-		SchemaVersion string   `json:"schemaVersion"`
-		Release       Release  `json:"release"`
-		Targets       []Target `json:"targets"`
+		SchemaVersion string          `json:"schemaVersion"`
+		Release       config.Release  `json:"release"`
+		Targets       []config.Target `json:"targets"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		t.Fatal(err)
@@ -24,7 +26,7 @@ func convertLegacyFixture(t *testing.T, raw []byte) []byte {
 	if len(legacy.Targets) != 1 {
 		t.Fatalf("expected one target: %d", len(legacy.Targets))
 	}
-	artifactMap := map[string]Artifact{}
+	artifactMap := map[string]config.Artifact{}
 	for _, a := range legacy.Release.Artifacts {
 		artifactMap[a.Name] = a
 	}
@@ -47,7 +49,7 @@ func convertLegacyFixture(t *testing.T, raw []byte) []byte {
 	}
 	// Artifact v1 has a name field that does not belong in the v2 artifact map.
 	for key, val := range artifactMap {
-		obj["release"].(map[string]any)["artifacts"].(map[string]Artifact)[key] = val
+		obj["release"].(map[string]any)["artifacts"].(map[string]config.Artifact)[key] = val
 	}
 	v2Arts := map[string]map[string]any{}
 	for k, a := range artifactMap {
@@ -65,7 +67,7 @@ func convertLegacyFixture(t *testing.T, raw []byte) []byte {
 }
 
 func TestV2NormalizesAllOfficialProviderFixtures(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("testdata", "compatibility", "*.json"))
+	files, err := filepath.Glob(filepath.Join("..", "..", "config", "testdata", "compatibility", "*.json"))
 	if err != nil || len(files) != 7 {
 		t.Fatalf("v1 fixtures: %v %d", err, len(files))
 	}
@@ -84,7 +86,7 @@ func TestV2NormalizesAllOfficialProviderFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("v2 conversion rejected: %v\n%s", err, v2)
 			}
-			if modern.SchemaVersion != SchemaVersionV2 {
+			if modern.SchemaVersion != config.SchemaVersionV2 {
 				t.Fatalf("schema=%s", modern.SchemaVersion)
 			}
 			if !reflect.DeepEqual(legacy.Release, modern.Release) || !reflect.DeepEqual(legacy.Targets, modern.Targets) {

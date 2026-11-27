@@ -11,6 +11,16 @@ import (
 
 var installedDefaults = map[string]bool{"npm": true, "sdkman": true, "homebrew": true, "winget": true}
 
+var sourceCandidates = map[SourceKey]string{
+	{Provider: "npm", Environment: "DISTROPLANE_NPM_TOKEN"}:                 "NPM_TOKEN",
+	{Provider: "sdkman", Environment: "DISTROPLANE_SDKMAN_VENDOR_EMAIL"}:    "SDKMAN_VENDOR_EMAIL",
+	{Provider: "sdkman", Environment: "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"}: "SDKMAN_VENDOR_PASSWORD",
+	{Provider: "sdkman", Environment: "DISTROPLANE_SDKMAN_CONSUMER_KEY"}:    "SDKMAN_CONSUMER_KEY",
+	{Provider: "sdkman", Environment: "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"}:  "SDKMAN_CONSUMER_TOKEN",
+	{Provider: "homebrew", Environment: "DISTROPLANE_HOMEBREW_TOKEN"}:       "HOMEBREW_GITHUB_TOKEN",
+	{Provider: "winget", Environment: "DISTROPLANE_WINGET_TOKEN"}:           "WINGET_GITHUB_TOKEN",
+}
+
 type sourceUsage struct {
 	provider    string
 	target      string
@@ -94,7 +104,7 @@ func TestSelectSourcesPurposeSpecificDefaults(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.provider+"-"+test.environment, func(t *testing.T) {
 			plan := planForSources(t, sourceUsage{test.provider, "only", "release", test.environment})
-			sources, err := SelectSources(plan, nil, nil, installedDefaults)
+			sources, err := SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +121,7 @@ func TestSelectSourcesPrecedenceAndLazyResolution(t *testing.T) {
 	explicit := map[domain.CredentialRef]string{"npm-publish": "CLI_NPM_TOKEN"}
 	t.Setenv("CONFIG_NPM_TOKEN", "config-canary")
 	t.Setenv("CLI_NPM_TOKEN", "cli-canary")
-	sources, err := SelectSources(plan, configured, explicit, installedDefaults)
+	sources, err := SelectSources(plan, configured, explicit, installedDefaults, sourceCandidates)
 	if err != nil || sources["npm-publish"] != "CLI_NPM_TOKEN" {
 		t.Fatalf("sources=%v err=%v", sources, err)
 	}
@@ -128,11 +138,11 @@ func TestSelectSourcesPrecedenceAndLazyResolution(t *testing.T) {
 	if err != nil || string(value) != "cli-canary" {
 		t.Fatal("explicit source not respected")
 	}
-	sources, err = SelectSources(plan, configured, nil, installedDefaults)
+	sources, err = SelectSources(plan, configured, nil, installedDefaults, sourceCandidates)
 	if err != nil || sources["npm-publish"] != "CONFIG_NPM_TOKEN" {
 		t.Fatalf("sources=%v err=%v", sources, err)
 	}
-	sources, err = SelectSources(plan, nil, nil, installedDefaults)
+	sources, err = SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 	if err != nil || sources["npm-publish"] != "NPM_TOKEN" {
 		t.Fatalf("sources=%v err=%v", sources, err)
 	}
@@ -144,19 +154,19 @@ func TestSelectSourcesMultiAccountIsolation(t *testing.T) {
 		sourceUsage{"npm", "secondary", "npm-secondary", "DISTROPLANE_NPM_TOKEN"},
 	)
 	t.Setenv("NPM_TOKEN", "ambient-canary")
-	sources, err := SelectSources(plan, nil, nil, installedDefaults)
+	sources, err := SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 	if err != nil || len(sources) != 0 {
 		t.Fatalf("unapproved shared fallback: %v err=%v", sources, err)
 	}
-	sources, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_A", "npm-secondary": "NPM_B"}, nil, installedDefaults)
+	sources, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_A", "npm-secondary": "NPM_B"}, nil, installedDefaults, sourceCandidates)
 	if err != nil || len(sources) != 2 || sources["npm-primary"] != "NPM_A" || sources["npm-secondary"] != "NPM_B" {
 		t.Fatalf("isolated sources=%v err=%v", sources, err)
 	}
-	_, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_TOKEN", "npm-secondary": "NPM_TOKEN"}, nil, installedDefaults)
+	_, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_TOKEN", "npm-secondary": "NPM_TOKEN"}, nil, installedDefaults, sourceCandidates)
 	if !errors.Is(err, ErrAmbiguousSource) {
 		t.Fatalf("shared source accepted: %v", err)
 	}
-	_, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_TOKEN", "npm-secondary": "npm_token"}, nil, installedDefaults)
+	_, err = SelectSources(plan, map[string]string{"npm-primary": "NPM_TOKEN", "npm-secondary": "npm_token"}, nil, installedDefaults, sourceCandidates)
 	if !errors.Is(err, ErrAmbiguousSource) {
 		t.Fatalf("case-aliased source accepted: %v", err)
 	}
@@ -167,11 +177,11 @@ func TestSelectSourcesCrossProviderCollisionsAndExplicitOverrides(t *testing.T) 
 		sourceUsage{"homebrew", "brew", "brew-auth", "DISTROPLANE_HOMEBREW_TOKEN"},
 		sourceUsage{"winget", "win", "winget-auth", "DISTROPLANE_WINGET_TOKEN"},
 	)
-	sources, err := SelectSources(plan, nil, nil, installedDefaults)
+	sources, err := SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 	if err != nil || sources["brew-auth"] == sources["winget-auth"] {
 		t.Fatalf("provider defaults not isolated: %v err=%v", sources, err)
 	}
-	_, err = SelectSources(plan, nil, map[domain.CredentialRef]string{"brew-auth": "GITHUB_TOKEN", "winget-auth": "GITHUB_TOKEN"}, installedDefaults)
+	_, err = SelectSources(plan, nil, map[domain.CredentialRef]string{"brew-auth": "GITHUB_TOKEN", "winget-auth": "GITHUB_TOKEN"}, installedDefaults, sourceCandidates)
 	if !errors.Is(err, ErrAmbiguousSource) {
 		t.Fatalf("shared github token accepted: %v", err)
 	}
@@ -179,7 +189,7 @@ func TestSelectSourcesCrossProviderCollisionsAndExplicitOverrides(t *testing.T) 
 		sourceUsage{"homebrew", "brew", "shared", "DISTROPLANE_HOMEBREW_TOKEN"},
 		sourceUsage{"winget", "win", "shared", "DISTROPLANE_WINGET_TOKEN"},
 	)
-	_, err = SelectSources(plan, nil, nil, installedDefaults)
+	_, err = SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 	if !errors.Is(err, ErrSourceConflict) {
 		t.Fatalf("shared cross-provider reference accepted: %v", err)
 	}
@@ -200,7 +210,7 @@ func TestSelectSourcesValidatesMappings(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := SelectSources(plan, test.config, test.explicit, installedDefaults); err == nil {
+			if _, err := SelectSources(plan, test.config, test.explicit, installedDefaults, sourceCandidates); err == nil {
 				t.Fatal("invalid mapping was accepted")
 			}
 		})
@@ -210,8 +220,30 @@ func TestSelectSourcesValidatesMappings(t *testing.T) {
 func TestSelectSourcesBlocksUnknownWithoutInheritingAmbientEnvironment(t *testing.T) {
 	plan := planForSources(t, sourceUsage{"custom", "only", "release", "PROVIDER_SECRET"})
 	t.Setenv("PROVIDER_SECRET", "ambient-secret")
-	sources, err := SelectSources(plan, nil, nil, installedDefaults)
+	sources, err := SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
 	if err != nil || len(sources) != 0 {
 		t.Fatalf("ambient credential inherited: %v err=%v", sources, err)
+	}
+}
+
+func TestSelectSourcesRejectsUntrustedOrInvalidCandidates(t *testing.T) {
+	plan := planForSources(t, sourceUsage{"custom", "one", "release", "PROVIDER_SECRET"})
+	candidates := map[SourceKey]string{{Provider: "custom", Environment: "PROVIDER_SECRET"}: "CANDIDATE"}
+	sources, err := SelectSources(plan, nil, nil, nil, candidates)
+	if err != nil || len(sources) != 0 {
+		t.Fatalf("untrusted candidate selected: %v %v", sources, err)
+	}
+	trusted := map[string]bool{"custom": true}
+	sources, err = SelectSources(plan, nil, nil, trusted, candidates)
+	if err != nil || sources["release"] != "CANDIDATE" {
+		t.Fatalf("eligible candidate not selected: %v %v", sources, err)
+	}
+	candidates[SourceKey{Provider: "custom", Environment: "PROVIDER_SECRET"}] = "BAD-ENV"
+	if _, err := SelectSources(plan, nil, nil, trusted, candidates); err == nil {
+		t.Fatal("invalid candidate accepted")
+	}
+	sources, err = SelectSources(plan, nil, map[domain.CredentialRef]string{"release": "EXPLICIT"}, trusted, candidates)
+	if err != nil || sources["release"] != "EXPLICIT" {
+		t.Fatalf("explicit mapping lost: %v %v", sources, err)
 	}
 }

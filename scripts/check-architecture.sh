@@ -40,4 +40,26 @@ if [ -n "$protocol_provider_terms" ]; then
   exit 1
 fi
 
+kernel=(
+  internal/canonicaljson internal/config internal/credentials internal/domain
+  internal/evidence internal/executor internal/journal internal/planner
+  internal/protocol internal/providerhost internal/providerretention internal/runstate
+)
+kernel_packages=()
+for package in "${kernel[@]}"; do
+  kernel_packages+=("./$package")
+done
+dependencies="$(go list -deps -f '{{.ImportPath}}' "${kernel_packages[@]}")"
+if grep -E '^github\.com/aalsanie/distroplane/(internal/frontend|cmd|providers)(/|$)' <<< "$dependencies"; then
+  echo "kernel dependency closure must not include frontend or provider implementations" >&2
+  exit 1
+fi
+
+kernel_provider_terms="$(grep -R --include='*.go' --exclude='*_test.go' --exclude='legacy_v2_retry.go' -niE '(^|[^[:alnum:]_])(npm|sdkman|homebrew|winget|packagePath|archivePath|DISTROPLANE_NPM_TOKEN|DISTROPLANE_SDKMAN_VENDOR_EMAIL|DISTROPLANE_HOMEBREW_TOKEN|DISTROPLANE_WINGET_TOKEN)([^[:alnum:]_]|$)' "${kernel[@]}" || true)"
+if [ -n "$kernel_provider_terms" ]; then
+  printf '%s\n' "$kernel_provider_terms" >&2
+  echo "official-provider interpretation belongs outside the kernel" >&2
+  exit 1
+fi
+
 echo "architecture guard satisfied"

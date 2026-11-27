@@ -269,10 +269,18 @@ class ProtocolConformance(unittest.TestCase):
     def test_cli_uses_independent_provider_and_reconciles_without_republish(self):
         with tempfile.TemporaryDirectory() as tmp:
             audit = Path(tmp) / "effects.log"
-            planned, config = self.cli_plan(tmp, configuration={"mode": "waiting", "auditFile": str(audit)})
+            opaque = {"customRouting": {"regions": ["a", "b"], "priority": 7}}
+            planned, config = self.cli_plan(
+                tmp, configuration={"mode": "waiting", "auditFile": str(audit), **opaque}
+            )
             self.assertEqual(planned.returncode, 0, planned.stderr.decode(errors="replace"))
             saved = json.loads(planned.stdout)
             self.assertTrue(Path(saved["path"]).is_file())
+            document = json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
+            self.assertEqual(document["targets"][0]["configuration"]["customRouting"],
+                             opaque["customRouting"])
+            self.assertEqual(document["operations"][0]["providerPayload"]["customRouting"],
+                             opaque["customRouting"])
             journal = str(Path(tmp) / "run.journal")
             base = [str(self.cli), "--config", str(config), "--plan", saved["path"],
                     "--journal", journal, "--json"]

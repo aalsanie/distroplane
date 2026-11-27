@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 type initErrorReader struct{}
@@ -168,7 +168,7 @@ func TestInitPromptsForMultipleCandidatesAndProviderMetadata(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Artifact candidates") || !strings.Contains(stderr.String(), "sdkman.candidate") {
 		t.Fatalf("prompt omitted candidate/metadata: %s", stderr.String())
 	}
-	loaded, err := config.Load(output)
+	loaded, err := official.Load(output)
 	if err != nil || loaded.Config.Release.ID != "test-release" {
 		t.Fatalf("invalid interactive config: %+v %v", loaded.Config, err)
 	}

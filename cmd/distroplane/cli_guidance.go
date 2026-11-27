@@ -11,7 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -130,7 +130,7 @@ func doctorPriority(check doctorFinding) int {
 // Catalog selection is advisory and read-only. No publication recommendation
 // can be made if the existing release identity or durable catalog is suspect.
 func doctorRecordedReleaseNext(configPath string) (string, bool) {
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return "", false
 	}

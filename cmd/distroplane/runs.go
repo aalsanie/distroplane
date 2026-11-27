@@ -5,7 +5,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -20,7 +20,7 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}

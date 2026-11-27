@@ -14,9 +14,14 @@ var (
 	ErrSourceConflict  = errors.New("credential reference is shared by incompatible destinations")
 )
 
+type SourceKey struct {
+	Provider    string
+	Environment string
+}
+
 // SelectSources chooses environment variable names for credential requirements
 // from a verified plan. Credential bytes are never read during this step.
-func SelectSources(plan domain.Plan, configured map[string]string, explicit map[domain.CredentialRef]string, trustedProviders map[string]bool) (map[domain.CredentialRef]string, error) {
+func SelectSources(plan domain.Plan, configured map[string]string, explicit map[domain.CredentialRef]string, trustedProviders map[string]bool, candidates map[SourceKey]string) (map[domain.CredentialRef]string, error) {
 	type usage struct {
 		provider    string
 		environment string
@@ -77,7 +82,10 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 			source, selected = configured[string(ref)]
 		}
 		if !selected && trustedProviders[use.provider] && len(providerTargets[use.provider]) == 1 {
-			source = defaultSource(use.provider, use.environment)
+			source = candidates[SourceKey{Provider: use.provider, Environment: use.environment}]
+			if source != "" && !ValidEnvironmentName(source) {
+				return nil, fmt.Errorf("invalid candidate source for reference %q", ref)
+			}
 		}
 		if source == "" {
 			continue // Driver preparation blocks missing credentials before side effects.
@@ -92,26 +100,4 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 		owners[key] = ref
 	}
 	return sources, nil
-}
-
-// No generic GITHUB_TOKEN/GH_TOKEN, npm trusted-publishing ID token, or
-// provider-subprocess environment value is implicitly inherited.
-func defaultSource(provider, requiredEnvironment string) string {
-	switch provider + "/" + requiredEnvironment {
-	case "npm/DISTROPLANE_NPM_TOKEN":
-		return "NPM_TOKEN"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_EMAIL":
-		return "SDKMAN_VENDOR_EMAIL"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_PASSWORD":
-		return "SDKMAN_VENDOR_PASSWORD"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_KEY":
-		return "SDKMAN_CONSUMER_KEY"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_TOKEN":
-		return "SDKMAN_CONSUMER_TOKEN"
-	case "homebrew/DISTROPLANE_HOMEBREW_TOKEN":
-		return "HOMEBREW_GITHUB_TOKEN"
-	case "winget/DISTROPLANE_WINGET_TOKEN":
-		return "WINGET_GITHUB_TOKEN"
-	}
-	return ""
 }

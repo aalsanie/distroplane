@@ -17,7 +17,7 @@ CI includes Linux/macOS/Windows tests and builds, race detection, fuzz smoke tes
 
 ## Operational limits
 
-A `WAITING_EXTERNAL` result is not proof of failure or success. Reconciliation is read-only. Only the npm-specific, journaled operator authorization described in the [CLI guide](cli.md#explicit-retry-of-an-ambiguous-npm-publish) permits a subsequent attempt following a reconciled absent observation; absence alone is insufficient.
+A `WAITING_EXTERNAL` result is not proof of failure or success. Reconciliation is read-only. New ambiguous-publication retry authorization is disabled; absence alone is insufficient. See [recovery guidance](cli.md#ambiguous-publication-recovery).
 
 An expired or released reconciliation lease closes the interrupted observation without changing its outstanding outcome or evidence. Recovery acquires a new lease and observes the same attempt; duplicate reconciliation starts under the same authority remain invalid. Preserve invalid journals for investigation rather than discarding complete records.
 

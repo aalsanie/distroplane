@@ -217,6 +217,9 @@ func (w *Writer) appendLockedWithLease(entry Entry, lease *LeasePayload) (Event,
 	if err := entry.validate(); err != nil {
 		return Event{}, err
 	}
+	if entry.Type == EventRetryAuthorized {
+		return Event{}, ErrRetryAuthorizationDisabled
+	}
 	now := w.clock().UTC()
 	if lease != nil && !w.ownsLease(entry, *lease, now) {
 		return Event{}, fmt.Errorf("operation %q: %w", entry.OperationID, ErrLeaseAuthority)

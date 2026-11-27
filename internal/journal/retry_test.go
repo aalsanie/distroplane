@@ -3,6 +3,7 @@ package journal
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -124,66 +125,79 @@ func TestRetryAuthorizationRejectsUnreconciledAndUnsafeOutcomes(t *testing.T) {
 	}
 }
 
-func TestDurableOperatorAuthorizationValidatesBeforeAppend(t *testing.T) {
+func TestNewAuthorizationCannotAppend(t *testing.T) {
 	plan := npmRetryPlan(t)
+	events := ambiguousNpmEvents()
+	events[5].Payload.ProviderState = "absent"
 	path := filepath.Join(t.TempDir(), "run.journal")
 	writer, err := OpenWriter(path, runID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writer.Close()
-	// Preload a valid stream, preserving the writer's actual timestamps and sequence.
-	for _, e := range ambiguousNpmEvents() {
-		if e.Type == EventReconcileResult {
-			e.Payload.ProviderState = "absent"
-		}
+	for _, e := range events {
 		entry := Entry{RunID: e.RunID, PlanID: e.PlanID, Type: e.Type, OperationID: e.OperationID, TargetID: e.TargetID, Payload: e.Payload}
 		if _, err := writer.Append(entry); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := writer.AuthorizeAmbiguousRetry(plan, runID(), "missing"); err == nil {
-		t.Fatal("unknown operation accepted")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(writer.Events()) != 6 {
-		t.Fatal("failed authorization appended a record")
+	entry := Entry{RunID: runID(), Type: EventRetryAuthorized, OperationID: "op-a", TargetID: "target-a", Payload: Payload{Attempt: 1}}
+	if _, err := writer.Append(entry); !errors.Is(err, ErrRetryAuthorizationDisabled) {
+		t.Fatalf("append authorization: %v", err)
 	}
-	authorized, err := writer.AuthorizeAmbiguousRetry(plan, runID(), "op-a")
-	if err != nil || authorized.Type != EventRetryAuthorized || authorized.Payload.Attempt != 1 {
-		t.Fatalf("authorization=%+v err=%v", authorized, err)
+	if _, err := writer.AppendWithLease(entry, *leasePayload("lease-a", "worker", 2, 10)); !errors.Is(err, ErrRetryAuthorizationDisabled) {
+		t.Fatalf("leased authorization: %v", err)
 	}
-	if _, err := writer.AuthorizeAmbiguousRetry(plan, runID(), "op-a"); err == nil {
-		t.Fatal("authorization reused without a subsequent reconciliation")
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) || len(writer.Events()) != len(events) {
+		t.Fatalf("refusal mutated journal: %v", err)
 	}
-	if len(writer.Events()) != 7 {
-		t.Fatal("duplicate authorization appended a record")
+	state, err := Reduce(plan, writer.Events())
+	if err != nil || state.CheckExecutionAllowed() != nil {
+		t.Fatalf("ordinary ambiguity became unexecutable: %v", err)
 	}
+	op, _ := state.Operation("op-a")
+	if !op.ReconcileRequired || !op.Ambiguous {
+		t.Fatalf("observation altered: %+v", op)
+	}
+}
+
+func TestHistoricalAuthorizationReplayAndExecutionGuard(t *testing.T) {
+	plan := npmRetryPlan(t)
+	events := ambiguousNpmEvents()
+	events[5].Payload.ProviderState = "absent"
+	events = append(events,
+		event(7, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
+		attemptStarted(8, "op-a", "target-a", 2),
+		event(9, EventProviderProcessStarted, "op-a", "target-a", Payload{Attempt: 2}),
+		dispatched(10, "op-a", "target-a", 2),
+		event(11, EventOutcomeAmbiguous, "op-a", "target-a", Payload{Attempt: 2, ErrorCode: "AMBIGUOUS_OUTCOME"}),
+		reconcileStarted(12, "op-a", "target-a", 2),
+		reconcileResult(13, "op-a", "target-a", 2, domain.StatePublished),
+		event(14, EventRunCompleted, "", "", Payload{}),
+	)
 	var buf bytes.Buffer
-	for _, e := range writer.Events() {
+	for i, e := range events {
 		frame, err := encodeFrame(e)
 		if err != nil {
 			t.Fatal(err)
 		}
 		buf.Write(frame)
-	}
-	read, err := Read(&buf)
-	if err != nil || len(read.Events) != 7 {
-		t.Fatalf("durable roundtrip err=%v events=%d", err, len(read.Events))
-	}
-	state, err := Reduce(plan, read.Events)
-	if err != nil {
-		t.Fatal(err)
-	}
-	op, _ := state.Operation("op-a")
-	if op.State != domain.StateReady || op.ReconcileRequired || op.Ambiguous {
-		t.Fatalf("authorized state=%+v", op)
-	}
-	other := testPlan(t)
-	otherPlan, err := domain.NewPlan("plan-other", other.SchemaVersion(), other.ProtocolVersion(), other.Release(), other.Targets(), other.Operations())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writer.AuthorizeAmbiguousRetry(otherPlan, runID(), "op-a"); !errors.Is(err, ErrPlanMismatch) {
-		t.Fatalf("cross-plan authorization err=%v", err)
+		read, err := Read(bytes.NewReader(buf.Bytes()))
+		if err != nil || len(read.Events) != i+1 {
+			t.Fatalf("prefix %d: %v", i+1, err)
+		}
+		state, err := Reduce(plan, read.Events)
+		if err != nil {
+			t.Fatalf("prefix %d: %v", i+1, err)
+		}
+		wantBlocked := i >= 6 && i < 9
+		if got := state.CheckExecutionAllowed(); (got != nil) != wantBlocked || (wantBlocked && !errors.Is(got, ErrLegacyRetryPending)) {
+			t.Fatalf("prefix %d: execution=%v want blocked=%t", i+1, got, wantBlocked)
+		}
 	}
 }

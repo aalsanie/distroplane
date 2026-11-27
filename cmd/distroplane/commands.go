@@ -18,6 +18,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/credentials"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/executor"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/journal"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
@@ -110,7 +111,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
@@ -141,7 +142,7 @@ func runPlanContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
@@ -241,7 +242,7 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 			return writeCommandError(stderr, jsonMode, exitInvalid, "artifact_changed", err)
 		}
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
 	}
@@ -252,6 +253,9 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 	runID, err := resolveRunID(journalPath, requestedRun, !reconcileOnly)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_run", err)
+	}
+	if err := checkHistoricalExecution(persisted.Plan(), journalPath); err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
 	}
 	// Reserve the immutable plan/run/journal binding before any provider
 	// process is allowed to dispatch an irreversible side effect.
@@ -347,6 +351,9 @@ func runStatusWithSelection(args []string, stdout, stderr io.Writer, knownCatalo
 	if read.TruncatedTail {
 		fmt.Fprintln(stderr, "warning: journal has a truncated final record; status reflects the durable prefix")
 	}
+	if err := state.CheckExecutionAllowed(); err != nil {
+		fmt.Fprintln(stderr, "warning:", err)
+	}
 	writeStateTextWithSelection(stdout, output, stateTextSelection{
 		configPath: configPath, planPath: planPath, journalPath: journalPath,
 		runID: output.RunID, catalog: catalogSelected,
@@ -367,7 +374,7 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 	if err != nil {
 		return nil, err
 	}
-	sources, err := credentials.SelectSources(plan, loaded.Config.CredentialSources, mappings, trustedDefaults)
+	sources, err := official.SelectSources(plan, loaded.Config.CredentialSources, mappings, trustedDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -474,6 +481,26 @@ func resolveRunID(path, requested string, allowCreate bool) (domain.RunID, error
 		return "", err
 	}
 	return domain.NewRunID("run-" + hex.EncodeToString(random[:]))
+}
+
+func checkHistoricalExecution(plan domain.Plan, path string) error {
+	read, err := readJournal(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, event := range read.Events {
+		if event.Type == journal.EventRetryAuthorized {
+			state, err := journal.Reduce(plan, read.Events)
+			if err != nil {
+				return err
+			}
+			return state.CheckExecutionAllowed()
+		}
+	}
+	return nil
 }
 
 func readJournal(path string) (journal.ReadResult, error) {

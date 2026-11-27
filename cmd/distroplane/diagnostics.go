@@ -40,8 +40,8 @@ func diagnosticGuidance(kind string, err error) (string, string) {
 		return "APPROVAL_REQUIRED", "Review the current immutable plan; publication requires an explicit matching plan ID or separate approval"
 	case "execution_failed":
 		return "AWAITING_EXTERNAL", "Inspect the original run and journal first; reconcile unknown external effects before considering a retry"
-	case "retry_not_authorized", "unsafe_retry":
-		return "UNSAFE_RETRY", "Reconcile the original operation and verify absence; only an explicit one-shot retry with duplicate-risk acknowledgment may proceed"
+	case "retry_not_authorized", "unsafe_retry", "legacy_retry_pending":
+		return "UNSAFE_RETRY", "Preserve the original plan and journal, reconcile the destination without republishing, and seek manual recovery if needed"
 	case "cancelled":
 		return "INTERRUPTED", "Inspect the original journal and reconcile any ambiguous dispatch before resuming; never start a replacement run"
 	case "missing_metadata", "invalid_template", "invalid_artifact":

@@ -20,6 +20,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/credentials"
 	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 	"github.com/aalsanie/distroplane/internal/providerhost"
@@ -124,7 +125,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 		d.add("CANCELLED", doctorFail, "runtime", "diagnostics cancelled", "Run doctor again once cancellation ends")
 		return d
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := official.Load(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			d.add("MISSING_CONFIG", doctorFail, "config", "configuration file not found", "Create a config using distroplane init or select --config")
@@ -388,23 +389,7 @@ func doctorCredentialSource(ref, provider, environment string, configured map[st
 	if !trusted {
 		return ""
 	}
-	switch provider + "/" + environment {
-	case "npm/DISTROPLANE_NPM_TOKEN":
-		return "NPM_TOKEN"
-	case "homebrew/DISTROPLANE_HOMEBREW_TOKEN":
-		return "HOMEBREW_GITHUB_TOKEN"
-	case "winget/DISTROPLANE_WINGET_TOKEN":
-		return "WINGET_GITHUB_TOKEN"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_EMAIL":
-		return "SDKMAN_VENDOR_EMAIL"
-	case "sdkman/DISTROPLANE_SDKMAN_VENDOR_PASSWORD":
-		return "SDKMAN_VENDOR_PASSWORD"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_KEY":
-		return "SDKMAN_CONSUMER_KEY"
-	case "sdkman/DISTROPLANE_SDKMAN_CONSUMER_TOKEN":
-		return "SDKMAN_CONSUMER_TOKEN"
-	}
-	return ""
+	return official.DefaultSource(provider, environment)
 }
 
 func doctorRemoteURLs(loaded config.Loaded) []string {
