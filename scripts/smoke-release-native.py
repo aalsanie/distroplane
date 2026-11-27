@@ -145,7 +145,7 @@ def main():
     args = parser.parse_args()
     try:
         run(args.directory, args.version, args.commit, args.expected_os, args.expected_arch, fresh=True)
-    except (SmokeError, OSError, ValueError, subprocess.SubprocessError,
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError,
             tarfile.TarError, zipfile.BadZipFile) as error:
         parser.exit(1, f"native release smoke: {error}\n")
 

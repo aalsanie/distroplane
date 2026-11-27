@@ -1,6 +1,6 @@
 # Install Distroplane
 
-## Homebrew (macOS or Linux)
+## Homebrew (macOS)
 
 ```sh
 brew install aalsanie/tap/distroplane
@@ -44,6 +44,15 @@ The latest [GitHub release](https://github.com/aalsanie/distroplane/releases/lat
 ## Installation verification
 
 The required CI release-build matrix runs the candidate archives on native Linux, macOS and Windows (x64 and ARM64). It exercises local setup, provider discovery and retained-run recovery with no development tools or credentials on PATH. macOS tests install the generated formula from staged bytes; Linux tests offline installation, interruption and uninstall/reinstall; Windows tests MSI install, repair, upgrade and uninstall. Staged package tests are not public catalog availability checks. Verify Homebrew and WinGet catalog availability after publication.
+
+| Component | Version under test | CI environment |
+| --- | --- | --- |
+| Native CLI + four official providers | Same candidate version from `VERSION` | Six native OS/architecture targets |
+| GitHub Action | Source revision with local CLI and version-pinned archive fixtures | Linux, macOS, Windows |
+| Maven plugin | 1.0.1-SNAPSHOT; CLI 0.9.3 controlled cache fixture | Maven 3.9+, JDK 17/21 on Linux, macOS, Windows |
+| Gradle plugin | 1.0.0-SNAPSHOT; CLI 0.9.3 controlled cache fixture | Gradle 8.14.6/9.8.2, JDK 17/21 on Linux, macOS, Windows |
+
+Adapter fixture results do not certify the published plugin binaries against candidate release bytes. See [Maven](../maven-plugin/README.md), [Gradle](../gradle-plugin/README.md) and [Action](github-actions.md) for versioned usage.
 
 ## Release maintainers
 

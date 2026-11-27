@@ -22,17 +22,10 @@ def invoke(cli, cwd, env, *args, expected=0):
 def fresh_install(cli, version, commit=None, exercise_missing=False):
     cli = cli.absolute()
     with tempfile.TemporaryDirectory(prefix="distroplane user é space ") as temp:
-        root = Path(temp)
+        root = Path(temp).resolve()
         project = root / "project"
-        outside = root / "other working directory"
-        empty_path = root / "empty PATH"
-        for directory in (project, outside, empty_path):
-            directory.mkdir()
-        env = {key: value for key, value in os.environ.items()
-               if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR",
-                                  "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "USERPROFILE",
-                                  "HOME", "LOCALAPPDATA", "APPDATA"}}
-        env["PATH"] = str(empty_path)
+        project.mkdir()
+        outside, env = recovery_environment(root)
         identity = json.loads(invoke(cli, outside, env, "version", "--json"))
         if identity["version"] != version or (commit and identity["commit"] != commit):
             raise RuntimeError("selected CLI identity mismatch")

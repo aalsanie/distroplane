@@ -82,6 +82,15 @@ if (Test-Path -PathType Leaf $cli) { throw 'MSI uninstall left installed CLI beh
 if ((Get-Content -Raw -LiteralPath $marker) -cne 'retained across MSI lifecycle') {
     throw 'MSI uninstall deleted release state'
 }
+if ($oldMsi) {
+    $saved = Get-Content -LiteralPath (Join-Path $recovery 'recovery-check.json') -Raw | ConvertFrom-Json
+    foreach ($file in $saved.files.PSObject.Properties) {
+        if (-not (Test-Path -LiteralPath $file.Name -PathType Leaf)) { throw 'MSI uninstall removed a recovery file' }
+        if ((Get-FileHash -LiteralPath $file.Name -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$file.Value) {
+            throw 'MSI uninstall changed recovery bytes'
+        }
+    }
+}
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 if ($machinePath -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin.TrimEnd('\') }) {
     throw 'MSI uninstall left an owned PATH entry behind'
