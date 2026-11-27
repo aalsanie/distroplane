@@ -155,6 +155,12 @@ func TestCLIRetryRefusesNewAndUnconsumedHistoricalAuthorization(t *testing.T) {
 		len(status.Operations) != 1 || status.Operations[0].State != string(domain.StateReady) || status.Operations[0].Attempt != 1 {
 		t.Fatalf("historical semantics changed: %+v %v", status, err)
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := execute([]string{"status", "--plan", planned.Path, "--journal", journalPath}, &stdout, &stderr); code != exitPending ||
+		!strings.Contains(stdout.String(), "seek manual recovery") || !strings.Contains(stderr.String(), "unconsumed historical retry authorization") {
+		t.Fatalf("historical recovery guidance: %d %s %s", code, stdout.String(), stderr.String())
+	}
 	for _, command := range []string{"apply", "reconcile"} {
 		stdout.Reset()
 		stderr.Reset()

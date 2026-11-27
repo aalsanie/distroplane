@@ -351,12 +351,13 @@ func runStatusWithSelection(args []string, stdout, stderr io.Writer, knownCatalo
 	if read.TruncatedTail {
 		fmt.Fprintln(stderr, "warning: journal has a truncated final record; status reflects the durable prefix")
 	}
-	if err := state.CheckExecutionAllowed(); err != nil {
-		fmt.Fprintln(stderr, "warning:", err)
+	executionErr := state.CheckExecutionAllowed()
+	if executionErr != nil {
+		fmt.Fprintln(stderr, "warning:", executionErr)
 	}
 	writeStateTextWithSelection(stdout, output, stateTextSelection{
 		configPath: configPath, planPath: planPath, journalPath: journalPath,
-		runID: output.RunID, catalog: catalogSelected,
+		runID: output.RunID, catalog: catalogSelected, legacyRetryPending: executionErr != nil,
 	})
 	return code
 }
