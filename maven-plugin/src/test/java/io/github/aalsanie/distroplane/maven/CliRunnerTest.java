@@ -77,7 +77,9 @@ final class CliRunnerTest {
                 if (values.length == 2 && !values[1].isBlank()) {
                     var parent = ProcessHandle.of(Long.parseLong(values[0]));
                     var child = ProcessHandle.of(Long.parseLong(values[1]));
-                    if (parent.isPresent() && child.isPresent() && parent.get().isAlive() && child.get().isAlive())
+                    if (parent.isPresent() && child.isPresent() && parent.get().isAlive() && child.get().isAlive() &&
+                        parent.get().parent().map(ProcessHandle::pid).orElse(-1L) == ProcessHandle.current().pid() &&
+                        child.get().parent().map(ProcessHandle::pid).orElse(-1L) == parent.get().pid())
                         return List.of(parent.get(), child.get());
                 }
             }

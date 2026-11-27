@@ -278,7 +278,12 @@ func processFixture() {
 		if err := child.Start(); err != nil {
 			os.Exit(2)
 		}
-		if err := os.WriteFile("fixture-pids", []byte(fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)), 0600); err != nil {
+		if err := os.WriteFile("fixture-pids.tmp", []byte(fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)), 0600); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		if err := os.Rename("fixture-pids.tmp", "fixture-pids"); err != nil {
 			_ = child.Process.Kill()
 			_ = child.Wait()
 			os.Exit(2)

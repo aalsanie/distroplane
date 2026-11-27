@@ -219,7 +219,11 @@ final class DistroplaneFunctionalTest {
             "app":{"source":"original-a.jar"},"src":{"source":"original-b.jar"},"unmapped":{"source":"untouched.txt"}}},
             "destinations":{}}
             """;
-        Files.writeString(project.resolve("distroplane.json"), raw);
+        Path configDirectory = Files.createDirectory(project.resolve("release configuration"));
+        Path source = configDirectory.resolve("distroplane.json");
+        Files.writeString(source, raw);
+        Files.writeString(project.resolve("build.gradle"), "\ndistroplane { config = 'release configuration/distroplane.json' }\n",
+            java.nio.file.StandardOpenOption.APPEND);
         assertTrue(run(false, "distroplanePlan").getOutput().contains("has not been packaged"));
         assertFalse(Files.exists(project.resolve("alpha/build/libs")));
         assertFalse(Files.exists(project.resolve(".distroplane")));
@@ -228,9 +232,9 @@ final class DistroplaneFunctionalTest {
         var mapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
         assertTrue(Path.of(mapped.path("release").path("artifacts").path("app").path("source").asText()).toFile().isFile());
         assertTrue(Path.of(mapped.path("release").path("artifacts").path("src").path("source").asText()).toFile().isFile());
-        assertEquals(project.resolve("untouched.txt").toString(),
+        assertEquals(configDirectory.resolve("untouched.txt").toString(),
             mapped.path("release").path("artifacts").path("unmapped").path("source").asText());
-        assertEquals(raw, Files.readString(project.resolve("distroplane.json")));
+        assertEquals(raw, Files.readString(source));
         Files.delete(Path.of(mapped.path("release").path("artifacts").path("app").path("source").asText()));
         assertTrue(run(false, "distroplanePlan").getOutput().contains("has not been packaged"));
         run(true, ":alpha:jar");
@@ -239,13 +243,13 @@ final class DistroplaneFunctionalTest {
             {"name":"app","source":"original-a.jar"},{"name":"src","source":"original-b.jar"},
             {"name":"unmapped","source":"untouched.txt"}]},"targets":[]}
             """;
-        Files.writeString(project.resolve("distroplane.json"), legacy);
+        Files.writeString(source, legacy);
         run(true, "distroplaneValidate");
         var legacyMapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
         assertTrue(Files.isRegularFile(Path.of(legacyMapped.path("release").path("artifacts").get(0).path("source").asText())));
-        assertEquals(project.resolve("untouched.txt").toString(),
+        assertEquals(configDirectory.resolve("untouched.txt").toString(),
             legacyMapped.path("release").path("artifacts").get(2).path("source").asText());
-        assertEquals(legacy, Files.readString(project.resolve("distroplane.json")));
+        assertEquals(legacy, Files.readString(source));
         assertFalse(Files.exists(project.resolve(".distroplane")));
     }
 

@@ -4,7 +4,7 @@ The Gradle plugin invokes the native Distroplane CLI; it never publishes directl
 
 ```groovy
 plugins {
-    id 'io.github.aalsanie.distroplane' version '1.0.0'
+    id 'io.github.aalsanie.distroplane' version '<published-version>'
 }
 
 distroplane {
@@ -14,7 +14,7 @@ distroplane {
 }
 ```
 
-Run `gradle distroplaneValidate`, `gradle distroplanePlan`, `gradle distroplaneStatus`, or `gradle distroplaneResume`. To publish, explicitly set exactly one of `approve = true` or `confirmPlan = '<exact plan ID>'` and invoke `gradle distroplanePublish`. Pending external state (exit 4) fails the Gradle task; inspect the same release state and use `distroplaneResume`, never a new `publish` invocation. `distroplaneInit` requires `initDestination` and `initRelease`, with nonsecret `initFields`. `release`, `run`, and `reconcileOnly` control status/resume.
+Run `gradle distroplaneDoctor`, `gradle distroplaneValidate`, `gradle distroplanePlan`, `gradle distroplaneStatus`, or `gradle distroplaneResume`. To publish, explicitly set exactly one of `approve = true` or `confirmPlan = '<exact plan ID>'` and invoke `gradle distroplanePublish`. Pending external state (exit 4) fails the Gradle task; inspect the same release state and use `distroplaneResume`, never a new `publish` invocation. `distroplaneInit` requires `initDestination` and `initRelease`, with nonsecret `initFields`. `release`, `run`, and `reconcileOnly` control status/resume.
 
 The plugin downloads the official platform archive and `SHA256SUMS` and verifies the SHA-256 digest, exact package members, release identity and embedded executable hashes. Verified packages are cached under Gradle User Home at `distroplane/cli/<version>/<os>-<arch>/sha256-<digest>/`. Cached members are reverified on every use; corrupt caches fail closed. Gradle `--offline` forbids downloads and requires an already verified cached package. Use `archiveSha256` to pin the archive independently of the release-hosted checksum manifest. GitHub release checksums are not independent publisher signatures.
 

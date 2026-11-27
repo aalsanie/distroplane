@@ -76,7 +76,7 @@ macOS, and Windows native runners. They verify the seven explicit goals,
 immutable cache imports, offline execution, cancellation after durable state
 creation, pending-to-resume handoff, duplicate-publication rejection, and
 multi-module/classifier selection. The controlled test fixture **never publishes**
-to a remote registry. Maven plugin version and CLI version are independently
+to a remote registry. Build it with `go build -o /absolute/path/to/fixture ./maven-plugin/it/fixture-cli/main.go` and set `DISTROPLANE_FIXTURE_BINARY` to its absolute path (use `.exe` on Windows) for local native adapter tests. Maven plugin version and CLI version are independently
 versioned; CLI `0.9.3` is the source test matrix's bootstrap target.
 
 The Central Portal release profile (`-Pcentral-release`) prepares main,
