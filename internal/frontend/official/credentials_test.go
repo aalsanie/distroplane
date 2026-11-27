@@ -105,4 +105,3 @@ func TestSelectSourcesPurposeSpecificDefaults(t *testing.T) {
 		})
 	}
 }
-

@@ -67,9 +67,17 @@ jobs:
                   ))
               )
 
+          def consumer_configuration_related(path):
+              return path.startswith((
+                  "internal/config/",
+                  "internal/frontend/official/",
+                  "internal/credentials/",
+              ))
+
           def maven_related(path):
               return (
-                  path.startswith("maven-plugin/")
+                  consumer_configuration_related(path)
+                  or path.startswith("maven-plugin/")
                   or path.startswith(".github/workflows/")
                   or path == ".github/dependabot.yml"
                   or path == "scripts/test_maven_publication.py"
@@ -77,7 +85,8 @@ jobs:
 
           def gradle_related(path):
               return (
-                  path.startswith("gradle-plugin/")
+                  consumer_configuration_related(path)
+                  or path.startswith("gradle-plugin/")
                   or path.startswith(".github/workflows/")
                   or path == ".github/dependabot.yml"
               )
