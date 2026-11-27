@@ -23,7 +23,20 @@ func TestReduceInterruptedReconciliation(t *testing.T) {
 					if state == domain.StateWaitingExternal {
 						add(EventOperationWaitingExternal, Payload{Attempt: 1, ProviderState: "pending", Evidence: evidence(`{"ref":"original"}`)})
 					}
-					lease := leasePayload("first", "worker", 1, 3)
+					acquiredAt := int64(len(events) + 1)
+					expiresAt := acquiredAt + 1
+					switch boundary {
+					case EventCredentialResolved:
+						expiresAt++
+					case EventProviderProcessStarted:
+						expiresAt += 2
+					case EventProviderResponseReceived:
+						expiresAt += 3
+					}
+					if end == EventLeaseReleased {
+						expiresAt += 10
+					}
+					lease := leasePayload("first", "worker", acquiredAt, expiresAt+1)
 					add(EventLeaseAcquired, Payload{Lease: lease})
 					add(EventReconcileStarted, Payload{Attempt: 1})
 					if boundary != EventReconcileStarted {
@@ -64,7 +77,7 @@ func TestReduceInterruptedReconciliation(t *testing.T) {
 							t.Fatalf("accepted stale %s", late)
 						}
 					}
-					next := leasePayload("second", "worker", 10, 30)
+					next := leasePayload("second", "worker", int64(len(events)+1), int64(len(events)+20))
 					add(EventLeaseAcquired, Payload{Lease: next})
 					add(EventReconcileStarted, Payload{Attempt: 1})
 					add(EventReconcileResult, Payload{Attempt: 1, State: domain.StateWaitingExternal, ErrorCode: "TIMEOUT", Retryable: true})
@@ -77,7 +90,7 @@ func TestReduceInterruptedReconciliation(t *testing.T) {
 						t.Fatalf("failed observation replaced evidence: %+v", op)
 					}
 					add(EventLeaseReleased, Payload{Lease: next})
-					add(EventLeaseAcquired, Payload{Lease: leasePayload("third", "worker", 20, 50)})
+					add(EventLeaseAcquired, Payload{Lease: leasePayload("third", "worker", int64(len(events)+1), int64(len(events)+20))})
 					add(EventReconcileStarted, Payload{Attempt: 1})
 					add(EventReconcileResult, Payload{Attempt: 1, State: domain.StatePublished, ProviderState: "published", Evidence: evidence(`{"ref":"new"}`)})
 					for i := 1; i <= len(events); i++ {
@@ -215,7 +228,7 @@ func TestFailedObservationPreservesEvidenceAcrossResultFormats(t *testing.T) {
 				runStarted(1),
 				attemptStarted(2, "op-c", "target-b", 1),
 				dispatched(3, "op-c", "target-b", 1),
-				event(4, EventOperationWaitingExternal, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "pending", Evidence: evidence("{\"ref\":\"original\"}")}),
+				event(4, EventOperationWaitingExternal, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "pending", Evidence: evidence(`{"ref":"original"}`)}),
 				reconcileStarted(5, "op-c", "target-b", 1),
 			}
 			payload := Payload{Attempt: 1, ErrorCode: "TIMEOUT", Retryable: true}
@@ -229,7 +242,7 @@ func TestFailedObservationPreservesEvidenceAcrossResultFormats(t *testing.T) {
 			}
 			op, _ := state.Operation("op-c")
 			if op.State != domain.StateWaitingExternal || !op.ReconcileRequired || op.Ambiguous || op.Attempt != 1 ||
-				op.ProviderState != "pending" || string(op.Evidence) != "{\"ref\":\"original\"}" || op.ErrorCode != "TIMEOUT" {
+				op.ProviderState != "pending" || string(op.Evidence) != `{"ref":"original"}` || op.ErrorCode != "TIMEOUT" {
 				t.Fatalf("operation=%+v", op)
 			}
 		})
@@ -240,7 +253,7 @@ func TestInterruptedObservationInvalidatesEarlierRetryAuthority(t *testing.T) {
 	plan := npmRetryPlan(t)
 	events := ambiguousNpmEvents()
 	events[5].Payload.ProviderState = "absent"
-	events[5].Payload.Evidence = evidence("{\"ref\":\"prior\"}")
+	events[5].Payload.Evidence = evidence(`{"ref":"prior"}`)
 	first := leasePayload("observation-1", "worker", 7, 9)
 	events = append(events,
 		event(7, EventLeaseAcquired, "op-a", "target-a", Payload{Lease: first}),
@@ -254,7 +267,7 @@ func TestInterruptedObservationInvalidatesEarlierRetryAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 		op, _ := state.Operation("op-a")
-		if !op.ReconcileRequired || !op.Ambiguous || op.Attempt != 1 || op.ProviderState != "absent" || string(op.Evidence) != "{\"ref\":\"prior\"}" {
+		if !op.ReconcileRequired || !op.Ambiguous || op.Attempt != 1 || op.ProviderState != "absent" || string(op.Evidence) != `{"ref":"prior"}` {
 			t.Fatalf("operation=%+v", op)
 		}
 		next := append(append([]Event(nil), events...), event(uint64(len(events)+1), EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}))
@@ -275,7 +288,7 @@ func TestInterruptedObservationInvalidatesEarlierRetryAuthority(t *testing.T) {
 	events = append(events,
 		event(14, EventLeaseAcquired, "op-a", "target-a", Payload{Lease: third}),
 		reconcileStarted(15, "op-a", "target-a", 1),
-		event(16, EventReconcileResult, "op-a", "target-a", Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "absent", Evidence: evidence("{\"ref\":\"current\"}")}),
+		event(16, EventReconcileResult, "op-a", "target-a", Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "absent", Evidence: evidence(`{"ref":"current"}`)}),
 		event(17, EventLeaseReleased, "op-a", "target-a", Payload{Lease: third}),
 		event(18, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
 	)

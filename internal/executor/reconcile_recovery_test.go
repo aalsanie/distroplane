@@ -26,7 +26,7 @@ func seedPendingObservation(t *testing.T, writer *journal.Writer, id domain.Oper
 	appendObservationEntry(t, writer, id, journal.EventAttemptStarted, journal.Payload{Attempt: 1})
 	appendObservationEntry(t, writer, id, journal.EventSideEffectDispatched, journal.Payload{Attempt: 1})
 	if !ambiguous {
-		appendObservationEntry(t, writer, id, journal.EventOperationWaitingExternal, journal.Payload{Attempt: 1, ProviderState: "pending", Evidence: []byte("{\"ref\":\"original\"}")})
+		appendObservationEntry(t, writer, id, journal.EventOperationWaitingExternal, journal.Payload{Attempt: 1, ProviderState: "pending", Evidence: []byte(`{"ref":"original"}`)})
 	}
 }
 
@@ -130,7 +130,7 @@ func TestExecuteRecoversEveryInterruptedObservationBoundary(t *testing.T) {
 							return Result{}, fmt.Errorf("unexpected recovery request: %+v", request)
 						}
 						if !ambiguous && (request.Previous.State != domain.StateWaitingExternal || request.Previous.ProviderState != "pending" ||
-							string(request.Previous.Evidence) != "{\"ref\":\"original\"}") {
+							string(request.Previous.Evidence) != `{"ref":"original"}`) {
 							return Result{}, errors.New("prior observation lost")
 						}
 						return published(), nil
@@ -197,7 +197,7 @@ func TestReconcileCancellationAndTimeoutPreservePriorEvidence(t *testing.T) {
 				wantCode = "CANCELLED"
 			}
 			if op.State != domain.StateWaitingExternal || !op.ReconcileRequired || op.Attempt != 1 || op.ErrorCode != wantCode ||
-				op.ProviderState != "pending" || string(op.Evidence) != "{\"ref\":\"original\"}" || len(driver.applyCalls) != 0 || len(driver.reconcileCalls) != 1 {
+				op.ProviderState != "pending" || string(op.Evidence) != `{"ref":"original"}` || len(driver.applyCalls) != 0 || len(driver.reconcileCalls) != 1 {
 				t.Fatalf("operation=%+v", op)
 			}
 			if err := writer.Close(); err != nil {
@@ -234,7 +234,7 @@ type lostObservationLeaseManager struct{}
 func (lostObservationLeaseManager) Acquire(_ context.Context, request LeaseRequest) (Lease, error) {
 	now := time.Now().UTC()
 	return &coverageLease{
-		state: LeaseState{ID: "lost", Owner: "worker", OperationID: request.OperationID, AcquiredAt: now, ExpiresAt: now.Add(time.Second)},
+		state:    LeaseState{ID: "lost", Owner: "worker", OperationID: request.OperationID, AcquiredAt: now, ExpiresAt: now.Add(time.Second)},
 		renewErr: ErrLeaseExpired, releaseErr: ErrLeaseExpired,
 	}, nil
 }
@@ -256,7 +256,7 @@ func TestReconcileRejectsResultAfterLeaseLoss(t *testing.T) {
 	}
 	state := assertObservationReplay(t, plan, writer)
 	op, _ := state.Operation("op-a")
-	if !op.ReconcileRequired || op.State != domain.StateWaitingExternal || op.LeaseActive || op.Attempt != 1 || string(op.Evidence) != "{\"ref\":\"original\"}" {
+	if !op.ReconcileRequired || op.State != domain.StateWaitingExternal || op.LeaseActive || op.Attempt != 1 || string(op.Evidence) != `{"ref":"original"}` {
 		t.Fatalf("operation=%+v", op)
 	}
 	for _, event := range writer.Events() {
@@ -354,14 +354,14 @@ func TestReconcileRecoveryAfterCompletedPendingObservation(t *testing.T) {
 	appendObservationEntry(t, writer, "op-a", journal.EventReconcileStarted, journal.Payload{Attempt: 1})
 	appendObservationEntry(t, writer, "op-a", journal.EventProviderProcessStarted, journal.Payload{Attempt: 1})
 	appendObservationEntry(t, writer, "op-a", journal.EventProviderResponseReceived, journal.Payload{Attempt: 1})
-	appendObservationEntry(t, writer, "op-a", journal.EventReconcileResult, journal.Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "review", Evidence: []byte("{\"ref\":\"latest\"}")})
+	appendObservationEntry(t, writer, "op-a", journal.EventReconcileResult, journal.Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "review", Evidence: []byte(`{"ref":"latest"}`)})
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
 	writer = openObservationJournal(t, path)
 	driver := &scriptedDriver{reconcile: func(_ context.Context, request Request) (Result, error) {
 		if request.Attempt != 1 || request.Previous == nil || !request.Previous.Ambiguous ||
-			request.Previous.ProviderState != "review" || string(request.Previous.Evidence) != "{\"ref\":\"latest\"}" {
+			request.Previous.ProviderState != "review" || string(request.Previous.Evidence) != `{"ref":"latest"}` {
 			return Result{}, fmt.Errorf("unexpected prior observation: %+v", request.Previous)
 		}
 		return published(), nil
