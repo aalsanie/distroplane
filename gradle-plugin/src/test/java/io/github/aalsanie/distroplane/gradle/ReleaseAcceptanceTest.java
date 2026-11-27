@@ -24,21 +24,24 @@ final class ReleaseAcceptanceTest {
         assertEquals("1", root.path("schemaVersion").asText());
         JsonNode tests = root.path("cases");
         assertTrue(tests.isArray());
-        assertEquals(12, tests.size());
+        assertEquals(19, tests.size());
         return tests;
     }
 
     @Test void recordedOutcomeMatrixKeepsOriginalRunAndNeverApprovesPublication() throws Exception {
-        Map<String, String> categories = Map.of(
-            "published", "recorded as published",
-            "external", "awaiting external acceptance",
-            "ambiguous", "ambiguous external outcome",
-            "credential", "blocked",
-            "blocked", "blocked",
-            "rejected", "rejected",
-            "failed", "failed or cancelled",
-            "mixed", "mixed terminal and outstanding",
-            "truncated", "truncated final record");
+        Map<String, String> categories = Map.ofEntries(
+            Map.entry("published", "recorded as published"),
+            Map.entry("external", "awaiting external acceptance"),
+            Map.entry("ambiguous", "ambiguous external outcome"),
+            Map.entry("credential", "blocked by unavailable credentials"),
+            Map.entry("blocked", "blocked"),
+            Map.entry("rejected", "rejected"),
+            Map.entry("failed", "failed or cancelled"),
+            Map.entry("mixed", "mixed terminal and outstanding"),
+            Map.entry("truncated", "truncated final record"),
+            Map.entry("noop", "completed no-op"),
+            Map.entry("legacy", "unsupported retry authorization"),
+            Map.entry("incomplete", "pending"));
         for (JsonNode tc : cases()) {
             String name = tc.path("name").asText();
             String kind = tc.path("kind").asText();
@@ -53,17 +56,31 @@ final class ReleaseAcceptanceTest {
             String summary = result.summary();
             String action = result.action();
             assertTrue(summary.contains(categories.get(kind)), name + ": " + summary);
-            assertTrue(summary.contains("run-acceptance"), name);
-            assertTrue(summary.contains("plan-acceptance"), name);
+            assertTrue(summary.contains(state.path("runId").asText()), name);
+            assertTrue(summary.contains(state.path("planId").asText()), name);
+            JsonNode expected = tc.path("expected");
+            assertTrue(summary.contains("publication may already exist (recorded run): " +
+                expected.path("mayExist").asBoolean()), name);
+            assertTrue(summary.contains(expected.path("evidence").asText()), name);
+            String primary = expected.path("primary").asText();
+            switch (primary) {
+                case "reconcile" -> assertTrue(action.contains("reconcile-only"), name);
+                case "resume" -> assertTrue(action.contains("resume the same run"), name);
+                case "status" -> assertTrue(action.contains("recorded cause"), name);
+                case "manual" -> assertTrue(action.contains("human decision") || action.contains("manual recovery"), name);
+                case "preserve" -> assertTrue(action.contains("durable prefix"), name);
+                case "evidence" -> assertTrue(action.contains("recorded evidence"), name);
+                case "no-op" -> assertTrue(action.contains("no publication was attempted"), name);
+                default -> fail("Unknown primary action: " + primary);
+            }
             assertFalse(summary.contains("SECRET-CANARY"), name);
             assertFalse(action.contains("SECRET-CANARY"), name);
             assertFalse(summary.contains("## injected"), name);
             assertFalse(action.contains("publish --yes"), name);
             assertFalse(action.contains("new plan"), name);
             assertFalse(action.contains("delete .distroplane"), name);
-            if (exit == 0 && !kind.equals("truncated")) {
+            if (exit == 0 && !kind.equals("truncated") || kind.equals("legacy")) {
                 assertNull(result.nextGoal(), name);
-                assertTrue(action.contains("independently"), name);
             } else {
                 assertEquals("status", result.nextGoal(), name);
             }

@@ -35,7 +35,7 @@ func TestReleaseGuidanceStateDecisions(t *testing.T) {
 		{"ambiguous", "WAITING_EXTERNAL", "", "uncertain external outcome", "may already have occurred", false, true, true},
 		{"credential blocked", "BLOCKED", "CREDENTIAL_UNAVAILABLE", "blocked before publication dispatch", "approved credential", false, false, false},
 		{"resolution blocked", "BLOCKED", "CREDENTIAL_RESOLUTION_FAILED", "blocked before publication dispatch", "approved credential", false, false, false},
-		{"dependency blocked", "BLOCKED", "DEPENDENCY_TERMINAL", "unresolved prerequisite", "recorded prerequisite", false, false, false},
+		{"dependency blocked", "BLOCKED", "DEPENDENCY_TERMINAL", "unresolved prerequisite", "human decision", false, false, false},
 		{"rejected", "REJECTED", "", "finished with rejection", "recorded cause", true, false, false},
 		{"failed", "FAILED", "", "failed or cancelled", "recorded cause", true, false, false},
 		{"cancelled", "CANCELLED", "", "failed or cancelled", "recorded cause", true, false, false},
@@ -215,7 +215,7 @@ func TestReleaseGuidanceSafeFallbacksAndTruncatedState(t *testing.T) {
 	if strings.Contains(msg, "\x1b") || strings.Contains(msg, "\nspoof") ||
 		strings.Contains(msg, "\nfake") || strings.Contains(msg, "PROVIDER\nSECRET") ||
 		!strings.Contains(msg, "durable-prefix") ||
-		!strings.Contains(msg, "original plan and journal") ||
+		!strings.Contains(msg, "original journal and plan") ||
 		strings.Count(msg, "Next:") != 1 {
 		t.Fatalf("untrusted data rendered unsafely: %q", msg)
 	}

@@ -132,7 +132,9 @@ def state_from(value, exit_code):
     if truncated or legacy or noop:
         all_published = False
     mixed = (failed or rejected) and (ambiguous or external or blocked or outstanding)
-    if truncated:
+    if legacy:
+        outcome = "Unsupported retry authorization; manual recovery required"
+    elif truncated:
         outcome = "Journal truncated; only the durable prefix is known"
     elif mixed:
         outcome = "Mixed terminal and outstanding target outcomes"

@@ -78,7 +78,7 @@ type releaseAssessment struct {
 
 func assessRelease(output stateOutput) releaseAssessment {
 	a := releaseAssessment{published: output.Completed && !output.Cancelled &&
-		!output.JournalTruncatedTail && len(output.Targets) > 0 && len(output.Operations) > 0,
+		!output.JournalTruncatedTail && !output.LegacyRetryPending && len(output.Targets) > 0 && len(output.Operations) > 0,
 		noop: output.Completed && !output.Cancelled && len(output.Targets) > 0 && len(output.Operations) == 0,
 		mayExist: output.JournalTruncatedTail || output.LegacyRetryPending}
 	for _, target := range output.Targets {
@@ -127,7 +127,6 @@ func assessRelease(output stateOutput) releaseAssessment {
 		}
 	}
 	a.cancelled = a.cancelled || output.Cancelled
-	a.mayExist = a.mayExist || a.ambiguous || a.external
 	a.noop = a.noop && !output.JournalTruncatedTail && !output.LegacyRetryPending
 	if len(output.Operations) == 0 {
 		for _, target := range output.Targets {
@@ -148,6 +147,7 @@ func assessRelease(output stateOutput) releaseAssessment {
 			}
 		}
 	}
+	a.mayExist = a.mayExist || a.ambiguous || a.external
 	return a
 }
 
@@ -155,6 +155,8 @@ func (a releaseAssessment) label(output stateOutput) string {
 	terminal := a.failed || a.cancelled || a.rejected
 	outstanding := a.ambiguous || a.external || a.blocked || a.other
 	switch {
+	case output.LegacyRetryPending:
+		return "unsupported retry authorization; manual recovery required"
 	case output.JournalTruncatedTail:
 		return "durable-prefix state only; final journal record was truncated"
 	case terminal && outstanding:
@@ -187,7 +189,7 @@ func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string
 	case s.legacyRetryPending || output.LegacyRetryPending:
 		return "Preserve the original plan and journal, inspect the destination and seek manual recovery; do not republish or resume this grant"
 	case output.JournalTruncatedTail:
-		return "Preserve the original journal and original plan and journal files; verify the durable prefix before deciding whether recovery is safe"
+		return "Preserve the original journal and plan; verify the durable prefix before deciding whether recovery is safe"
 	case a.ambiguous:
 		if command := s.command("reconcile"); command != "" {
 			return "The remote side effect may already have occurred. Reconcile the original run before any retry: " + command
@@ -215,6 +217,9 @@ func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string
 		}
 		return "Inspect the recorded cause of failure or rejection and preserve the original run; do not retry automatically"
 	case a.noop:
+		if command := s.command("evidence"); command != "" {
+			return "Inspect the recorded evidence if needed; no publication was attempted by this run: " + command
+		}
 		return "Inspect the recorded evidence if needed; no publication was attempted by this run"
 	case a.published:
 		if command := s.command("evidence"); command != "" {

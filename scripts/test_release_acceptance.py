@@ -12,7 +12,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def cases():
         fixture = Path(__file__).resolve().parents[1] / "tests/consumer/release-guidance-cases.json"
         data = json.loads(fixture.read_text(encoding="utf-8"))
-        assert data["schemaVersion"] == "1" and len(data["cases"]) == 12
+        assert data["schemaVersion"] == "1" and len(data["cases"]) == 19
         return data["cases"]
 
     def test_recorded_states_keep_same_run_and_do_not_infer_publication(self):
@@ -20,22 +20,36 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "published": "Recorded as published; public availability not independently verified",
             "external": "Waiting for external review or reconciliation",
             "ambiguous": "Uncertain external outcome",
-            "credential": "Blocked before completion",
-            "blocked": "Blocked before completion",
+            "credential": "unavailable credential",
+            "blocked": "unresolved prerequisite",
             "rejected": "Rejected by a destination",
             "failed": "Failed or cancelled",
             "mixed": "Mixed terminal and outstanding target outcomes",
             "truncated": "Journal truncated",
+            "noop": "Completed no-op",
+            "legacy": "Unsupported retry authorization",
+            "incomplete": "Recorded run incomplete",
         }
         for case in self.cases():
             with self.subTest(case=case["name"]):
                 data = env("resume", case["state"], case["exit"])
-                data["SUMMARY_PLAN_ID"] = "plan-acceptance"
-                data["SUMMARY_RUN_ID"] = "run-acceptance"
+                data["SUMMARY_PLAN_ID"] = case["state"]["planId"]
+                data["SUMMARY_RUN_ID"] = case["state"]["runId"]
                 result = MODULE.render(data)
                 self.assertIn(outcomes[case["kind"]], result)
-                self.assertIn("**Plan:** `plan-acceptance`", result)
-                self.assertIn("**Run:** `run-acceptance`", result)
+                self.assertIn(f"**Plan:** `{MODULE.display_identity(case['state']['planId'])}`", result)
+                self.assertIn(f"**Run:** `{MODULE.display_identity(case['state']['runId'])}`", result)
+                expectation = case["expected"]
+                self.assertIn("**Publication may already exist (recorded run):** "
+                              + str(expectation["mayExist"]).lower(), result)
+                self.assertIn(expectation["evidence"], result.lower())
+                actions = {"reconcile": "reconcile-only", "resume": "resume the same run",
+                           "status": "Inspect the original recorded run" if case["kind"] == "incomplete"
+                           else "Inspect each recorded target outcome",
+                           "manual": "manual recovery" if case["kind"] == "legacy" else "human decision",
+                           "preserve": "durable prefix", "evidence": "recorded evidence",
+                           "no-op": "no publication was attempted"}
+                self.assertIn(actions[expectation["primary"]], result)
                 self.assertIn("**Next:**", result)
                 self.assertNotIn("publish --yes", result)
                 self.assertNotIn("delete .distroplane", result)
@@ -56,8 +70,8 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 continue
             with self.subTest(case=case["name"]):
                 data = env("resume", case["state"], case["exit"])
-                data["SUMMARY_PLAN_ID"] = "plan-acceptance"
-                data["SUMMARY_RUN_ID"] = "run-acceptance"
+                data["SUMMARY_PLAN_ID"] = case["state"]["planId"]
+                data["SUMMARY_RUN_ID"] = case["state"]["runId"]
                 uploaded(data, "RECOVERY", "771")
                 summary = MODULE.render(data)
                 self.assertIn("Uploaded bundle #771", summary)
@@ -74,8 +88,8 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_untrusted_additive_provider_fields_cannot_inject_summary(self):
         case = self.cases()[0]
         data = env("resume", case["state"], case["exit"])
-        data["SUMMARY_PLAN_ID"] = "plan-acceptance"
-        data["SUMMARY_RUN_ID"] = "run-acceptance"
+        data["SUMMARY_PLAN_ID"] = case["state"]["planId"]
+        data["SUMMARY_RUN_ID"] = case["state"]["runId"]
         payload = json.loads(data["SUMMARY_RESULT_JSON"])
         payload["providerMessage"] = "SECRET-CANARY\n::warning::publish --yes"
         data["SUMMARY_RESULT_JSON"] = json.dumps(payload)

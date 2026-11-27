@@ -238,7 +238,7 @@ final class CliFeedbackTest {
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
         invalid.putArray("operations");
-        bad("status", 0, invalid);
+        assertTrue(inspect("status", 0, invalid).summary().contains("completed no-op"));
         invalid = normal.deepCopy();
         invalid.withArray("targets").removeAll().add("not-an-object");
         bad("status", 0, invalid);
@@ -258,7 +258,7 @@ final class CliFeedbackTest {
         invalid.withArray("operations").removeAll().add(false);
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
-        ((ObjectNode)invalid.withArray("operations").get(0)).put("id", "bad id");
+        ((ObjectNode)invalid.withArray("operations").get(0)).put("id", " bad id");
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
         ((ObjectNode)invalid.withArray("operations").get(0)).remove("targetId");
@@ -356,7 +356,7 @@ final class CliFeedbackTest {
         bad("init", 0, invalid);
         bad("plan", 4, plan());
         invalid = plan();
-        invalid.put("planId", "bad/id");
+        invalid.put("planId", "bad\n/id");
         bad("plan", 0, invalid);
         invalid = plan();
         invalid.put("path", 14);
@@ -411,6 +411,12 @@ final class CliFeedbackTest {
         bad("publish", 0, wrong);
         wrong = published.deepCopy();
         wrong.put("approved", "true");
+        bad("publish", 0, wrong);
+        wrong = published.deepCopy();
+        ((ObjectNode)wrong.get("run")).put("planId", "different");
+        bad("publish", 0, wrong);
+        wrong = published.deepCopy();
+        ((ObjectNode)wrong.get("plan")).put("operations", 0);
         bad("publish", 0, wrong);
     }
 }
