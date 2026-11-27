@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 )
 
+const DefaultOperationTimeout = 120 * time.Second
+
 type Artifact struct {
 	name      string
 	source    string

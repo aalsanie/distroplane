@@ -342,6 +342,10 @@ func buildOperationDrafts(targetID domain.TargetID, provider domain.ProviderRef,
 		if operation.TimeoutMillis > uint64(math.MaxInt64/int64(time.Millisecond)) {
 			return nil, fmt.Errorf("operation %q timeout exceeds supported duration", operation.ID)
 		}
+		timeoutMillis := operation.TimeoutMillis
+		if timeoutMillis == 0 {
+			timeoutMillis = uint64(domain.DefaultOperationTimeout / time.Millisecond)
+		}
 		drafts = append(drafts, operationDraft{
 			globalID:            localToGlobal[operation.ID],
 			providerOperationID: operation.ID,
@@ -351,8 +355,8 @@ func buildOperationDrafts(targetID domain.TargetID, provider domain.ProviderRef,
 			kind:                operation.Kind,
 			dependencies:        dependencies,
 			sideEffecting:       operation.SideEffecting,
-			timeout:             time.Duration(operation.TimeoutMillis) * time.Millisecond,
-			timeoutMillis:       operation.TimeoutMillis,
+			timeout:             time.Duration(timeoutMillis) * time.Millisecond,
+			timeoutMillis:       timeoutMillis,
 			providerPayload:     jsonValue,
 		})
 	}

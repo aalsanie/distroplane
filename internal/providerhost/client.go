@@ -17,11 +17,17 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
-const defaultMaxStderrBytes = 64 << 10
+const (
+	defaultMaxStderrBytes  = 64 << 10
+	defaultDescribeTimeout = 10 * time.Second
+	defaultPlanTimeout     = 60 * time.Second
+	defaultWaitDelay       = 2 * time.Second
+)
 
 var ErrOutputLimit = errors.New("provider stdout exceeds limit")
 
@@ -31,15 +37,19 @@ type Options struct {
 	Args            []string
 	Environment     []string
 	WaitDelay       time.Duration
+	DescribeTimeout time.Duration
+	PlanTimeout     time.Duration
 }
 
 type Client struct {
-	codec       protocol.Codec
-	maxStderr   int64
-	args        []string
-	environment []string
-	waitDelay   time.Duration
-	sequence    atomic.Uint64
+	codec           protocol.Codec
+	maxStderr       int64
+	args            []string
+	environment     []string
+	waitDelay       time.Duration
+	describeTimeout time.Duration
+	planTimeout     time.Duration
+	sequence        atomic.Uint64
 }
 
 type callOptions struct {
@@ -128,6 +138,18 @@ func New(options Options) (*Client, error) {
 	if options.WaitDelay < 0 {
 		return nil, fmt.Errorf("wait delay must not be negative")
 	}
+	if options.DescribeTimeout < 0 || options.PlanTimeout < 0 {
+		return nil, fmt.Errorf("provider phase timeout must not be negative")
+	}
+	if options.DescribeTimeout == 0 {
+		options.DescribeTimeout = defaultDescribeTimeout
+	}
+	if options.PlanTimeout == 0 {
+		options.PlanTimeout = defaultPlanTimeout
+	}
+	if options.WaitDelay == 0 {
+		options.WaitDelay = defaultWaitDelay
+	}
 	maxMessage := options.MaxMessageBytes
 	if maxMessage == 0 {
 		maxMessage = protocol.DefaultMaxMessageBytes
@@ -141,11 +163,13 @@ func New(options Options) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		codec:       protocol.NewCodec(maxMessage),
-		maxStderr:   maxStderr,
-		args:        append([]string(nil), options.Args...),
-		environment: environment,
-		waitDelay:   options.WaitDelay,
+		codec:           protocol.NewCodec(maxMessage),
+		maxStderr:       maxStderr,
+		args:            append([]string(nil), options.Args...),
+		environment:     environment,
+		waitDelay:       options.WaitDelay,
+		describeTimeout: options.DescribeTimeout,
+		planTimeout:     options.PlanTimeout,
 	}, nil
 }
 
@@ -193,6 +217,20 @@ func (c *Client) call(ctx context.Context, executable string, operation protocol
 	return c.callWithOptions(ctx, executable, operation, payload, destination, callOptions{})
 }
 
+func (c *Client) phaseContext(parent context.Context, operation protocol.Operation) (context.Context, context.CancelFunc) {
+	switch operation {
+	case protocol.OperationDescribe:
+		return context.WithTimeout(parent, c.describeTimeout)
+	case protocol.OperationPlan:
+		return context.WithTimeout(parent, c.planTimeout)
+	default:
+		if _, ok := parent.Deadline(); ok {
+			return context.WithCancel(parent)
+		}
+		return context.WithTimeout(parent, domain.DefaultOperationTimeout)
+	}
+}
+
 func (c *Client) callWithOptions(ctx context.Context, executable string, operation protocol.Operation, payload any, destination any, options callOptions) error {
 	if ctx == nil {
 		return fmt.Errorf("context must not be nil")
@@ -205,6 +243,11 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	}
 	if destination == nil {
 		return fmt.Errorf("response destination must not be nil")
+	}
+	ctx, cancel := c.phaseContext(ctx, operation)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	executable, err := validateExecutable(executable)
 	if err != nil {
@@ -232,10 +275,13 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	inputGate := &gatedReader{reader: bytes.NewReader(input.Bytes()), gate: make(chan struct{})}
 	var terminateOnce sync.Once
 	var terminateErr error
+	treeReady := make(chan struct{})
+	var terminateTree func() error
 	command.Cancel = func() error {
 		inputGate.abort()
+		<-treeReady
 		terminateOnce.Do(func() {
-			terminateErr = terminateProcessTree(command.Process)
+			terminateErr = terminateTree()
 		})
 		return terminateErr
 	}
@@ -252,15 +298,28 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	redactions := newRedactor(options.redactions)
 
 	if err := command.Start(); err != nil {
+		close(treeReady)
 		inputGate.abort()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return &ProcessError{
 			Executable: executable,
 			Err:        err,
 		}
 	}
+	var releaseTree func()
+	var treeErr error
+	terminateTree, releaseTree, treeErr = attachProcessTree(command.Process)
+	close(treeReady)
+	defer releaseTree()
 	cleanup := func() {
 		_ = command.Cancel()
 		_ = command.Wait()
+	}
+	if treeErr != nil {
+		cleanup()
+		return &ProcessError{Executable: executable, Err: treeErr}
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		cleanup()
@@ -287,6 +346,9 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 		return ctx.Err()
 	}
 	runErr := command.Wait()
+	if runErr != nil || ctx.Err() != nil {
+		_ = command.Cancel()
+	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}

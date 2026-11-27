@@ -176,6 +176,8 @@ func TestProviderInputDispatch(t *testing.T) {
 		{name: "cancel-before-start", wantErr: context.Canceled},
 		{name: "cancel-before-dispatch", wantErr: context.Canceled, wantStarted: 1},
 		{name: "cancel-before-release", wantErr: context.Canceled, wantStarted: 1, wantDispatched: 1},
+		{name: "timeout-before-dispatch", wantErr: context.DeadlineExceeded, wantStarted: 1},
+		{name: "timeout-before-release", wantErr: context.DeadlineExceeded, wantStarted: 1, wantDispatched: 1},
 		{name: "blocked-child", mode: "blocked", wantErr: observerErr, wantStarted: 1, wantDispatched: 1},
 		{name: "early-exit", mode: "exit", wantStarted: 1, wantDispatched: 1},
 		{name: "success", wantStarted: 1, wantDispatched: 1},
@@ -191,7 +193,11 @@ func TestProviderInputDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			timeout := 15 * time.Second
+			if errors.Is(tc.wantErr, context.DeadlineExceeded) {
+				timeout = 3 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			if tc.name == "cancel-before-start" {
 				cancel()
@@ -209,6 +215,8 @@ func TestProviderInputDispatch(t *testing.T) {
 						return observerErr
 					case "cancel-before-dispatch":
 						cancel()
+					case "timeout-before-dispatch":
+						<-ctx.Done()
 					}
 					return nil
 				},
@@ -222,6 +230,8 @@ func TestProviderInputDispatch(t *testing.T) {
 						return observerErr
 					case "cancel-before-release":
 						cancel()
+					case "timeout-before-release":
+						<-ctx.Done()
 					}
 					return nil
 				},
