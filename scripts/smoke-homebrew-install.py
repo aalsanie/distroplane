@@ -13,6 +13,21 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, timeout=180, **kwargs)
 
 
+def staged_formula(directory, version):
+    directory = directory.resolve()
+    source = generate(directory, version)
+    source = source.replace("class Distroplane < Formula\n",
+                            f'class Distroplane < Formula\n  version "{version}"\n', 1)
+    for platform in ("darwin", "linux"):
+        for arch in ("amd64", "arm64"):
+            name = f"distroplane_{version}_{platform}_{arch}.tar.gz"
+            url = f"https://github.com/aalsanie/distroplane/releases/download/v{version}/{name}"
+            if source.count(url) != 1:
+                raise RuntimeError("missing or ambiguous formula archive URL: " + name)
+            source = source.replace(url, (directory / name).as_uri(), 1)
+    return source
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
@@ -28,12 +43,7 @@ def main():
     formula = tap + "/distroplane"
     with tempfile.TemporaryDirectory(prefix="distroplane-tap-") as temp:
         repo = Path(temp)
-        source = generate(directory, args.version)
-        for platform in ("darwin", "linux"):
-            for arch in ("amd64", "arm64"):
-                name = f"distroplane_{args.version}_{platform}_{arch}.tar.gz"
-                url = f"https://github.com/aalsanie/distroplane/releases/download/v{args.version}/{name}"
-                source = source.replace(url, (directory / name).as_uri())
+        source = staged_formula(directory, args.version)
         (repo / "Formula").mkdir()
         (repo / "Formula/distroplane.rb").write_text(source, encoding="utf-8")
         run("git", "init", "-q", str(repo))
