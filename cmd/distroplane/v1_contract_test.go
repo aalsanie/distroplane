@@ -31,6 +31,7 @@ func TestFrozenV1CompatibilityContract(t *testing.T) {
 			CLIOutput string `json:"cliOutput"`
 		} `json:"schemaVersions"`
 		SupportedConfigVersions []string       `json:"supportedConfigVersions"`
+		SupportedPlanVersions   []string       `json:"supportedPlanVersions"`
 		NormalizedStates        []string       `json:"normalizedStates"`
 		ExitCodes               map[string]int `json:"exitCodes"`
 	}
@@ -49,6 +50,9 @@ func TestFrozenV1CompatibilityContract(t *testing.T) {
 	}
 	if !reflect.DeepEqual(manifest.SupportedConfigVersions, []string{config.SchemaVersion, config.SchemaVersionV2}) {
 		t.Fatalf("supported configuration versions drift: %v", manifest.SupportedConfigVersions)
+	}
+	if !reflect.DeepEqual(manifest.SupportedPlanVersions, []string{"1", planner.PlanSchemaVersion}) {
+		t.Fatalf("supported plan versions drift: %v", manifest.SupportedPlanVersions)
 	}
 	states := []string{
 		string(domain.StatePlanned), string(domain.StateReady), string(domain.StateRunning),
