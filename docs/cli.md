@@ -16,7 +16,7 @@ In scripts, supply all `init` metadata with flags (`distroplane init --help`). F
 
 ## Prepare another release
 
-After building the next artifact, run `distroplane init --update`. It preserves your existing destinations, credentials and account settings, asks for a different release ID, new artifact paths and destination version/download URLs, then shows the changes before saving. npm reads package identity from its tarball; the release ID need not match its package version.
+After building the next artifact, run `distroplane init --update`. It preserves your existing destinations, credentials and account settings, asks for a different release ID, new artifact paths and destination version/download URLs, then shows the changes before saving. npm compares the name and version in the original and new tarballs; retain both. The release ID need not match the package version, which the npm provider validates during planning.
 
 ```sh
 distroplane init --update --release v1.2.4 --artifact dist/tool-1.2.4.tgz --non-interactive

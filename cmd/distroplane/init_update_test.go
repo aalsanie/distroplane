@@ -234,6 +234,7 @@ func TestInitUpdateScriptedInvalidInputsLeaveConfigUntouched(t *testing.T) {
 		{"wrong scope", []string{"--release", "v2", "--artifact", "npm=" + next}, exitInvalid},
 		{"duplicate scope", []string{"--release", "v2", "--artifact", "sdkman=" + next, "--artifact", "sdkman=" + next}, exitInvalid},
 		{"empty scope", []string{"--release", "v2", "--artifact", "sdkman="}, exitInvalid},
+		{"config as artifact", []string{"--release", "v2", "--artifact", path}, exitInvalid},
 		{"multiple shared", []string{"--release", "v2", "--artifact", next, "--artifact", old}, exitInvalid},
 		{"missing version", []string{"--release", "v2", "--artifact", next}, exitInvalid},
 		{"missing URL", []string{"--release", "v2", "--artifact", next, "--set", "sdkman.version=2.0"}, exitInvalid},
@@ -279,6 +280,9 @@ func TestInitUpdateUnsupportedConfigRefusesWithoutMutation(t *testing.T) {
 		{"checksums", func(root, destinations, entry map[string]any) {
 			updateObject(entry, "options")["checksums"] = map[string]string{"SHA-256": strings.Repeat("a", 64)}
 		}},
+		{"private download query", func(root, destinations, entry map[string]any) {
+			updateObject(entry, "options")["url"] = "https://example.invalid/old.zip?token=do-not-display"
+		}},
 		{"unreferenced artifact", func(root, destinations, entry map[string]any) {
 			updateObject(updateObject(root, "release"), "artifacts")["extra"] = map[string]string{"source": "extra.zip"}
 		}},
@@ -312,7 +316,10 @@ func TestInitUpdateUnsupportedConfigRefusesWithoutMutation(t *testing.T) {
 				t.Fatal(err)
 			}
 			updateTestWrite(t, path, raw)
-			updateTestCall(t, exitInvalid, "", false, "--output", path, "--json")
+			_, diagnostic := updateTestCall(t, exitInvalid, "", false, "--output", path, "--json")
+			if strings.Contains(diagnostic, "do-not-display") {
+				t.Fatal("unsupported config exposed a URL credential")
+			}
 			if !bytes.Equal(raw, updateTestRead(t, path)) {
 				t.Fatal("unsupported config changed")
 			}

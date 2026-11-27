@@ -188,8 +188,11 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		if _, err := normalizeInitDestinations([]string{d.variant}); err != nil {
 			return doc, nil, fmt.Errorf("--update does not support destination layout %s", safeDisplay(d.variant))
 		}
-		if provider != "npm" && (updateString(d.version, "version") == "" || updateString(d.download, "url") == "") {
-			return doc, nil, fmt.Errorf("--update requires existing version and URL metadata")
+		if provider != "npm" {
+			if validateInitField(provider+".version", updateString(d.version, "version"), d.variant, "") != nil ||
+				validateInitField(provider+".url", updateString(d.download, "url"), d.variant, "") != nil {
+				return doc, nil, fmt.Errorf("--update requires existing valid version and public download URL metadata; correct the configuration manually")
+			}
 		}
 		used[d.artifact] = true
 		destinations = append(destinations, d)
@@ -276,8 +279,7 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitUsage, "invalid_option", err)
 	}
-	// A scripted update must explicitly select every artifact, not discover a stale build.
-	paths, err := updateArtifactPaths(doc, destinations, artifacts, base, prompt, reader, stderr)
+	paths, err := updateArtifactPaths(doc, destinations, records, artifacts, base, prompt, reader, stderr)
 	if err != nil {
 		return initFailure(ctx, stderr, jsonMode, exitInvalid, "invalid_artifact", err)
 	}
@@ -478,7 +480,7 @@ func validateUpdateArtifactPath(base string, doc updateDocument, records []runst
 	return nil
 }
 
-func updateArtifactPaths(doc updateDocument, destinations []updateDestination, raw []string, base string, prompt bool, reader *bufio.Reader, stderr io.Writer) (map[string]string, error) {
+func updateArtifactPaths(doc updateDocument, destinations []updateDestination, records []runstate.Record, raw []string, base string, prompt bool, reader *bufio.Reader, stderr io.Writer) (map[string]string, error) {
 	providers := map[string]bool{}
 	for _, d := range destinations {
 		provider, _, _ := strings.Cut(d.variant, ":")
@@ -542,7 +544,7 @@ func updateArtifactPaths(doc updateDocument, destinations []updateDestination, r
 				if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || !initSafeDescendant(base, value) {
 					return fmt.Errorf("choose an existing nonempty regular artifact")
 				}
-				return validateUpdateArtifactPath(base, doc, nil, value)
+				return validateUpdateArtifactPath(base, doc, records, value)
 			}
 			var candidates []string
 			if found, err := discoverArtifacts(base); err == nil {
@@ -621,7 +623,7 @@ func writeUpdatedConfig(ctx context.Context, path string, original, data []byte)
 		return "", err
 	}
 	if err := os.Link(saved.Name(), backup); err != nil {
-		return "", fmt.Errorf("cannot install non-overwriting update backup: %w", err)
+		return "", fmt.Errorf("cannot install non-overwriting update backup; preserve any existing backup at %q: %w", backup, err)
 	}
 	if err := syncUpdateDirectory(dir); err != nil {
 		return backup, fmt.Errorf("cannot sync backup directory; configuration unchanged: %w", err)
