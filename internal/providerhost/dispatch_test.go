@@ -34,7 +34,7 @@ func TestGatedReaderDecision(t *testing.T) {
 				var committed bool
 				switch mode {
 				case "commit":
-					committed = gate.commit(ctx)
+					committed = gate.commit(ctx.Err)
 					if !committed {
 						t.Fatal("commit denied")
 					}
@@ -42,13 +42,13 @@ func TestGatedReaderDecision(t *testing.T) {
 					gate.abort()
 				case "abort":
 					gate.abort()
-					committed = gate.commit(ctx)
+					committed = gate.commit(ctx.Err)
 					if committed {
 						t.Fatal("aborted input committed")
 					}
 				case "cancelled":
 					cancel()
-					committed = gate.commit(ctx)
+					committed = gate.commit(ctx.Err)
 					if committed {
 						t.Fatal("cancelled input committed")
 					}
@@ -57,13 +57,13 @@ func TestGatedReaderDecision(t *testing.T) {
 					start := make(chan struct{})
 					wg.Add(2)
 					go func() { defer wg.Done(); <-start; cancel(); gate.abort() }()
-					go func() { defer wg.Done(); <-start; committed = gate.commit(ctx) }()
+					go func() { defer wg.Done(); <-start; committed = gate.commit(ctx.Err) }()
 					close(start)
 					wg.Wait()
 				}
 				cancel()
 				gate.abort()
-				if gate.commit(ctx) != committed {
+				if gate.commit(ctx.Err) != committed {
 					t.Fatal("decision changed")
 				}
 				want := ""
@@ -81,6 +81,45 @@ func TestGatedReaderDecision(t *testing.T) {
 				if n, err := gate.Read(make([]byte, 1)); n != 0 || err != io.EOF {
 					t.Fatalf("second read: %d %v", n, err)
 				}
+			}
+		})
+	}
+}
+
+func TestDispatchGateChecksBothCancellationSources(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		cancelParent bool
+		cancelPhase  bool
+	}{
+		{name: "active"},
+		{name: "parent-cancelled", cancelParent: true},
+		{name: "phase-cancelled", cancelPhase: true},
+		{name: "both-cancelled", cancelParent: true, cancelPhase: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent, stopParent := context.WithCancel(context.Background())
+			defer stopParent()
+			phase, stopPhase := context.WithCancel(context.Background())
+			defer stopPhase()
+			if tc.cancelParent {
+				stopParent()
+			}
+			if tc.cancelPhase {
+				stopPhase()
+			}
+			check := func() error { return invocationError(parent, phase) }
+			gate := &gatedReader{reader: strings.NewReader("apply"), gate: make(chan struct{})}
+			want := !tc.cancelParent && !tc.cancelPhase
+			if got := gate.commit(check); got != want {
+				t.Fatalf("committed=%t want=%t, parent=%v phase=%v", got, want, parent.Err(), phase.Err())
+			}
+			data, err := io.ReadAll(gate)
+			if err != nil || (want && string(data) != "apply") || (!want && len(data) != 0) {
+				t.Fatalf("received=%q committed=%t err=%v", data, want, err)
+			}
+			if !want && !errors.Is(check(), context.Canceled) {
+				t.Fatalf("cancellation lost: %v", check())
 			}
 		})
 	}

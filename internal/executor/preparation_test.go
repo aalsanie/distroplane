@@ -3,7 +3,9 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/journal"
@@ -219,5 +221,78 @@ func TestPreparationInfrastructureFailurePersists(t *testing.T) {
 	op, _ := state.Operation("op-a")
 	if op.State != domain.StateFailed || op.ErrorCode != "DRIVER_ERROR" {
 		t.Fatalf("op=%+v", op)
+	}
+}
+
+func TestLegacyOperationBudgetIncludesPreparation(t *testing.T) {
+	for _, reconcile := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reconcile=%t", reconcile), func(t *testing.T) {
+			plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+			writer := openWriter(t, runID())
+			if reconcile {
+				for _, entry := range []journal.Entry{
+					{RunID: runID(), Type: journal.EventRunStarted, PlanID: plan.ID()},
+					{RunID: runID(), Type: journal.EventAttemptStarted, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
+					{RunID: runID(), Type: journal.EventSideEffectDispatched, OperationID: "op-a", TargetID: "target-a", Payload: journal.Payload{Attempt: 1}},
+				} {
+					if _, err := writer.Append(entry); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			parent, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			var deadline time.Time
+			var prepared bool
+			driver := &preparationDriver{}
+			start := time.Now()
+			driver.prepare = func(ctx context.Context, request Request, operation DriverOperation) (Preparation, error) {
+				want := DriverApply
+				if reconcile {
+					want = DriverReconcile
+				}
+				if operation != want || request.Attempt != 1 || request.Operation.Timeout() != 0 {
+					return Preparation{}, fmt.Errorf("unexpected preparation: %v, attempt %d, timeout %s", operation, request.Attempt, request.Operation.Timeout())
+				}
+				var ok bool
+				deadline, ok = ctx.Deadline()
+				if !ok || deadline.Before(start.Add(120*time.Second)) || deadline.After(time.Now().Add(120*time.Second)) {
+					return Preparation{}, fmt.Errorf("unexpected legacy deadline: %v", deadline)
+				}
+				prepared = true
+				return Preparation{Context: ctx}, nil
+			}
+			call := func(ctx context.Context, request Request) (Result, error) {
+				got, ok := ctx.Deadline()
+				if !prepared || !ok || !got.Equal(deadline) || request.Operation.IdempotencyKey() != "key-op-a" {
+					return Result{}, errors.New("preparation budget or original execution identity lost")
+				}
+				return published(), nil
+			}
+			driver.apply, driver.reconcile = call, call
+			state, err := newExecutor(t, driver, Options{MaxAttempts: 1, ReconcileOnly: reconcile}).Execute(parent, plan, runID(), writer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, _ := state.Operation("op-a")
+			if !state.Completed || op.State != domain.StatePublished || op.Attempt != 1 {
+				t.Fatalf("operation=%+v", op)
+			}
+			wantApply, wantReconcile := 1, 0
+			if reconcile {
+				wantApply, wantReconcile = 0, 1
+			}
+			if len(driver.applyCalls) != wantApply || len(driver.reconcileCalls) != wantReconcile {
+				t.Fatalf("apply=%d reconcile=%d", len(driver.applyCalls), len(driver.reconcileCalls))
+			}
+			for i, event := range writer.Events() {
+				if _, err := journal.Reduce(plan, writer.Events()[:i+1]); err != nil {
+					t.Fatalf("prefix through %s: %v", event.Type, err)
+				}
+			}
+			if plan.Operations()[0].Timeout() != 0 {
+				t.Fatal("legacy operation was rewritten")
+			}
+		})
 	}
 }

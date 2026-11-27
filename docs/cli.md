@@ -25,7 +25,7 @@ A pending release may require external review; `resume` uses its original plan a
 
 For a saved plan, `doctor` verifies the exact retained provider bytes before running provider diagnostics. An installation upgrade does not replace the saved binding. If multiple plans exist for the configured release, select the original plan with `doctor --plan PATH`.
 
-Provider discovery (`Describe`) and planning calls are limited to 10 and 60 seconds respectively; `doctor` retains its shorter diagnostic timeout. New plans record a 120-second operation timeout when the provider omits one. Explicit operation timeouts and earlier caller deadlines are honored. Older zero-timeout plans retain their saved identity; provider calls without a deadline have a 120-second process limit. A timeout after possible publication dispatch requires reconciliation, not another publish.
+Provider discovery (`Describe`) and planning calls are limited to 10 and 60 seconds respectively; `doctor` retains its shorter diagnostic timeout. New plans record a 120-second operation timeout when the provider omits one. Explicit operation timeouts and earlier caller deadlines are honored. Older zero-timeout plans retain their saved identity and use a 120-second runtime budget per attempt, including preparation and provider execution. Direct provider calls without a deadline also have a 120-second process limit. Bounded cleanup may extend elapsed time. A timeout after possible publication dispatch requires reconciliation, not another publish.
 
 **Keep `.distroplane/` and your original artifact files until the release is settled.** Never delete the journal to try publication again. Distroplane will not automatically retry a potentially completed publish.
 

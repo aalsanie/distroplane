@@ -74,6 +74,9 @@ func TestProviderPhaseDeadlinePolicy(t *testing.T) {
 		if !ok || !got.Equal(want) {
 			t.Fatalf("%s shortened explicit operation timeout: %v want %v", phase, got, want)
 		}
+		if ctx != parent || parent.Err() != nil {
+			t.Fatalf("%s must use the caller deadline directly without cancelling the caller", phase)
+		}
 	}
 }
 
