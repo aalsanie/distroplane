@@ -105,7 +105,7 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 		if value.Provider.Digest != "" {
 			digest, err := domain.ParseDigest(value.Provider.Digest)
 			if err != nil {
-				return DistributionPlan{}, fmt.Errorf("target %q provider digest: %w", value.ID, err)
+				return DistributionPlan{}, fmt.Errorf("target %q provider digest: %w: %v", value.ID, ErrProviderDigestBinding, err)
 			}
 			canonical := digest.String()
 			targetProviderDigests[targetID] = canonical
@@ -165,7 +165,7 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 		}
 		if value.Provider.Digest != "" {
 			if _, err := domain.ParseDigest(value.Provider.Digest); err != nil {
-				return DistributionPlan{}, fmt.Errorf("operation %q provider digest: %w", value.ID, err)
+				return DistributionPlan{}, fmt.Errorf("operation %q provider digest: %w: %v", value.ID, ErrProviderDigestBinding, err)
 			}
 		}
 		dependencies := make([]domain.OperationID, len(value.Dependencies))

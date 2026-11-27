@@ -98,13 +98,13 @@ func doctorPriority(check doctorFinding) int {
 	switch check.Severity {
 	case doctorFail:
 		switch check.Code {
-		case "STATE_CORRUPT":
+		case "STATE_CORRUPT", "PLAN_CONFIG_MISMATCH", "PLAN_AMBIGUOUS":
 			return 0
 		case "MISSING_CONFIG", "INVALID_CONFIG":
 			return 2
 		case "MISSING_ARTIFACT", "ARTIFACT_HASH_FAILED", "ARTIFACT_CHANGED":
 			return 3
-		case "PROVIDER_NOT_FOUND", "VERSION_MISMATCH", "ARCH_MISMATCH", "PROVIDER_DIGEST_CHANGED":
+		case "PROVIDER_NOT_FOUND", "VERSION_MISMATCH", "ARCH_MISMATCH", "PROVIDER_DIGEST_CHANGED", "PROVIDER_HASH_FAILED", "PROVIDER_UNSAFE_PATH", "PROVIDER_DIGEST_UNVERIFIED":
 			return 4
 		case "MISSING_CREDENTIAL", "CREDENTIAL_COLLISION", "INVALID_CREDENTIAL_MAPPING":
 			return 5
@@ -179,14 +179,14 @@ func doctorPrimaryNext(report doctorOutput, configPath string) string {
 	if doctorHasCode(report, "RUN_RESERVED") {
 		return "Preserve the existing run reservation and investigate the missing journal; never start a replacement publication"
 	}
-	if next, exists := doctorRecordedReleaseNext(configPath); exists {
-		return next
-	}
 	if doctorHasCode(report, "PLAN_AMBIGUOUS") {
 		if command, ok := cliConfigCommand("runs", configPath); ok {
 			return "Select the existing release using " + command + " before any publication"
 		}
 		return "Select the original saved release before any publication"
+	}
+	if next, exists := doctorRecordedReleaseNext(configPath); exists {
+		return next
 	}
 	fail, _, _, _ := doctorCounts(report)
 	if fail > 0 {
@@ -244,7 +244,7 @@ func writeDoctorHuman(w io.Writer, configPath string, remote bool, report doctor
 	fmt.Fprintf(w, "Checks: FAIL %d  WARN %d  PASS %d  SKIP %d\n", fail, warn, pass, skip)
 	findings := make([]doctorFinding, 0, fail+warn)
 	for _, check := range report.Checks {
-		if check.Severity == doctorFail || check.Severity == doctorWarn {
+		if check.Severity == doctorFail || check.Severity == doctorWarn || check.Code == "PROVIDER_DIGEST_MATCH" || check.Code == "PLAN_SKIPPED" {
 			findings = append(findings, check)
 		}
 	}

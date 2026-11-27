@@ -19,6 +19,12 @@ import (
 
 const schemaVersion = "1"
 
+var (
+	ErrDigestMismatch = errors.New("cached provider digest does not match the immutable plan")
+	ErrUnsafePath     = errors.New("unsafe provider retention path")
+	ErrInvalidBinding = errors.New("invalid retained provider binding")
+)
+
 type receipt struct {
 	SchemaVersion string `json:"schemaVersion"`
 	Name          string `json:"name"`
@@ -144,18 +150,21 @@ func Resolve(root string, provider domain.ProviderRef, digest domain.Digest) (st
 	}
 	repair := fmt.Sprintf("restore the exact provider binary with digest %s to %q from a trusted backup; do not replan or reset the journal", digest, executable)
 	if err := privateDirs(root, dir, false); err != nil {
-		return "", false, fmt.Errorf("retained provider %q@%q unavailable: %v; %s", provider.Name(), provider.Version(), err, repair)
+		return "", false, fmt.Errorf("retained provider %q@%q unavailable: %w; %s", provider.Name(), provider.Version(), err, repair)
 	}
 	info, err := os.Lstat(executable)
 	if err != nil {
-		return "", false, fmt.Errorf("retained provider %q unavailable: %v; %s", provider.Name(), err, repair)
+		return "", false, fmt.Errorf("retained provider %q unavailable: %w; %s", provider.Name(), err, repair)
 	}
 	if err := verifyExecutable(executable, info, digest); err != nil {
-		return "", false, fmt.Errorf("retained provider %q: %v; %s", provider.Name(), err, repair)
+		return "", false, fmt.Errorf("retained provider %q: %w; %s", provider.Name(), err, repair)
 	}
 	info, err = os.Lstat(manifest)
-	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
-		return "", false, fmt.Errorf("retained provider receipt unavailable or unsafe; %s", repair)
+	if err != nil {
+		return "", false, fmt.Errorf("retained provider receipt unavailable: %w; %s", err, repair)
+	}
+	if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
+		return "", false, fmt.Errorf("retained provider receipt unavailable or unsafe: %w; %s", ErrUnsafePath, repair)
 	}
 	data, err := os.ReadFile(manifest)
 	if err != nil {
@@ -165,25 +174,25 @@ func Resolve(root string, provider domain.ProviderRef, digest domain.Digest) (st
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&found); err != nil {
-		return "", false, fmt.Errorf("invalid retained provider receipt: %w", err)
+		return "", false, fmt.Errorf("invalid retained provider receipt: %w: %v; %s", ErrInvalidBinding, err, repair)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return "", false, fmt.Errorf("retained provider receipt has trailing data")
+		return "", false, fmt.Errorf("retained provider receipt has trailing data: %w; %s", ErrInvalidBinding, repair)
 	}
 	if found.SchemaVersion != schemaVersion || found.Name != string(provider.Name()) ||
 		found.Version != string(provider.Version()) || found.Digest != digest.String() {
-		return "", false, fmt.Errorf("retained provider receipt disagrees with immutable plan; %s", repair)
+		return "", false, fmt.Errorf("retained provider receipt disagrees with immutable plan: %w; %s", ErrInvalidBinding, repair)
 	}
 	return executable, found.Trusted, nil
 }
 
 func retentionPaths(root string, name domain.ProviderName, digest domain.Digest) (string, string, string, error) {
 	if !digest.Valid() || !safeName(string(name)) {
-		return "", "", "", fmt.Errorf("invalid provider identity or digest")
+		return "", "", "", fmt.Errorf("invalid provider identity or digest: %w", ErrInvalidBinding)
 	}
 	if strings.TrimSpace(root) == "" || filepath.Base(filepath.Clean(root)) != ".distroplane" {
-		return "", "", "", fmt.Errorf("provider retention must use a project .distroplane directory")
+		return "", "", "", fmt.Errorf("provider retention must use a project .distroplane directory: %w", ErrUnsafePath)
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -231,10 +240,10 @@ func privateDirs(root, dir string, create bool) error {
 			return err
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("unsafe provider retention directory %q", path)
+			return fmt.Errorf("unsafe provider retention directory %q: %w", path, ErrUnsafePath)
 		}
 		if i > 0 && runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
-			return fmt.Errorf("provider retention directory %q is not private", path)
+			return fmt.Errorf("provider retention directory %q is not private: %w", path, ErrUnsafePath)
 		}
 	}
 	return nil
@@ -242,17 +251,17 @@ func privateDirs(root, dir string, create bool) error {
 
 func verifyExecutable(path string, info os.FileInfo, expected domain.Digest) error {
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("cached provider %q must be a regular file, not a symlink", path)
+		return fmt.Errorf("cached provider %q must be a regular file, not a symlink: %w", path, ErrUnsafePath)
 	}
 	if runtime.GOOS != "windows" && (info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0) {
-		return fmt.Errorf("cached provider %q must be executable and not group/world writable", path)
+		return fmt.Errorf("cached provider %q must be executable and not group/world writable: %w", path, ErrUnsafePath)
 	}
 	digest, _, err := (planner.FileHasher{}).Hash(path)
 	if err != nil {
 		return fmt.Errorf("verify cached provider: %w", err)
 	}
 	if digest != expected {
-		return fmt.Errorf("cached provider digest does not match the immutable plan")
+		return ErrDigestMismatch
 	}
 	return nil
 }
