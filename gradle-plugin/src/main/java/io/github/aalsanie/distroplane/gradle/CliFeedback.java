@@ -290,8 +290,9 @@ final class CliFeedback {
         JsonNode hint = err.get("hint");
         if (hint != null && !hint.isTextual()) throw invalid();
         String next = switch (code) {
-            case "RUN_AMBIGUOUS", "RUN_ALREADY_EXISTS", "RELEASE_CONFLICT", "STATE_CORRUPT",
-                 "AWAITING_EXTERNAL", "UNSAFE_RETRY", "INTERRUPTED" -> "status";
+            case "RUN_AMBIGUOUS", "RUN_ALREADY_EXISTS", "RELEASE_CONFLICT",
+                 "AWAITING_EXTERNAL", "INTERRUPTED" -> "status";
+            case "STATE_CORRUPT", "UNSAFE_RETRY" -> null;
             case "MISSING_CONFIG", "INVALID_CONFIG", "MISSING_ARTIFACT",
                  "PROVIDER_NOT_FOUND", "VERSION_MISMATCH" -> "doctor";
             default -> null;

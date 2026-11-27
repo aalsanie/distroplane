@@ -433,4 +433,40 @@ final class CliFeedbackTest {
         ((ObjectNode)wrong.get("plan")).put("operations", 0);
         bad("publish", 0, wrong);
     }
+    @Test void validIdentityBoundariesAndMalformedBindings() throws Exception {
+        ObjectNode good = state("PUBLISHED", true, false, false);
+        for (String id : List.of("例" + "x".repeat(180), "run / ' ;", "x".repeat(256))) {
+            good.put("runId", id);
+            assertTrue(inspect("status", 0, good).summary().contains(id));
+        }
+        good.put("runId", "run\u202econtrol");
+        String displayed = inspect("status", 0, good).summary();
+        assertFalse(displayed.contains("\u202e"));
+        assertTrue(displayed.contains("\\u{202e}"));
+        for (String id : List.of("", " x", "x ", "x\u0085", "x\n", "x".repeat(257), "\ud800")) {
+            good.put("runId", id);
+            bad("status", 0, good);
+        }
+        good.put("runId", "run-valid");
+        ObjectNode wrong = good.deepCopy();
+        ((ObjectNode)wrong.withArray("operations").get(0)).put("targetId", "other-target");
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.withArray("targets").add(wrong.withArray("targets").get(0).deepCopy());
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.withArray("operations").add(wrong.withArray("operations").get(0).deepCopy());
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.put("legacyRetryPending", "true");
+        bad("status", 0, wrong);
+        assertThrows(IOException.class, () -> CliFeedback.interpret("status",
+            new CliRunner.Result(0, "{\"outputSchemaVersion\":\"1\",\"outputSchemaVersion\":\"1\"}", "")));
+        ObjectNode noop = state("PUBLISHED", true, false, false);
+        noop.putArray("operations");
+        ObjectNode wrapped = publish(noop);
+        ((ObjectNode)wrapped.get("plan")).put("operations", 0);
+        assertTrue(inspect("publish", 0, wrapped).summary().contains("completed no-op"));
+    }
+
 }

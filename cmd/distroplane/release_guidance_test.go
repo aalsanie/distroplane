@@ -199,6 +199,10 @@ func TestReleaseGuidanceSelectorsAreSupportedAndQuoted(t *testing.T) {
 	if cat.command("evidence") != "" {
 		t.Fatal("evidence command invented without plan/journal")
 	}
+	cat.recoveryUnavailable = true
+	if cat.command("resume") != "" || cat.command("reconcile") != "" || cat.command("status") == "" {
+		t.Fatal("unavailable original configuration made recovery executable or blocked read-only status")
+	}
 }
 
 func TestReleaseGuidanceSafeFallbacksAndTruncatedState(t *testing.T) {
@@ -536,5 +540,27 @@ func TestReleaseGuidanceOperationCodesAreAllowlisted(t *testing.T) {
 	writeStateText(&b, out)
 	if strings.Contains(b.String(), "attacker controlled") {
 		t.Fatalf("raw provider error displayed: %s", b.String())
+	}
+}
+
+func TestReleaseGuidanceMissingOriginalConfigDoesNotOfferResume(t *testing.T) {
+	_, config := publishFixture(t, `{"mode":"waiting_external","reconcileState":"published"}`)
+	var out, diagnostic bytes.Buffer
+	if code := runPublishContext(t.Context(), []string{"--config", config, "--yes", "--json"}, nil, &out, &diagnostic); code != exitPending {
+		t.Fatalf("publish code=%d stderr=%s", code, diagnostic.String())
+	}
+	var result publishOutput
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Run == nil {
+		t.Fatalf("invalid publication output: %s %v", out.String(), err)
+	}
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := runStatus([]string{"--config", config, "--run", result.Run.RunID}, &out, &diagnostic); code != exitPending {
+		t.Fatalf("status code=%d stderr=%s", code, diagnostic.String())
+	}
+	if strings.Contains(out.String(), "distroplane resume") || !strings.Contains(out.String(), "restore the original configuration") {
+		t.Fatalf("unsafe missing-config recovery guidance: %s", out.String())
 	}
 }

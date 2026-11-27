@@ -8,13 +8,13 @@ import (
 )
 
 type stateTextSelection struct {
-	configPath         string
-	planPath           string
-	journalPath        string
-	runID              string
-	catalog            bool
-	configVerified     bool
-	legacyRetryPending bool
+	configPath          string
+	planPath            string
+	journalPath         string
+	runID               string
+	catalog             bool
+	configVerified      bool
+	legacyRetryPending  bool
 	recoveryUnavailable bool
 }
 
