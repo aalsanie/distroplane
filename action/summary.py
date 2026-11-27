@@ -13,6 +13,21 @@ ARTIFACT_DIGEST = re.compile(r"sha256:[0-9a-fA-F]{64}\Z")
 STATES = frozenset({"PLANNED", "READY", "RUNNING", "WAITING_EXTERNAL", "BLOCKED",
                     "PUBLISHED", "REJECTED", "FAILED", "CANCELLED"})
 COMMANDS = frozenset({"plan", "apply", "reconcile", "publish", "resume"})
+DIAGNOSTICS = {
+    "STATE_CORRUPT": "Preserve and restore the original plan, journal, exact artifacts and retained provider executables; seek compatible recovery.",
+    "RUN_AMBIGUOUS": "List existing runs and select the exact run or release; never choose arbitrarily.",
+    "RUN_ALREADY_EXISTS": "Inspect the existing recorded run instead of starting another publication.",
+    "RELEASE_CONFLICT": "Inspect the original immutable plan and run; do not create a replacement.",
+    "UNSAFE_RETRY": "Preserve original files and seek manual recovery; do not resume an unsupported retry grant or republish.",
+    "PROVIDER_NOT_FOUND": "Restore the original provider executable and verify its recorded identity.",
+    "VERSION_MISMATCH": "Restore the original provider executable and verify its recorded identity.",
+    "MISSING_ARTIFACT": "Restore the exact originally planned artifact bytes; do not create replacement artifacts.",
+    "MISSING_CONFIG": "Restore the original configuration for the existing release.",
+    "INVALID_CONFIG": "Inspect and correct the original configuration without replacing the recorded release.",
+    "INTERRUPTED": "Inspect the original recorded run and reconcile possible external dispatch before resuming.",
+    "AWAITING_EXTERNAL": "Inspect and reconcile the original recorded run before any further publication.",
+    "APPROVAL_REQUIRED": "Review the immutable plan and use explicit matching approval."
+}
 
 
 def identity(value):
@@ -238,6 +253,10 @@ def render(env):
         else:
             outcome = "CLI result unavailable or inconsistent; publication status unknown"
         next_action = "Inspect the original recorded run and CI logs without retrying publication. Preserve any existing plan, journal, provider snapshots and exact artifacts."
+        diagnostic = env.get("SUMMARY_DIAGNOSTIC_CODE", "")
+        if execute == "success" and code in (1, 2, 3, 4, 5, 6) and not env.get("SUMMARY_RESULT_JSON", "") and diagnostic in DIAGNOSTICS:
+            outcome += f" ({diagnostic})"
+            next_action = DIAGNOSTICS[diagnostic]
         lines.append(f"**Outcome:** {outcome}.")
     else:
         lines.append(f"**Outcome:** {detail['outcome']}.")

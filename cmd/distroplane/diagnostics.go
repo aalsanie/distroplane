@@ -12,7 +12,7 @@ func diagnosticGuidance(kind string, err error) (string, string) {
 	switch kind {
 	case "invalid_config":
 		if errors.Is(err, os.ErrNotExist) {
-			return "MISSING_CONFIG", "Run distroplane init or specify --config PATH"
+			return "MISSING_CONFIG", "Restore the original configuration for an existing release or specify --config PATH; use init only for a new release"
 		}
 		return "INVALID_CONFIG", "Correct the configuration and run distroplane validate"
 	case "invalid_plan", "artifact_changed":

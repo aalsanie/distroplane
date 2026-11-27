@@ -33,7 +33,9 @@ distroplane status
 distroplane resume
 ```
 
-A pending release may require external review; `resume` uses its original plan and journal and does not silently start a new release. To inspect external state without dispatching new operations, use `distroplane resume --reconcile-only`. If several runs exist, select one using `--release` and `--run`.
+A pending release may be blocked by credentials or require external review. Restore the approved credential source before resuming a blocked run; dependency-terminal blocks and unsupported retry history require manual review. To inspect an uncertain or external outcome without dispatching new operations, select the exact run with `distroplane resume --run ID --reconcile-only`. If several runs exist, list them with `distroplane runs` and choose the original run. Keep its original plan, journal, artifact bytes, configuration and retained provider executables. A truncated journal reports only its durable prefix.
+
+A successful zero-operation run is a no-op, not a new publication. Recorded evidence describes the saved run, not a fresh authenticated verification of public availability.
 
 For a saved plan, `doctor` verifies the exact retained provider bytes before running provider diagnostics. An installation upgrade does not replace the saved binding. If multiple plans exist for the configured release, select the original plan with `doctor --plan PATH`.
 

@@ -28,6 +28,9 @@ func shellArgument(value, hostOS string) (string, bool) {
 		}
 	}
 	if hostOS == "windows" {
+		if strings.ContainsAny(value, "\"\u2018\u2019\u201a\u201b") {
+			return "", false
+		}
 		return "'" + strings.ReplaceAll(value, "'", "''") + "'", true
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'", true

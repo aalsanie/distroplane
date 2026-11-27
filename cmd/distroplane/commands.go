@@ -377,9 +377,11 @@ func runStatusWithSelection(args []string, stdout, stderr io.Writer, knownCatalo
 	if executionErr != nil {
 		fmt.Fprintln(stderr, "warning:", executionErr)
 	}
+	_, configErr := official.Load(configPath)
 	writeStateTextWithSelection(stdout, output, stateTextSelection{
 		configPath: configPath, planPath: planPath, journalPath: journalPath,
 		runID: output.RunID, catalog: catalogSelected, legacyRetryPending: executionErr != nil,
+		recoveryUnavailable: configErr != nil,
 	})
 	return code
 }

@@ -15,9 +15,13 @@ type stateTextSelection struct {
 	catalog            bool
 	configVerified     bool
 	legacyRetryPending bool
+	recoveryUnavailable bool
 }
 
 func (s stateTextSelection) command(verb string) string {
+	if s.recoveryUnavailable && (verb == "resume" || verb == "reconcile") {
+		return ""
+	}
 	var args []string
 	add := func(flag, value string) bool {
 		quoted, ok := shellArgument(value, runtime.GOOS)
@@ -79,7 +83,7 @@ type releaseAssessment struct {
 func assessRelease(output stateOutput) releaseAssessment {
 	a := releaseAssessment{published: output.Completed && !output.Cancelled &&
 		!output.JournalTruncatedTail && !output.LegacyRetryPending && len(output.Targets) > 0 && len(output.Operations) > 0,
-		noop: output.Completed && !output.Cancelled && len(output.Targets) > 0 && len(output.Operations) == 0,
+		noop:     output.Completed && !output.Cancelled && len(output.Targets) > 0 && len(output.Operations) == 0,
 		mayExist: output.JournalTruncatedTail || output.LegacyRetryPending}
 	for _, target := range output.Targets {
 		if target.State != "PUBLISHED" || target.ReconcileRequired || target.Ambiguous {
@@ -194,12 +198,12 @@ func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string
 		if command := s.command("reconcile"); command != "" {
 			return "The remote side effect may already have occurred. Reconcile the original run before any retry: " + command
 		}
-		return "The remote side effect may already have occurred. Preserve the original plan and journal; perform read-only reconciliation before any retry. Restore the original configuration if necessary"
+		return "The remote side effect may already have occurred. Preserve the original plan and journal; perform read-only reconciliation before any retry. Restore the original configuration and retained provider executables if necessary"
 	case a.external:
 		if command := s.command("reconcile"); command != "" {
 			return "Check external acceptance of the original submission without another publish attempt: " + command
 		}
-		return "Preserve the original plan and journal; check external acceptance through read-only reconciliation, not a new publication"
+		return "Preserve the original plan and journal; restore the original configuration and retained provider executables if necessary, then check external acceptance through read-only reconciliation, not a new publication"
 	case a.blocked && (a.dependencyBlocked || a.failed || a.cancelled || a.rejected):
 		return "Inspect the recorded prerequisite and terminal outcomes; a human decision is required before further work on this same run"
 	case a.blocked:
@@ -210,7 +214,7 @@ func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string
 		if command := s.command("resume"); command != "" {
 			return prefix + ", then resume this same recorded run: " + command
 		}
-		return prefix + "; inspect the original run catalog before resuming. Never create a replacement run"
+		return prefix + "; inspect the original run catalog and restore the original configuration and retained provider executables if missing before resuming. Never create a replacement run"
 	case a.failed || a.cancelled || a.rejected:
 		if command := s.command("status"); command != "" {
 			return "Inspect the recorded cause with " + command + "; do not start a replacement publication or retry automatically"

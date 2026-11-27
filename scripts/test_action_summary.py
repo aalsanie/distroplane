@@ -145,6 +145,45 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("Waiting for external review", output)
         self.assertNotIn("Recorded as published", output)
 
+    def test_diagnostic_codes_never_echo_provider_message(self):
+        for code, advice in (("STATE_CORRUPT", "retained provider executables"),
+                             ("RUN_AMBIGUOUS", "select the exact run"),
+                             ("UNSAFE_RETRY", "manual recovery"),
+                             ("VERSION_MISMATCH", "original provider executable")):
+            data = env("resume", {}, 3)
+            data["SUMMARY_RESULT_JSON"] = ""
+            data["SUMMARY_DIAGNOSTIC_CODE"] = code
+            output = MODULE.render(data)
+            self.assertIn(code, output)
+            self.assertIn(advice, output)
+            self.assertNotIn("Recorded as published", output)
+        data["SUMMARY_DIAGNOSTIC_CODE"] = "SECRET-CANARY"
+        self.assertNotIn("SECRET-CANARY", MODULE.render(data))
+
+    def test_mismatched_publish_identity_and_counts_refuse(self):
+        for field, value in (("planId", "other"), ("targets", 2), ("operations", 0)):
+            data = env()
+            obj = json.loads(data["SUMMARY_RESULT_JSON"])
+            obj["plan"][field] = value
+            data["SUMMARY_RESULT_JSON"] = json.dumps(obj)
+            self.assertIn("publication status unknown", MODULE.render(data))
+
+    def test_identity_contract_and_safe_markdown(self):
+        for ident in ("例" + "x" * 180, "run / ' ;", "x" * 256, "x\u202ey", "run`<tag>"):
+            self.assertEqual(MODULE.identity(ident), ident)
+        for ident in ("", " x", "x\n", "x\x1b", "x" * 257, "\ud800"):
+            self.assertIsNone(MODULE.identity(ident))
+        state = record("WAITING_EXTERNAL", False, True)
+        state["runId"] = "run`<tag>\u202e"
+        data = env("resume", state, 4)
+        data["SUMMARY_RUN_ID"] = state["runId"]
+        output = MODULE.render(data)
+        self.assertNotIn("<tag>", output)
+        self.assertNotIn("\u202e", output)
+        self.assertIn("Waiting for external review", output)
+        data["SUMMARY_RESULT_JSON"] = '{"outputSchemaVersion":"1","outputSchemaVersion":"1"}'
+        self.assertIn("publication status unknown", MODULE.render(data))
+
     def test_invalid_and_missing_json_drop_identity(self):
         for raw in ("", "{", "[]", "{}", '{"outputSchemaVersion":"999"}',
                     '{"outputSchemaVersion":"1","planId":"plan-123"}',
