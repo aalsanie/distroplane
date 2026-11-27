@@ -1,10 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Distroplane provider protocol v1",
-  "oneOf": [
-    { "$ref": "#/$defs/request" },
-    { "$ref": "#/$defs/response" }
-  ],
+  "if": { "type": "object", "required": ["status"] },
+  "then": { "$ref": "#/$defs/response" },
+  "else": { "$ref": "#/$defs/request" },
   "$defs": {
     "operation": {
       "type": "string",
@@ -223,7 +222,7 @@
         "targetId": { "type": "string", "minLength": 1 },
         "operationId": { "type": "string", "minLength": 1 },
         "idempotencyKey": { "type": "string", "minLength": 1 },
-        "attempt": { "type": "integer", "minimum": 1 },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
         "providerPayload": {}
       }
     },

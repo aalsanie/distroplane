@@ -122,6 +122,10 @@ def main():
         response = reply(request, mode)
         response.update(protocolVersion="1", requestId=request["requestId"],
                         operation=request["operation"])
+        if mode == "optional-fields":
+            response["futureEnvelope"] = {"version": 2}
+            if response.get("status") == "ok":
+                response["payload"]["futureOptional"] = {"enabled": True}
         if mode == "wrong-id":
             response["requestId"] += "-wrong"
         if mode == "wrong-operation":

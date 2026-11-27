@@ -33,6 +33,7 @@
     "journal": 2,
     "cliOutput": "1"
   },
+  "supportedConfigVersions": ["1", "2"],
   "normalizedStates": [
     "PLANNED",
     "READY",

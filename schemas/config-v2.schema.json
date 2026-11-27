@@ -647,7 +647,8 @@
                           "then": {
                             "required": [
                               "binary"
-                            ]
+                            ],
+                            "properties": {"binary": {"minLength": 1}}
                           }
                         },
                         {
@@ -662,7 +663,8 @@
                             "required": [
                               "installKind",
                               "installSource"
-                            ]
+                            ],
+                            "properties": {"installKind": {"minLength": 1}, "installSource": {"minLength": 1}}
                           }
                         }
                       ]
@@ -873,7 +875,8 @@
                             "then": {
                               "required": [
                                 "binary"
-                              ]
+                              ],
+                              "properties": {"binary": {"minLength": 1}}
                             }
                           },
                           {
@@ -888,7 +891,8 @@
                               "required": [
                                 "installKind",
                                 "installSource"
-                              ]
+                              ],
+                              "properties": {"installKind": {"minLength": 1}, "installSource": {"minLength": 1}}
                             }
                           }
                         ]

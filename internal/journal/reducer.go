@@ -424,6 +424,14 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 	return result, nil
 }
 
+func CheckExecutionHistory(plan domain.Plan, events []Event) error {
+	state, err := Reduce(plan, events)
+	if err != nil {
+		return err
+	}
+	return state.CheckExecutionAllowed()
+}
+
 func eventOperation(event Event, operations map[domain.OperationID]*mutableOperation) (*mutableOperation, error) {
 	operation, ok := operations[event.OperationID]
 	if !ok {

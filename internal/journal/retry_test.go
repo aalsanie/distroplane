@@ -250,3 +250,34 @@ func TestOpenWriterForExecutionPreservesHistoricalGrantAndTail(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenWriterForExecutionRejectsInvalidHistoryBeforeRepair(t *testing.T) {
+	plan := npmRetryPlan(t)
+	events := ambiguousNpmEvents()
+	events[1].OperationID = "unknown-operation"
+	var prefix []byte
+	for _, e := range events[:2] {
+		frame, err := encodeFrame(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix = append(prefix, frame...)
+	}
+	path := filepath.Join(t.TempDir(), "invalid.journal")
+	before := append(prefix, 'D', 'P')
+	if err := os.WriteFile(path, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := OpenWriterForExecution(path, runID(), plan)
+	if writer != nil {
+		_ = writer.Close()
+		t.Fatal("invalid history opened for execution")
+	}
+	if err == nil {
+		t.Fatal("invalid history was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("invalid history was modified: %v", err)
+	}
+}

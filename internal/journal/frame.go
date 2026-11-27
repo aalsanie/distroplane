@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+
+	"github.com/aalsanie/distroplane/internal/canonicaljson"
 )
 
 var frameMagic = [4]byte{'D', 'P', 'J', '1'}
@@ -88,6 +90,9 @@ func decodeEvent(payload []byte) (Event, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return Event{}, fmt.Errorf("%w: trailing JSON data", ErrCorruptRecord)
 	}
+	if _, err := canonicaljson.Normalize(payload); err != nil {
+		return Event{}, fmt.Errorf("%w: %v", ErrCorruptRecord, err)
+	}
 	if err := event.validate(); err != nil {
 		return Event{}, err
 	}
@@ -104,6 +109,9 @@ func encodeFrame(event Event) ([]byte, error) {
 	}
 	if len(payload) > MaxRecordBytes {
 		return nil, fmt.Errorf("journal record exceeds %d bytes", MaxRecordBytes)
+	}
+	if _, err := canonicaljson.Normalize(payload); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCorruptRecord, err)
 	}
 	frame := make([]byte, frameHeaderBytes+len(payload))
 	copy(frame[:4], frameMagic[:])

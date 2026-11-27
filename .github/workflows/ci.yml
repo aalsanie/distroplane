@@ -244,6 +244,32 @@ jobs:
           python3 protocol/conformance/test_conformance.py \
             --cli "$RUNNER_TEMP/provider-conformance/bin/distroplane" \
             --bin-dir "$RUNNER_TEMP/provider-conformance/bin"
+      - name: Checkout previous release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 73e97ccbeb0c05ed1a82d836f2d3bba3ff7bc0f4
+          path: .legacy-release
+          persist-credentials: false
+      - name: Build previous release fixtures
+        working-directory: .legacy-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat VERSION)" = "0.9.3"
+          mkdir -p "$RUNNER_TEMP/provider-conformance/legacy"
+          go build -trimpath -ldflags '-X main.version=0.9.3' -o "$RUNNER_TEMP/provider-conformance/legacy/distroplane" ./cmd/distroplane
+          go build -trimpath -o "$RUNNER_TEMP/provider-conformance/legacy/distroplane-provider-fake" ./cmd/distroplane-provider-fake
+      - name: Verify schemas and release compatibility
+        shell: bash
+        env:
+          DISTROPLANE_CONSUMER_CLI: ${{ runner.temp }}/provider-conformance/bin/distroplane
+          DISTROPLANE_CONSUMER_PROVIDER: ${{ runner.temp }}/provider-conformance/bin/distroplane-provider-fake
+          DISTROPLANE_LEGACY_BIN: ${{ runner.temp }}/provider-conformance/legacy
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/compatibility-venv"
+          "$RUNNER_TEMP/compatibility-venv/bin/python" -m pip install --disable-pip-version-check -r tests/consumer/compatibility-requirements.txt
+          "$RUNNER_TEMP/compatibility-venv/bin/python" tests/consumer/compatibility.py
       - name: Verify independent CLI consumer and evidence contracts
         shell: bash
         env:
