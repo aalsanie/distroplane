@@ -211,7 +211,20 @@
       "required": ["operations"],
       "properties": {
         "operations": { "type": "array", "items": { "$ref": "#/$defs/plannedOperation" } },
-        "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } }
+        "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } },
+        "reviewFields": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "value": { "type": "string", "minLength": 1, "maxLength": 512 }
+            }
+          }
+        }
       }
     },
     "executionRequest": {

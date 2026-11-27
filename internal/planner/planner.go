@@ -156,6 +156,7 @@ func (p *Planner) Build(ctx context.Context, loaded config.Loaded) (Distribution
 			Configuration:        append(json.RawMessage(nil), targetConfig.Configuration...),
 			RequiredCapabilities: append([]protocol.Capability(nil), required...),
 			Requirements:         requirements,
+			ReviewFields:         append(protocol.ReviewFields(nil), response.ReviewFields...),
 		})
 
 		targetDrafts, err := buildOperationDrafts(targetID, providerRef, providerDigest, response.Operations)

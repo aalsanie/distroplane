@@ -162,6 +162,28 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Authenticated: cfg.Authentication.Credential != "", PullRequest: cfg.PullRequest,
 		Artifact: cfg.Artifact, ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 	}
+	if strings.ContainsAny(payload.Repository, "?#") || strings.ContainsAny(payload.PullRequest.Repository, "?#@:") {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, "repository review requires a location without query or fragment", false)
+	}
+	review := protocol.ReviewFields{
+		{Label: "Action", Value: "Direct repository update"},
+		{Label: "Repository", Value: payload.Repository},
+		{Label: "Branch", Value: payload.Branch},
+		{Label: "Manifest", Value: payload.Path},
+		{Label: "Package", Value: cfg.Manifest.Name},
+		{Label: "Version", Value: cfg.Manifest.Version},
+	}
+	if payload.Mode == "pull-request" {
+		review[0].Value = "Submit pull request; external review may be required"
+		review = append(review,
+			protocol.ReviewField{Label: "Review repository", Value: payload.PullRequest.Repository},
+			protocol.ReviewField{Label: "Update branch", Value: payload.UpdateBranch},
+			protocol.ReviewField{Label: "Review API", Value: payload.PullRequest.API},
+		)
+	}
+	if err := review.Validate(); err != nil {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
 	raw, _ := json.Marshal(payload)
 	requirements := []protocol.Requirement{{Kind: "executable", Name: "git", Metadata: json.RawMessage(`{"minimumVersion":"2"}`)}}
 	if cfg.Authentication.Credential != "" {
@@ -171,6 +193,7 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 	return protocol.PlanResponse{
 		Operations:   []protocol.PlannedOperation{{ID: "publish", Kind: "publish", SideEffecting: true, TimeoutMillis: defaultOperationTimeout, ProviderPayload: raw}},
 		Requirements: requirements,
+		ReviewFields: review,
 	}, nil
 }
 

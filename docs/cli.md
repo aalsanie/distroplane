@@ -10,7 +10,7 @@ distroplane doctor
 distroplane publish
 ```
 
-`init` asks for a release ID, destination, and artifact if not supplied. Choose a numbered artifact or enter its path. Required destination metadata includes a short example and is checked as you enter it. Invalid answers can be corrected without restarting. Press Ctrl-C to cancel without writing configuration. Optional advanced fields use `--set FIELD=VALUE`; use `--credential REF=ENV` to select an environment variable name, never its value. `doctor` checks your configuration and local readiness. `publish` previews the immutable plan and asks for explicit approval **before** any publication.
+`init` asks for a release ID, destination, and artifact if not supplied. Choose a numbered artifact or enter its path. Required destination metadata includes a short example and is checked as you enter it. Invalid answers can be corrected without restarting. Press Ctrl-C to cancel without writing configuration. Optional advanced fields use `--set FIELD=VALUE`; use `--credential REF=ENV` to select an environment variable name, never its value. `doctor` checks your configuration and local readiness. `publish` previews the immutable plan, including provider-authored destination and action details, and asks for explicit approval **before** any publication. Providers without review fields display a limited preview. Type the exact displayed confirmation in a terminal; piped input and EOF do not authorize publication. A preview saves the plan and provider snapshots locally without dispatching publication.
 
 In scripts, supply all `init` metadata with flags (`distroplane init --help`). For noninteractive publishing, use `--yes` only after reviewing the plan; `--dry-run` never publishes.
 

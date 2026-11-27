@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -205,6 +207,10 @@ func runExecutionContext(ctx context.Context, args []string, stdout, stderr io.W
 }
 
 func runExecutionContextForSelection(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly, catalogSelected bool) int {
+	return runExecutionContextWithApproval(ctx, args, stdout, stderr, reconcileOnly, catalogSelected, nil)
+}
+
+func runExecutionContextWithApproval(ctx context.Context, args []string, stdout, stderr io.Writer, reconcileOnly, catalogSelected bool, approved *publicationApproval) int {
 	command := "apply"
 	if reconcileOnly {
 		command = "reconcile"
@@ -234,6 +240,12 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
 	}
+	if approved != nil {
+		raw, err := persisted.Bytes()
+		if err != nil || persisted.ID() != approved.id || !bytes.Equal(raw, approved.planBytes) {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("saved plan no longer matches the approved plan"))
+		}
+	}
 	if err := persisted.VerifyProviderDigests(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
 	}
@@ -245,6 +257,9 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 	loaded, err := official.Load(configPath)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_config", err)
+	}
+	if approved != nil && !reflect.DeepEqual(loaded, approved.config) {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("configuration changed after the publication preview"))
 	}
 	driver, err := executionDriverWithDigests(loaded, persisted.Plan(), persisted.ProviderDigests(), credentialMap)
 	if err != nil {

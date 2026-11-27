@@ -204,9 +204,13 @@ func (o PlannedOperation) Validate() error {
 type PlanResponse struct {
 	Operations   []PlannedOperation `json:"operations"`
 	Requirements []Requirement      `json:"requirements,omitempty"`
+	ReviewFields ReviewFields       `json:"reviewFields,omitempty"`
 }
 
 func (r PlanResponse) Validate() error {
+	if err := r.ReviewFields.Validate(); err != nil {
+		return err
+	}
 	operations := make(map[string]PlannedOperation, len(r.Operations))
 	for _, operation := range r.Operations {
 		if err := operation.Validate(); err != nil {

@@ -112,6 +112,19 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Registry: cfg.Registry, Tag: cfg.Tag, Access: cfg.Access, Authentication: cfg.Authentication.Mode,
 		SHA256: artifact.Digest, Size: artifact.Size,
 	}
+	review := protocol.ReviewFields{
+		{Label: "Action", Value: "Publish package version"},
+		{Label: "Registry", Value: payload.Registry},
+		{Label: "Package", Value: payload.Package},
+		{Label: "Version", Value: payload.Version},
+		{Label: "Dist-tag", Value: payload.Tag},
+	}
+	if payload.Access != "" {
+		review = append(review, protocol.ReviewField{Label: "Access", Value: payload.Access})
+	}
+	if err := review.Validate(); err != nil {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
 	encoded, _ := json.Marshal(payload)
 	metadata, _ := json.Marshal(map[string]string{"environment": credentialEnvironment(cfg.Authentication.Mode)})
 	return protocol.PlanResponse{
@@ -119,6 +132,7 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 			ID: "publish", Kind: "publish", SideEffecting: true, TimeoutMillis: defaultOperationTimeout, ProviderPayload: encoded,
 		}},
 		Requirements: []protocol.Requirement{{Kind: "credential", Name: cfg.Authentication.Credential, Metadata: metadata}},
+		ReviewFields: review,
 	}, nil
 }
 

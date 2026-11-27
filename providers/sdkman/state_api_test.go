@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -143,6 +144,16 @@ func TestStateAPIJWTContractAndIdempotentPreflight(t *testing.T) {
 		!strings.Contains(string(plan.Requirements[0].Metadata), VendorEmailEnvironment) ||
 		!strings.Contains(string(plan.Requirements[1].Metadata), VendorPasswordEnvironment) {
 		t.Fatalf("state plan=%+v payload=%+v", plan.Requirements, payload)
+	}
+	want := protocol.ReviewFields{
+		{Label: "Action", Value: "State API version registration"},
+		{Label: "Registration API", Value: payload.StateAPI},
+		{Label: "Candidate", Value: payload.Candidate},
+		{Label: "Version", Value: payload.Version},
+		{Label: "Platform", Value: payload.Platform},
+	}
+	if !reflect.DeepEqual(plan.ReviewFields, want) {
+		t.Fatalf("review fields=%v want=%v", plan.ReviewFields, want)
 	}
 	if strings.Contains(string(plan.Operations[0].ProviderPayload), statePassword) ||
 		strings.Contains(string(plan.Operations[0].ProviderPayload), stateEmail) {

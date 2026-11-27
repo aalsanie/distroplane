@@ -195,12 +195,31 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Artifact: cfg.Artifact, ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 		PackageID: cfg.Package.Identifier, PackageVersion: cfg.Package.Version, ManifestVersion: cfg.ManifestVersion,
 	}
+	if strings.ContainsAny(payload.Repository, "?#") || strings.ContainsAny(payload.PullRequest.Repository, "?#@:") {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, "repository review requires a location without query or fragment", false)
+	}
+	review := protocol.ReviewFields{
+		{Label: "Action", Value: "Submit manifests by pull request; external review required"},
+		{Label: "Repository", Value: payload.Repository},
+		{Label: "Branch", Value: payload.Branch},
+		{Label: "Package", Value: payload.PackageID},
+		{Label: "Version", Value: payload.PackageVersion},
+		{Label: "Review repository", Value: payload.PullRequest.Repository},
+		{Label: "Review API", Value: payload.PullRequest.API},
+		{Label: "Update branch", Value: payload.UpdateBranch},
+		{Label: "Head owner", Value: payload.PullRequest.HeadOwner},
+		{Label: "Manifest directory", Value: path.Dir(payload.Files[0].Path)},
+	}
+	if err := review.Validate(); err != nil {
+		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)
+	}
 	raw, _ := json.Marshal(payload)
 	credentialMetadata, _ := json.Marshal(map[string]string{"environment": TokenEnvironment})
 	return protocol.PlanResponse{
 		Operations: []protocol.PlannedOperation{{
 			ID: "submit", Kind: "submit", SideEffecting: true, TimeoutMillis: defaultOperationTimeout, ProviderPayload: raw,
 		}},
+		ReviewFields: review,
 		Requirements: []protocol.Requirement{
 			{Kind: "executable", Name: "git", Metadata: json.RawMessage(`{"minimumVersion":"2"}`)},
 			{Kind: "credential", Name: cfg.Authentication.Credential, Metadata: credentialMetadata},

@@ -11,6 +11,7 @@
   ],
   "extensionPoints": [
     "describeResponse.requirements",
+    "planResponse.reviewFields",
     "requirement.metadata",
     "target.configuration",
     "plannedOperation.providerPayload",
@@ -28,12 +29,13 @@
   },
   "schemaVersions": {
     "config": "1",
-    "plan": "1",
+    "plan": "2",
     "evidence": "1",
     "journal": 2,
     "cliOutput": "1"
   },
   "supportedConfigVersions": ["1", "2"],
+  "supportedPlanVersions": ["1", "2"],
   "normalizedStates": [
     "PLANNED",
     "READY",

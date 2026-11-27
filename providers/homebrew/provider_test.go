@@ -148,6 +148,17 @@ func TestDescribeAndPlanFormula(t *testing.T) {
 	if payload.Commit.AuthorName != "Distroplane" || payload.Commit.Message == "" {
 		t.Fatalf("commit=%+v", payload.Commit)
 	}
+	want := protocol.ReviewFields{
+		{Label: "Action", Value: "Direct repository update"},
+		{Label: "Repository", Value: payload.Repository},
+		{Label: "Branch", Value: payload.Branch},
+		{Label: "Manifest", Value: payload.Path},
+		{Label: "Package", Value: "Demo"},
+		{Label: "Version", Value: "1.2.3"},
+	}
+	if fmt.Sprint(response.ReviewFields) != fmt.Sprint(want) || response.ReviewFields.Validate() != nil {
+		t.Fatalf("review fields=%v want=%v", response.ReviewFields, want)
+	}
 }
 
 func TestPlanCaskAndCredentialRequirement(t *testing.T) {
@@ -283,7 +294,12 @@ func TestPullRequestFlowAndMergeReconciliation(t *testing.T) {
 	fixture, server := newPRServer(t, "normal")
 	defer server.Close()
 	provider := authenticatedProvider(server.Client())
-	_, payload := plannedPayload(t, provider, prConfiguration(repo, server))
+	planned, payload := plannedPayload(t, provider, prConfiguration(repo, server))
+	if planned.ReviewFields[0].Value != "Submit pull request; external review may be required" ||
+		!strings.Contains(fmt.Sprint(planned.ReviewFields), "{Review repository "+payload.PullRequest.Repository+"}") ||
+		!strings.Contains(fmt.Sprint(planned.ReviewFields), "{Update branch "+payload.UpdateBranch+"}") {
+		t.Fatalf("review fields=%v", planned.ReviewFields)
+	}
 	response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
 	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "pull-request-open" {
 		t.Fatalf("response=%+v err=%v", response, providerErr)
@@ -369,5 +385,14 @@ func TestLostPushConfirmationIsObserved(t *testing.T) {
 	response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
 	if providerErr != nil || response.Result.State != protocol.ResultPublished {
 		t.Fatalf("response=%+v err=%v", response, providerErr)
+	}
+}
+
+func TestReviewRejectsUnsafeRepositoryAndOverlongValue(t *testing.T) {
+	for _, repository := range []string{"https://example.test/tap?token=secret-canary", strings.Repeat("a", 513)} {
+		cfg := formulaConfiguration(repository, "direct")
+		if _, e := (Provider{}).Plan(context.Background(), planRequest(t, cfg)); e == nil || strings.Contains(e.Message, "secret-canary") {
+			t.Fatalf("unsafe review accepted or exposed: %v", e)
+		}
 	}
 }

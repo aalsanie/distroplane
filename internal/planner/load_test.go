@@ -44,7 +44,7 @@ func TestDecodePlanRoundTripAndTamperDetection(t *testing.T) {
 	if _, err := Decode(bytes.NewReader(tampered)); err == nil || !strings.Contains(err.Error(), "does not match plan content") {
 		t.Fatalf("tamper err=%v", err)
 	}
-	unknown := bytes.Replace(raw, []byte(`"schemaVersion":"1"`), []byte(`"schemaVersion":"1","unexpected":true`), 1)
+	unknown := bytes.Replace(raw, []byte(`"schemaVersion":"2"`), []byte(`"schemaVersion":"2","unexpected":true`), 1)
 	if _, err := Decode(bytes.NewReader(unknown)); err == nil {
 		t.Fatal("unknown plan field accepted")
 	}
