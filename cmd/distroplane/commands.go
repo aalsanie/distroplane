@@ -359,6 +359,29 @@ func executionDriver(loaded config.Loaded, plan domain.Plan, mappings credential
 }
 
 func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, providerDigests map[domain.ProviderRef]domain.Digest, mappings credentialFlags) (*providerhost.Driver, error) {
+	bindings, trustedDefaults, err := resolveExecutionBindings(loaded, plan, providerDigests)
+	if err != nil {
+		return nil, err
+	}
+	client, err := providerhost.New(providerhost.Options{})
+	if err != nil {
+		return nil, err
+	}
+	sources, err := credentials.SelectSources(plan, loaded.Config.CredentialSources, mappings, trustedDefaults)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return providerhost.NewDriver(client, bindings)
+	}
+	resolver, err := credentials.NewEnvironmentResolver(sources)
+	if err != nil {
+		return nil, err
+	}
+	return providerhost.NewDriverWithCredentials(client, resolver, bindings)
+}
+
+func resolveExecutionBindings(loaded config.Loaded, plan domain.Plan, providerDigests map[domain.ProviderRef]domain.Digest) ([]providerhost.Binding, map[string]bool, error) {
 	targetConfig := make(map[string]config.Target, len(loaded.Config.Targets))
 	for _, target := range loaded.Config.Targets {
 		targetConfig[target.ID] = target
@@ -368,10 +391,10 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 	for _, target := range plan.Targets() {
 		configured, ok := targetConfig[string(target.ID())]
 		if !ok {
-			return nil, fmt.Errorf("plan target %q is missing from config", target.ID())
+			return nil, nil, fmt.Errorf("plan target %q is missing from config", target.ID())
 		}
 		if configured.Provider.Name != string(target.Provider().Name()) {
-			return nil, fmt.Errorf("plan target %q provider is %q, config has %q", target.ID(), target.Provider().Name(), configured.Provider.Name)
+			return nil, nil, fmt.Errorf("plan target %q provider is %q, config has %q", target.ID(), target.Provider().Name(), configured.Provider.Name)
 		}
 		var executable string
 		var trusted bool
@@ -380,7 +403,7 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 			digest := providerDigests[target.Provider()]
 			executable, trusted, err = providerretention.Resolve(filepath.Join(loaded.BaseDir, ".distroplane"), target.Provider(), digest)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			// Cache provenance cannot grant ambient credentials to explicitly
 			// configured executables, even when the bytes are identical.
@@ -388,13 +411,13 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 		} else {
 			executable, err = planner.ResolveExecutable(loaded.BaseDir, configured.Provider.Name, configured.Provider.Executable)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			// No digest-less production plan can authorize publication.
 			trusted = configured.Provider.Executable == "" && planner.IsTrustedInstalledProvider(configured.Provider.Name, executable)
 		}
 		if existing, exists := bindingByProvider[target.Provider()]; exists && existing != executable {
-			return nil, fmt.Errorf("provider %q@%q resolves to multiple executables", target.Provider().Name(), target.Provider().Version())
+			return nil, nil, fmt.Errorf("provider %q@%q resolves to multiple executables", target.Provider().Name(), target.Provider().Version())
 		}
 		bindingByProvider[target.Provider()] = executable
 		if previous, seen := trustedDefaults[configured.Provider.Name]; seen {
@@ -417,22 +440,7 @@ func executionDriverWithDigests(loaded config.Loaded, plan domain.Plan, provider
 	for _, provider := range providers {
 		bindings = append(bindings, providerhost.Binding{Provider: provider, Executable: bindingByProvider[provider], Digest: providerDigests[provider]})
 	}
-	client, err := providerhost.New(providerhost.Options{})
-	if err != nil {
-		return nil, err
-	}
-	sources, err := credentials.SelectSources(plan, loaded.Config.CredentialSources, mappings, trustedDefaults)
-	if err != nil {
-		return nil, err
-	}
-	if len(sources) == 0 {
-		return providerhost.NewDriver(client, bindings)
-	}
-	resolver, err := credentials.NewEnvironmentResolver(sources)
-	if err != nil {
-		return nil, err
-	}
-	return providerhost.NewDriverWithCredentials(client, resolver, bindings)
+	return bindings, trustedDefaults, nil
 }
 
 func resolveRunID(path, requested string, allowCreate bool) (domain.RunID, error) {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -14,6 +15,8 @@ import (
 )
 
 const PlanSchemaVersion = "1"
+
+var ErrProviderDigestBinding = errors.New("missing provider executable digest binding")
 
 type providerDocument struct {
 	Name    string `json:"name"`
@@ -144,15 +147,14 @@ func (p DistributionPlan) ProviderDigests() map[domain.ProviderRef]domain.Digest
 	return result
 }
 
+// VerifyProviderDigests validates plan metadata only; it does not read executable bytes.
 func (p DistributionPlan) VerifyProviderDigests() error {
 	if !p.plan.ID().Valid() {
 		return fmt.Errorf("plan is invalid")
 	}
-	digests := p.ProviderDigests()
-	for _, target := range p.plan.Targets() {
-		digest, ok := digests[target.Provider()]
-		if !ok || !digest.Valid() {
-			return fmt.Errorf("provider %q@%q is not bound to an executable digest; create a new plan", target.Provider().Name(), target.Provider().Version())
+	for _, target := range p.document.Targets {
+		if _, err := domain.ParseDigest(target.Provider.Digest); err != nil {
+			return fmt.Errorf("provider %q@%q is not bound to a supported executable digest: %w", target.Provider.Name, target.Provider.Version, ErrProviderDigestBinding)
 		}
 	}
 	return nil

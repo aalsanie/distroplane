@@ -23,6 +23,8 @@ distroplane resume
 
 A pending release may require external review; `resume` uses its original plan and journal and does not silently start a new release. To inspect external state without dispatching new operations, use `distroplane resume --reconcile-only`. If several runs exist, select one using `--release` and `--run`.
 
+For a saved plan, `doctor` verifies the exact retained provider bytes before running provider diagnostics. An installation upgrade does not replace the saved binding. If multiple plans exist for the configured release, select the original plan with `doctor --plan PATH`.
+
 **Keep `.distroplane/` and your original artifact files until the release is settled.** Never delete the journal to try publication again. Distroplane will not automatically retry a potentially completed publish.
 
 ## Other commands

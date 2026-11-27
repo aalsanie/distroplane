@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,7 +116,7 @@ func TestVerifyProviderDigestsRejectsLegacyExecutionPlan(t *testing.T) {
 	for i := range plan.document.Operations {
 		plan.document.Operations[i].Provider.Digest = ""
 	}
-	if err := plan.VerifyProviderDigests(); err == nil || !strings.Contains(err.Error(), "create a new plan") {
+	if err := plan.VerifyProviderDigests(); !errors.Is(err, ErrProviderDigestBinding) {
 		t.Fatalf("legacy execution plan accepted: %v", err)
 	}
 }

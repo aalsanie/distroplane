@@ -23,7 +23,6 @@ import (
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/protocol"
 	"github.com/aalsanie/distroplane/internal/providerhost"
-	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
 const (
@@ -164,11 +163,18 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			d.add("ARTIFACT_READABLE", doctorPass, a.Name, "local artifact is present, nonempty, and hashable", "")
 		}
 	}
+	bindings, trustedDefaults, probeProviders := doctorPlanBindings(&d, loaded, options.planPath)
+	if !probeProviders {
+		d.add("DEPENDENCY_SKIPPED", doctorSkip, "providers", "saved provider selection or integrity is unverified", "")
+		d.add("REMOTE_SKIPPED", doctorSkip, "network", "requires verified provider selection", "")
+		return d
+	}
+	digestsMatch := bindings != nil
 	providerCounts := map[string]int{}
 	for _, target := range loaded.Config.Targets {
 		providerCounts[target.Provider.Name]++
 	}
-	endpoints := make(map[string]string)
+	endpoints := make(map[planner.Endpoint]bool)
 	credentialOwners := make(map[string]string)
 	requiredReferences := make(map[string]bool)
 	client, clientErr := providerhost.New(providerhost.Options{})
@@ -177,7 +183,14 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			d.add("CANCELLED", doctorFail, "providers", "diagnostics cancelled", "")
 			return d
 		}
-		executable, err := planner.ResolveExecutable(loaded.BaseDir, target.Provider.Name, target.Provider.Executable)
+		binding := bindings[target.ID]
+		executable := binding.Executable
+		trusted := trustedDefaults[target.Provider.Name]
+		var err error
+		if bindings == nil {
+			executable, err = planner.ResolveExecutable(loaded.BaseDir, target.Provider.Name, target.Provider.Executable)
+			trusted = err == nil && target.Provider.Executable == "" && planner.IsTrustedInstalledProvider(target.Provider.Name, executable)
+		}
 		if err != nil {
 			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable is missing or unsafe", "Install the matching provider executable or correct its explicit path")
 			d.add("CREDENTIAL_SKIPPED", doctorSkip, target.ID, "provider identity not verified", "")
@@ -185,15 +198,24 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 		}
 		file, err := os.Stat(executable)
 		if err != nil || !file.Mode().IsRegular() {
-			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable could not be verified", "Reinstall provider binaries")
+			digestsMatch = false
+			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable could not be verified", "Restore the selected provider executable")
 			continue
 		}
 		d.add("PROVIDER_FOUND", doctorPass, target.ID, "provider executable verified as a regular file", "")
-		if _, _, err := (planner.FileHasher{}).Hash(executable); err != nil {
-			d.add("PROVIDER_HASH_FAILED", doctorFail, target.ID, "provider executable cannot be hashed reliably", "Reinstall provider executable")
-		} else {
-			d.add("PROVIDER_HASHED", doctorPass, target.ID, "provider executable digest computed locally", "")
+		actual, _, err := (planner.FileHasher{}).Hash(executable)
+		if err != nil {
+			digestsMatch = false
+			d.add("PROVIDER_HASH_FAILED", doctorFail, target.ID, "provider executable cannot be hashed reliably", "Restore readable provider executable bytes")
+			continue
 		}
+		if bindings != nil && actual != binding.Digest {
+			digestsMatch = false
+			d.add("PROVIDER_DIGEST_CHANGED", doctorFail, target.ID, "retained provider bytes differ from the immutable plan", "Restore the exact retained provider from a trusted backup")
+			continue
+		}
+		d.add("PROVIDER_HASHED", doctorPass, target.ID, "provider executable digest computed locally", "")
+		compatibleArch := true
 		if build, err := buildinfo.ReadFile(executable); err == nil {
 			var osValue, arch string
 			for _, setting := range build.Settings {
@@ -207,24 +229,29 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			if osValue == "" || arch == "" {
 				d.add("ARCH_UNKNOWN", doctorWarn, target.ID, "provider architecture metadata is incomplete", "Verify host architecture compatibility")
 			} else if osValue != runtime.GOOS || arch != runtime.GOARCH {
-				d.add("ARCH_MISMATCH", doctorFail, target.ID, "provider architecture does not match this host", "Install a provider binary for the host operating system and architecture")
+				compatibleArch = false
+				d.add("ARCH_MISMATCH", doctorFail, target.ID, "provider architecture does not match this host", "Use the host operating system and architecture required by the selected provider")
 			} else {
 				d.add("ARCH_VERIFIED", doctorPass, target.ID, "provider architecture is compatible with the host", "")
 			}
 		} else {
 			d.add("ARCH_UNKNOWN", doctorWarn, target.ID, "binary does not expose Go build architecture metadata", "Confirm provider compatibility with this host")
 		}
-		if _, checked := endpoints[executable]; !checked {
-			endpoints[executable] = target.Provider.Name
+		endpoint := planner.Endpoint{Name: target.Provider.Name, Executable: executable}
+		if !compatibleArch {
+			d.add("VERSION_UNVERIFIED", doctorSkip, target.ID, "provider architecture is incompatible", "")
+		} else if !endpoints[endpoint] {
+			endpoints[endpoint] = true
 			if clientErr != nil {
 				d.add("VERSION_UNVERIFIED", doctorFail, target.ID, "provider client unavailable", "Repair CLI installation")
 			} else {
 				callCtx, cancel := context.WithTimeout(ctx, options.timeout)
-				describe, err := client.Describe(callCtx, planner.Endpoint{Name: target.Provider.Name, Executable: executable})
+				describe, err := client.Describe(callCtx, endpoint)
 				cancel()
 				if err != nil {
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider Describe protocol failed or timed out", "Install a compatible provider binary")
-				} else if describe.Provider.Name != target.Provider.Name || describe.Provider.Version == "" {
+				} else if describe.Provider.Name != target.Provider.Name || describe.Provider.Version == "" ||
+					(bindings != nil && describe.Provider.Version != string(binding.Provider.Version())) {
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider identity or version is incompatible", "Install the matching provider version")
 				} else if !doctorSupportsProtocol(describe.ProtocolVersions) {
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider does not advertise the required protocol version", "Install a provider compatible with the CLI protocol")
@@ -242,7 +269,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 		}
 		for _, credential := range doctorCredentialRefs(target) {
 			requiredReferences[credential.ref] = true
-			source := doctorCredentialSource(credential.ref, target.Provider.Name, credential.environment, loaded.Config.CredentialSources, options.credentials, providerCounts[target.Provider.Name] == 1 && target.Provider.Executable == "" && planner.IsTrustedInstalledProvider(target.Provider.Name, executable))
+			source := doctorCredentialSource(credential.ref, target.Provider.Name, credential.environment, loaded.Config.CredentialSources, options.credentials, providerCounts[target.Provider.Name] == 1 && trusted)
 			if source == "" {
 				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential reference has no approved environment source", "Provide --credential REF=ENV or configure credentialSources with an isolated source")
 			} else if previous, taken := credentialOwners[strings.ToUpper(source)]; taken && previous != credential.ref {
@@ -265,44 +292,8 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			d.add("UNUSED_CREDENTIAL_MAPPING", doctorFail, string(ref), "credential reference is not declared by this configuration", "Remove the mapping or correct the reference name")
 		}
 	}
-	if options.planPath == "" {
-		records, err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).Inventory()
-		if err == nil {
-			for _, record := range records {
-				if record.State == "RESERVED" {
-					d.add("RUN_RESERVED", doctorWarn, record.RunID, "a claimed run has no durable journal", "Investigate the run and preserve its original state; never create a replacement publication")
-				}
-				if record.ReconcileRequired {
-					d.add("RECONCILE_REQUIRED", doctorWarn, record.RunID, "external reconciliation is required before retrying publication", "Use distroplane resume --reconcile-only for this exact run")
-				}
-			}
-		}
-		if err != nil {
-			d.add("STATE_CORRUPT", doctorFail, "catalog", "saved plan or journal catalog verification failed", "Restore the original plan, provider binaries, and journal")
-		} else if len(records) == 1 && records[0].ReleaseID == loaded.Config.Release.ID {
-			options.planPath = records[0].PlanPath
-		} else if len(records) > 1 {
-			d.add("PLAN_AMBIGUOUS", doctorWarn, "catalog", "multiple plans; no implicit digest selection", "Use --plan PATH for an explicit immutable plan verification")
-		}
-	}
-	if options.planPath != "" {
-		p, err := planner.Load(options.planPath)
-		if err != nil {
-			d.add("STATE_CORRUPT", doctorFail, "plan", "saved plan cannot be verified", "Restore the exact immutable plan")
-		} else {
-			if err := p.VerifyProviderDigests(); err != nil {
-				d.add("PROVIDER_DIGEST_CHANGED", doctorFail, "plan", "saved provider binary differs from the immutable plan", "Restore the exact provider executable")
-			} else {
-				d.add("PROVIDER_DIGEST_MATCH", doctorPass, "plan", "saved provider digests match", "")
-			}
-			if err := planner.VerifyArtifacts(p.Plan(), nil); err != nil {
-				d.add("ARTIFACT_CHANGED", doctorFail, "plan", "artifact bytes differ from the saved plan", "Restore the exact published artifact bytes")
-			} else {
-				d.add("ARTIFACT_DIGEST_MATCH", doctorPass, "plan", "artifact digests match", "")
-			}
-		}
-	} else {
-		d.add("PLAN_SKIPPED", doctorSkip, "plan", "no saved plan supplied for digest comparison", "Use --plan PATH to verify an existing immutable plan")
+	if digestsMatch {
+		d.add("PROVIDER_DIGEST_MATCH", doctorPass, "plan", "retained provider executable bytes match the immutable plan", "")
 	}
 	if options.remote {
 		if options.dial == nil {
