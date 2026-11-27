@@ -12,7 +12,7 @@ final class NativeFixture {
     static Path binary() throws Exception {
         String configured = System.getenv("DISTROPLANE_FIXTURE_BINARY");
         if ("true".equals(System.getenv("GITHUB_ACTIONS"))) {
-            assertNotNull(configured, "Native fixture must be built before adapter tests");
+            assertTrue(configured != null && !configured.isBlank(), "Native fixture must be built before adapter tests");
             assertEquals("unapproved-fixture-value", System.getenv("DISTROPLANE_UNAPPROVED_CANARY"));
         }
         assumeTrue(configured != null && !configured.isBlank(), "Build maven-plugin/it/fixture-cli/main.go and set DISTROPLANE_FIXTURE_BINARY");

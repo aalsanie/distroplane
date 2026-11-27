@@ -72,7 +72,7 @@ The plugin passes only explicitly mapped environment values to the spawned CLI, 
 ## Compatibility and external publication
 
 Maven plugin integration tests cover Maven 3.9+ with JDK 17/21 on Linux,
-macOS, and Windows native runners. They verify the seven explicit goals,
+macOS, and Windows native runners. The source tests verify the seven explicit goals (the published 1.0.1 plugin provides the six release goals),
 immutable cache imports, offline execution, cancellation after durable state
 creation, pending-to-resume handoff, duplicate-publication rejection, and
 multi-module/classifier selection. The controlled test fixture **never publishes**

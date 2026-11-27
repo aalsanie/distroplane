@@ -38,6 +38,11 @@ def main():
     original_reactor=(reactor/'distroplane.json').read_bytes()
     cmd=[args.maven,'-B','-ntp','-o',f'-Dmaven.repo.local={repo}']
     goal='io.github.aalsanie:distroplane-maven-plugin:1.0.1-SNAPSHOT:'
+    candidates=list(repo.glob('distroplane/cli/0.9.3/*/sha256-*/bin/distroplane*'))
+    if len(candidates)!=1 or candidates[0].read_bytes()!=fixture.read_bytes():
+        raise AssertionError('expected exactly one verified controlled native fixture')
+    cli=candidates[0]
+    backup=cli.read_bytes()
     import functools
     invoke=functools.partial(run, cwd=workspace)
     (simple/'.fixture-pending').unlink(missing_ok=True)
@@ -97,15 +102,15 @@ def main():
     if state['runId']!=restored['runId'] or state['planId']!=restored['planId'] or restored['attempts']!=1 or not restored['completed']:
         raise AssertionError('cancellation lost original release run')
     # CLI is only a verified bootstrap adapter: corrupted offline bytes refuse execution.
-    cli=next(repo.glob('distroplane/cli/0.9.3/*/sha256-*/bin/distroplane*'))
-    backup=cli.read_bytes()
-    if backup != fixture.read_bytes():raise AssertionError('cache does not contain the controlled native fixture')
     try:
         cli.write_bytes(backup+b'tamper')
         rejected=run(cmd+['-f',str(simple/'pom.xml'),goal+'validate'],ok=False)
         if 'corrupt' not in rejected.lower():raise AssertionError('offline cache did not fail safely')
     finally:cli.write_bytes(backup)
     # Packaged reactor artifacts and source classifier resolve in a single Maven session.
+    unbuilt=run(cmd+['-f',str(reactor/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False,cwd=workspace)
+    if ('packaged' not in unbuilt and 'mapping' not in unbuilt) or (reactor/'.distroplane').exists():
+        raise AssertionError('unbuilt reactor mapping reached publication')
     warm=[args.maven,'-B','-ntp',f'-Dmaven.repo.local={repo}', '-f',str(reactor/'pom.xml'), 'package']
     run(warm, cwd=workspace)
     run(cmd+['-f',str(reactor/'pom.xml'),'package',goal+'validate'], cwd=workspace)
