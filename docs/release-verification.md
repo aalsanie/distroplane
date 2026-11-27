@@ -41,6 +41,10 @@ Use `distroplane init` and `distroplane doctor` from your project directory to c
 
 The latest [GitHub release](https://github.com/aalsanie/distroplane/releases/latest) contains native binaries, checksums, and provenance attestations for Linux, macOS, and Windows on x64/ARM64. Verify checksums and provenance when installing from standalone downloads. A checksum published with the artifact is not an independent signature.
 
+## Installation verification
+
+The required CI release-build matrix runs the candidate archives on native Linux, macOS and Windows (x64 and ARM64). It exercises local setup, provider discovery and retained-run recovery with no development tools or credentials on PATH. macOS tests install the generated formula from staged bytes; Linux tests offline installation, interruption and uninstall/reinstall; Windows tests MSI install, repair, upgrade and uninstall. Staged package tests are not public catalog availability checks. Verify Homebrew and WinGet catalog availability after publication.
+
 ## Release maintainers
 
 Before tagging, manually run the **Release** workflow on `main` with confirmation `REHEARSE`. It builds and verifies the same staged assets and six native installation targets as the publishing workflow, but does not create a GitHub release or update package catalogs. Review the successful run and its staged artifact inventory before approving publication.

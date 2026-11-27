@@ -275,6 +275,32 @@ class InstallTests(unittest.TestCase):
             [str(self.prefix / "bin/distroplane"), "version", "--json"], text=True)
         self.assertEqual(json.loads(output)["version"], "0.9.1")
 
+    def test_reject_unsafe_permissions_on_existing_install(self):
+        self.assertEqual(self.run_installer("0.9.1", self.release).returncode, 0)
+        provider = self.prefix / "lib/distroplane/versions/0.9.1/libexec/distroplane-provider-npm"
+        provider.chmod(0o777)
+        result = self.run_installer("0.9.1", self.release)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("differs from verified", result.stderr)
+
+    def test_interrupted_staging_preserves_active_install(self):
+        from unittest.mock import patch
+        from argparse import Namespace
+        self.assertEqual(self.run_installer("0.9.1", self.release).returncode, 0)
+        link = self.prefix / "bin/distroplane"
+        original = os.readlink(link)
+        newer = self.root / "newer"
+        fixture(newer, "0.9.2")
+        args = Namespace(prefix=self.prefix, version="0.9.2", offline_dir=newer,
+                         uninstall=False)
+        with patch.object(module, "smoke", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                module.install(args)
+        self.assertEqual(os.readlink(link), original)
+        versions = self.prefix / "lib/distroplane/versions"
+        self.assertFalse((versions / "0.9.2").exists())
+        self.assertFalse(list(versions.glob(".install-*")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 
 
@@ -17,7 +19,7 @@ def invoke(cli, cwd, env, *args, expected=0):
     return result.stdout
 
 
-def fresh_install(cli, version, commit=None):
+def fresh_install(cli, version, commit=None, exercise_missing=False):
     cli = cli.absolute()
     with tempfile.TemporaryDirectory(prefix="distroplane user é space ") as temp:
         root = Path(temp)
@@ -82,37 +84,115 @@ def fresh_install(cli, version, commit=None):
             if "GIT_AVAILABLE" in codes or "VERSION_MISMATCH" in codes:
                 raise RuntimeError(f"{provider}: unexpected tool or provider identity")
 
-        # Use the SDKMAN provider's local planning path and fail before dispatch
-        # because the controlled environment contains no credential sources.
-        config.write_text(json.dumps({
-            "schemaVersion": "1",
-            "release": {"id": "install-recovery", "artifacts": [
-                {"name": "app", "source": str(artifact)}]},
-            "targets": [{"id": "sdkman", "provider": {"name": "sdkman"},
-                         "configuration": configs["sdkman"]}]
-        }), encoding="utf-8")
-        pending = json.loads(invoke(cli, outside, env, "publish", "--config", config,
-                                    "--yes", "--json", expected=4))
-        plan = Path(pending["plan"]["path"])
-        journal = Path(pending["journalPath"])
-        if pending["run"]["targets"][0]["state"] != "BLOCKED":
-            raise RuntimeError("missing credential did not block before publication")
-        before = (plan.read_bytes(), journal.read_bytes())
-        report = json.loads(invoke(cli, outside, env, "doctor", "--config", config,
-                                   "--plan", plan, "--json", expected=3))
-        if not any(c["code"] == "PROVIDER_DIGEST_MATCH" for c in report["checks"]):
-            raise RuntimeError("doctor could not verify the retained provider")
-        if (plan.read_bytes(), journal.read_bytes()) != before:
-            raise RuntimeError("read-only doctor changed release history")
-        resumed = json.loads(invoke(cli, outside, env, "resume", "--config", config,
-                                    "--reconcile-only", "--json", expected=4))
-        if (resumed["planId"] != pending["plan"]["planId"] or
-                resumed["runId"] != pending["run"]["runId"] or
-                resumed["targets"][0]["state"] != "BLOCKED"):
-            raise RuntimeError("read-only recovery changed the original run")
-        if b"SIDE_EFFECT_DISPATCHED" in journal.read_bytes():
-            raise RuntimeError("installation fixture dispatched an external effect")
+        recovery = root / "recovery"
+        prepare_recovery(cli, recovery)
+        if exercise_missing:
+            installed = cli.resolve().parent.parent / "libexec"
+            suffix = cli.suffix if os.name == "nt" else ""
+            provider = installed / ("distroplane-provider-sdkman" + suffix)
+            backup = provider.with_name(provider.name + ".saved")
+            provider.rename(backup)
+            try:
+                config.write_text(json.dumps({
+                    "schemaVersion": "1",
+                    "release": {"id": "missing-provider", "artifacts": [
+                        {"name": "app", "source": str(artifact)}]},
+                    "targets": [{"id": "sdkman", "provider": {"name": "sdkman"},
+                                 "configuration": configs["sdkman"]}]
+                }), encoding="utf-8")
+                report = json.loads(invoke(cli, outside, env, "doctor", "--config", config,
+                                           "--json", expected=3))
+                if not any(c["code"] == "PROVIDER_NOT_FOUND" for c in report["checks"]):
+                    raise RuntimeError("missing packaged provider was not detected")
+                shutil.copy2(installed / ("distroplane-provider-npm" + suffix), provider)
+                report = json.loads(invoke(cli, outside, env, "doctor", "--config", config,
+                                           "--json", expected=3))
+                if not any(c["code"] == "VERSION_MISMATCH" for c in report["checks"]):
+                    raise RuntimeError("wrong packaged provider identity was not detected")
+                verify_recovery(cli, recovery)
+            finally:
+                provider.unlink(missing_ok=True)
+                backup.rename(provider)
+        else:
+            verify_recovery(cli, recovery)
         print(f"Fresh installed workflow passed: {version}")
+
+
+def recovery_environment(root):
+    outside = root / "outside"
+    empty_path = root / "empty PATH"
+    for directory in (outside, empty_path):
+        directory.mkdir(exist_ok=True)
+    env = {key: value for key, value in os.environ.items()
+           if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR",
+                              "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "USERPROFILE",
+                              "HOME", "LOCALAPPDATA", "APPDATA"}}
+    env["PATH"] = str(empty_path)
+    return outside, env
+
+
+def fingerprint(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def prepare_recovery(cli, root):
+    root.mkdir(parents=True, exist_ok=False)
+    outside, env = recovery_environment(root)
+    artifact = root / "release.zip"
+    artifact.write_bytes(b"prebuilt installation fixture")
+    config = root / "distroplane.json"
+    config.write_text(json.dumps({
+        "schemaVersion": "1",
+        "release": {"id": "install-recovery", "artifacts": [
+            {"name": "app", "source": str(artifact)}]},
+        "targets": [{"id": "sdkman", "provider": {"name": "sdkman"},
+                     "configuration": {"artifact": "app", "candidate": "example",
+                                       "version": "1.2.3",
+                                       "url": "https://example.invalid/release.zip",
+                                       "authentication": {"mode": "legacy",
+                                                          "consumerKeyCredential": "key",
+                                                          "consumerTokenCredential": "auth"}}}]
+    }), encoding="utf-8")
+    pending = json.loads(invoke(cli, outside, env, "publish", "--config", config,
+                                "--yes", "--json", expected=4))
+    plan = Path(pending["plan"]["path"])
+    journal = Path(pending["journalPath"])
+    if pending["run"]["targets"][0]["state"] != "BLOCKED":
+        raise RuntimeError("missing credential did not block before publication")
+    if b"SIDE_EFFECT_DISPATCHED" in journal.read_bytes():
+        raise RuntimeError("installation fixture dispatched an external effect")
+    files = [plan, journal, *sorted(p for p in (root / ".distroplane/providers").rglob("*")
+                                    if p.is_file())]
+    if len(files) != 4:
+        raise RuntimeError("missing retained provider executable or receipt")
+    (root / "recovery-check.json").write_text(json.dumps({
+        "plan": str(plan), "journal": str(journal),
+        "planId": pending["plan"]["planId"], "runId": pending["run"]["runId"],
+        "files": {str(path): fingerprint(path) for path in files}
+    }), encoding="utf-8")
+
+
+def verify_recovery(cli, root):
+    outside, env = recovery_environment(root)
+    expected = json.loads((root / "recovery-check.json").read_text(encoding="utf-8"))
+    for path, digest in expected["files"].items():
+        if fingerprint(Path(path)) != digest:
+            raise RuntimeError("installation changed recovery bytes: " + path)
+    config = root / "distroplane.json"
+    report = json.loads(invoke(cli, outside, env, "doctor", "--config", config,
+                               "--plan", expected["plan"], "--json", expected=3))
+    if not any(c["code"] == "PROVIDER_DIGEST_MATCH" for c in report["checks"]):
+        raise RuntimeError("doctor could not verify the retained provider")
+    for path, digest in expected["files"].items():
+        if fingerprint(Path(path)) != digest:
+            raise RuntimeError("read-only doctor changed release history")
+    resumed = json.loads(invoke(cli, outside, env, "resume", "--config", config,
+                                "--reconcile-only", "--json", expected=4))
+    if (resumed["planId"] != expected["planId"] or resumed["runId"] != expected["runId"] or
+            resumed["targets"][0]["state"] != "BLOCKED"):
+        raise RuntimeError("read-only recovery changed the original run")
+    if b"SIDE_EFFECT_DISPATCHED" in Path(expected["journal"]).read_bytes():
+        raise RuntimeError("installation fixture dispatched an external effect")
 
 
 def main():
@@ -120,8 +200,16 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--commit")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare-recovery", type=Path)
+    mode.add_argument("--verify-recovery", type=Path)
     args = parser.parse_args()
-    fresh_install(args.cli, args.version, args.commit)
+    if args.prepare_recovery:
+        prepare_recovery(args.cli.absolute(), args.prepare_recovery.absolute())
+    elif args.verify_recovery:
+        verify_recovery(args.cli.absolute(), args.verify_recovery.absolute())
+    else:
+        fresh_install(args.cli, args.version, args.commit)
 
 
 if __name__ == "__main__":

@@ -130,7 +130,8 @@ def run(directory, version, commit, expected_os=None, expected_arch=None, fresh=
                 path.chmod(0o755)
         execute(install, version, commit, suffix)
         if fresh:
-            fresh_install(install / "bin" / ("distroplane" + suffix), version, commit)
+            fresh_install(install / "bin" / ("distroplane" + suffix), version, commit,
+                          exercise_missing=True)
         print(f"Native release execution passed: {os_name}/{arch} ({version})")
 
 

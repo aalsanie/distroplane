@@ -306,6 +306,8 @@ def install(args):
                     for relative in expected_files:
                         counterpart = destination / relative
                         if (counterpart.is_symlink() or not counterpart.is_file()
+                                or stat.S_IMODE(counterpart.stat().st_mode) !=
+                                stat.S_IMODE((expected / relative).stat().st_mode)
                                 or read_regular(counterpart, MAX_BINARY) !=
                                 (expected / relative).read_bytes()):
                             fail("installed release differs from verified published bytes")
@@ -322,7 +324,7 @@ def install(args):
                         shutil.rmtree(staging)
             replace_owned_link(link, versions, destination)
     print(f"Installed Distroplane {args.version} at {link}")
-    search = {Path(entry).resolve() for entry in os.get_exec_path() if entry}
+    search = {Path(os.path.realpath(entry)) for entry in os.get_exec_path() if entry}
     if link.parent not in search:
         print(f"Run now: {shlex.quote(str(link))} version")
         print(f"POSIX shells: export PATH={shlex.quote(str(link.parent))}:\"$PATH\"")

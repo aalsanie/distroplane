@@ -19,6 +19,7 @@ for provider in homebrew npm sdkman winget; do
   test -x "$prefix/lib/distroplane/versions/$version/libexec/distroplane-provider-$provider"
 done
 python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version"
+python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version" --prepare-recovery "$work/recovery"
 # Repeat installation is an integrity-checked no-op.
 python3 scripts/install-linux.py --version "$version" --offline-dir "$dist" --prefix "$prefix"
 
@@ -41,4 +42,7 @@ python3 scripts/install-linux.py --prefix "$prefix" --uninstall
 test ! -e "$prefix/bin/distroplane"
 test -x "$prefix/lib/distroplane/versions/$version/bin/distroplane"
 test "$(cat "$work/project/.distroplane/run.journal")" = 'active run remains intact'
+python3 scripts/install-linux.py --version "$version" --offline-dir "$dist" --prefix "$prefix"
+python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version" --verify-recovery "$work/recovery"
+python3 scripts/install-linux.py --prefix "$prefix" --uninstall
 echo "Linux native release installation and recovery smoke passed ($arch)"

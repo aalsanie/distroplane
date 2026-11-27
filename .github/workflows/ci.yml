@@ -464,7 +464,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            native_os: linux
+            native_arch: amd64
+          - os: ubuntu-24.04-arm
+            native_os: linux
+            native_arch: arm64
+          - os: macos-15-intel
+            native_os: darwin
+            native_arch: amd64
+          - os: macos-15
+            native_os: darwin
+            native_arch: arm64
+          - os: windows-2025
+            native_os: windows
+            native_arch: amd64
+          - os: windows-11-arm
+            native_os: windows
+            native_arch: arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
@@ -506,9 +524,10 @@ jobs:
         shell: pwsh
         run: |
           $python = if ($IsWindows) { 'python' } else { 'python3' }
-          & $python scripts/smoke-release-native.py --directory dist --version $env:VERSION --commit $env:COMMIT
+          & $python scripts/smoke-release-native.py --directory dist --version $env:VERSION --commit $env:COMMIT --expected-os '${{ matrix.native_os }}' --expected-arch '${{ matrix.native_arch }}'
           if ($LASTEXITCODE -ne 0) { throw 'native release installation check failed' }
       - name: Install unified archive through Action installer and reject tampered bytes
+        if: matrix.native_arch == 'amd64' || runner.os == 'macOS'
         shell: pwsh
         run: |
           . ./action/install.ps1
@@ -551,6 +570,7 @@ jobs:
         shell: bash
         run: python3 scripts/smoke-homebrew-install.py --directory dist --version "$VERSION" --commit "$COMMIT"
       - name: Smoke candidate artifacts through CLI
+        if: matrix.native_arch == 'amd64' || runner.os == 'macOS'
         shell: pwsh
         env:
           DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
