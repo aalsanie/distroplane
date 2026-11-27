@@ -24,7 +24,11 @@ python3 install-linux.py --version 0.9.3
 ~/.local/bin/distroplane version
 ```
 
-Python 3.8+ is required. The installer verifies downloads and installs CLI/providers together without root. For an offline install, use `--offline-dir DIR` containing the release archive, `RELEASE-METADATA.json`, and `SHA256SUMS`. Use `--uninstall` to remove the managed command; project recovery state remains intact.
+Python 3.8+ is required for this installer only. The installer verifies downloads and installs CLI/providers together without root. For an offline install, use `--offline-dir DIR` containing the release archive, `RELEASE-METADATA.json`, and `SHA256SUMS`. Use `--uninstall` to remove the managed command; project recovery state remains intact.
+
+## Manual archive installation
+
+Download the matching unified `.tar.gz` (Linux/macOS) or `.zip` (Windows) from the release, verify its checksum and provenance, and unpack into a user-owned directory. Keep `bin/` and `libexec/` together. Invoke `bin/distroplane` (`bin/distroplane.exe` on Windows) directly or add its absolute `bin` directory to your shell's PATH. No Go, Node.js, npm or Java runtime is required for the CLI. Homebrew and WinGet publication require Git; the npm and SDKMAN providers do not.
 
 ## Verify
 
@@ -32,6 +36,8 @@ Python 3.8+ is required. The installer verifies downloads and installs CLI/provi
 distroplane version
 distroplane help
 ```
+
+Use `distroplane init` and `distroplane doctor` from your project directory to check local readiness. A populated credential source does not prove authorization.
 
 The latest [GitHub release](https://github.com/aalsanie/distroplane/releases/latest) contains native binaries, checksums, and provenance attestations for Linux, macOS, and Windows on x64/ARM64. Verify checksums and provenance when installing from standalone downloads. A checksum published with the artifact is not an independent signature.
 

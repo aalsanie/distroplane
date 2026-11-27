@@ -46,6 +46,8 @@ function Assert-Installed([string]$wantVersion) {
             throw "Installed provider failed describe: $name"
         }
     }
+    & python (Join-Path $PSScriptRoot "smoke_installed.py") --cli $cli --version $wantVersion
+    if ($LASTEXITCODE -ne 0) { throw "Installed CLI workflow failed" }
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     if (-not ($machinePath -split ';' | Where-Object {
         $_.TrimEnd('\') -ieq $bin.TrimEnd('\')

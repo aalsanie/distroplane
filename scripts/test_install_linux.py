@@ -26,7 +26,7 @@ def digest(data):
 def executable_script(name, version):
     if name == "distroplane":
         return ("#!/usr/bin/env python3\nimport json\nprint(json.dumps("
-                + repr({"version": version}) + "))\n").encode()
+                + repr({"version": version, "commit": COMMIT}) + "))\n").encode()
     provider = name.removeprefix("distroplane-provider-")
     return ("#!/usr/bin/env python3\nimport json, sys\n"
             "request=json.load(sys.stdin)\n"
@@ -268,6 +268,9 @@ class InstallTests(unittest.TestCase):
         self.prefix = self.root / "custom é space" / "install"
         installed = self.run_installer("0.9.1", self.release)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertIn("Run now: ", installed.stdout)
+        self.assertIn("POSIX shells: export PATH=", installed.stdout)
+        self.assertIn("fish: fish_add_path", installed.stdout)
         output = subprocess.check_output(
             [str(self.prefix / "bin/distroplane"), "version", "--json"], text=True)
         self.assertEqual(json.loads(output)["version"], "0.9.1")

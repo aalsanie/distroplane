@@ -8,7 +8,7 @@ test -n "$version"
 dist="$(cd "$DISTROPLANE_RELEASE_SMOKE_DIR" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-prefix="$work/prefix"
+prefix="$work/user é space/prefix"
 mkdir -p "$work/project/.distroplane"
 printf 'active run remains intact\n' > "$work/project/.distroplane/run.journal"
 
@@ -18,6 +18,7 @@ test -L "$prefix/bin/distroplane"
 for provider in homebrew npm sdkman winget; do
   test -x "$prefix/lib/distroplane/versions/$version/libexec/distroplane-provider-$provider"
 done
+python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version"
 # Repeat installation is an integrity-checked no-op.
 python3 scripts/install-linux.py --version "$version" --offline-dir "$dist" --prefix "$prefix"
 

@@ -546,6 +546,10 @@ jobs:
         env:
           DISTROPLANE_RELEASE_SMOKE_DIR: ${{ github.workspace }}/dist
         run: bash scripts/smoke-linux-install.sh
+      - name: Exercise installed Homebrew formula with staged bytes
+        if: runner.os == 'macOS'
+        shell: bash
+        run: python3 scripts/smoke-homebrew-install.py --directory dist --version "$VERSION" --commit "$COMMIT"
       - name: Smoke candidate artifacts through CLI
         shell: pwsh
         env:

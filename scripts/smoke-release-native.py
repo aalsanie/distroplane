@@ -15,6 +15,8 @@ import tarfile
 import tempfile
 import zipfile
 
+from smoke_installed import fresh_install
+
 PROVIDERS = ("npm", "sdkman", "homebrew", "winget")
 OS_NAMES = {"Linux": "linux", "Darwin": "darwin", "Windows": "windows"}
 ARCH_NAMES = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
@@ -54,7 +56,8 @@ def read_archive(path, expected, os_name):
             for entry in archive:
                 name = entry.name
                 if (name not in expected or name in result or not entry.isfile() or
-                        entry.size <= 0 or entry.size > (128 << 20)):
+                        entry.size <= 0 or entry.size > (128 << 20) or
+                        entry.mode != (0o644 if name == "PACKAGE-METADATA.json" else 0o755)):
                     raise SmokeError(f"unsafe tar entry: {name}")
                 handle = archive.extractfile(entry)
                 if handle is None:
@@ -86,7 +89,7 @@ def execute(install, version, commit, suffix):
             raise SmokeError("native provider identity mismatch: " + provider)
 
 
-def run(directory, version, commit, expected_os=None, expected_arch=None):
+def run(directory, version, commit, expected_os=None, expected_arch=None, fresh=False):
     os_name = OS_NAMES.get(platform.system())
     arch = ARCH_NAMES.get(platform.machine().lower())
     if os_name is None or arch is None:
@@ -126,6 +129,8 @@ def run(directory, version, commit, expected_os=None, expected_arch=None):
             if os_name != "windows":
                 path.chmod(0o755)
         execute(install, version, commit, suffix)
+        if fresh:
+            fresh_install(install / "bin" / ("distroplane" + suffix), version, commit)
         print(f"Native release execution passed: {os_name}/{arch} ({version})")
 
 
@@ -138,7 +143,7 @@ def main():
     parser.add_argument("--expected-arch", choices=("amd64", "arm64"))
     args = parser.parse_args()
     try:
-        run(args.directory, args.version, args.commit, args.expected_os, args.expected_arch)
+        run(args.directory, args.version, args.commit, args.expected_os, args.expected_arch, fresh=True)
     except (SmokeError, OSError, ValueError, subprocess.SubprocessError,
             tarfile.TarError, zipfile.BadZipFile) as error:
         parser.exit(1, f"native release smoke: {error}\n")
