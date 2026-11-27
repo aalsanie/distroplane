@@ -113,7 +113,8 @@ final class ArtifactMapperSecurityTest {
     @Test void protectsSourceConfigArchiveAndManagedOutputFromSymlinks() throws Exception {
         Path file = write("built.jar", "data");
         Path cfg = write("config.json", schema2());
-        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
+            "Requires POSIX permissions or symlink support; exercised on Linux and macOS");
         Path link = temp.resolve("link.jar");
         Files.createSymbolicLink(link, file);
         assertThrows(IOException.class, () -> ArtifactMapper.materialize(cfg, temp,

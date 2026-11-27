@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,6 +43,10 @@ func main() {
 		fail("INVALID_ARGUMENT", "", 2)
 	}
 	command := os.Args[1]
+	if command == "fixture-process" {
+		processFixture()
+		return
+	}
 	if command == "version" {
 		emit(map[string]any{"outputSchemaVersion": schema, "version": "0.9.3"})
 		return
@@ -207,5 +212,66 @@ func main() {
 		}
 	default:
 		fail("INVALID_ARGUMENT", "", 2)
+	}
+}
+
+func processFixture() {
+	if len(os.Args) != 3 {
+		os.Exit(2)
+	}
+	switch os.Args[2] {
+	case "environment":
+		if os.Getenv("ALLOWED_SECRET") != "secret-canary" || os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("DISTROPLANE_UNAPPROVED_CANARY") != "" {
+			os.Exit(14)
+		}
+		fmt.Println("passed")
+	case "stdout-secret":
+		fmt.Println(os.Getenv("ALLOWED_SECRET"))
+	case "stderr-secret":
+		fmt.Fprintln(os.Stderr, os.Getenv("ALLOWED_SECRET"))
+	case "channels":
+		fmt.Println(`{"outputSchemaVersion":"1"}`)
+		fmt.Fprintln(os.Stderr, "UNTRUSTED-PROVIDER-CONTENT")
+		os.Exit(3)
+	case "stdout-limit":
+		fmt.Print(strings.Repeat("x", 4<<20))
+	case "stderr-limit":
+		fmt.Fprint(os.Stderr, strings.Repeat("x", 1<<20))
+	case "stdout-overflow":
+		fmt.Print(strings.Repeat("x", (4<<20)+1))
+	case "stderr-overflow":
+		fmt.Fprint(os.Stderr, strings.Repeat("x", (1<<20)+1))
+	case "pending":
+		file, err := os.OpenFile("fixture-invocations", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			os.Exit(2)
+		}
+		_, err = fmt.Fprintln(file, "pending")
+		closeErr := file.Close()
+		if err != nil || closeErr != nil {
+			os.Exit(2)
+		}
+		os.Exit(4)
+	case "descendant":
+		executable, err := os.Executable()
+		if err != nil {
+			os.Exit(2)
+		}
+		child := exec.Command(executable, "fixture-process", "child")
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile("fixture-pids", []byte(fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)), 0600); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		_ = child.Wait()
+	case "child":
+		time.Sleep(60 * time.Second)
+	case "ok":
+		fmt.Println("ok")
+	default:
+		os.Exit(2)
 	}
 }

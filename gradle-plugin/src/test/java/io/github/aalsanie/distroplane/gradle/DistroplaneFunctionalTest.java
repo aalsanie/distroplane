@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** Executes actual isolated Gradle builds against the native nonpublishing fixture. */
 final class DistroplaneFunctionalTest {
@@ -32,10 +31,10 @@ final class DistroplaneFunctionalTest {
     static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach void setup() throws Exception {
-        project = Files.createDirectories(temp.resolve("project")).toRealPath();
+        project = Files.createDirectories(temp.resolve("project with spaces")).toRealPath();
         Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'distroplane-test'\n");
         Files.writeString(project.resolve("build.gradle"), "plugins { id 'io.github.aalsanie.distroplane' }\n");
-        fixture = Path.of(System.getenv().getOrDefault("DISTROPLANE_FIXTURE_BINARY", ""));
+        fixture = NativeFixture.binary();
     }
 
     private void configure(String content) throws IOException {
@@ -54,7 +53,6 @@ final class DistroplaneFunctionalTest {
     }
 
     private void cacheFixture() throws Exception {
-        assumeTrue(Files.isRegularFile(fixture), "Controlled CLI fixture must be built by CI");
         var p = CliBootstrap.Platform.current(System.getProperty("os.name"), System.getProperty("os.arch"));
         Path root = gradleHome.resolve("distroplane/cli/0.9.3/" + p.os() + "-" + p.arch() + "/sha256-" + pin);
         Files.createDirectories(root.resolve("bin"));
