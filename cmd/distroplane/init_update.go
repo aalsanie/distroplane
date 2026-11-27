@@ -11,9 +11,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/aalsanie/distroplane/internal/canonicaljson"
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/frontend/official"
@@ -87,6 +89,22 @@ func updateObject(object map[string]any, key string) map[string]any {
 	return value
 }
 
+func updateKeys(object map[string]any, allowed ...string) bool {
+	for key := range object {
+		found := false
+		for _, name := range allowed {
+			if key == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return object != nil
+}
+
 func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 	cfg, err := official.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -96,6 +114,18 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		return updateDocument{}, nil, fmt.Errorf("--update requires a guided schema 2 configuration; schema 1 is not migrated")
 	}
 	var doc updateDocument
+	data, err = canonicaljson.Normalize(data)
+	if err != nil {
+		return doc, nil, err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return doc, nil, err
+	}
+	if !updateKeys(root, "schemaVersion", "release", "destinations", "credentialSources") ||
+		!updateKeys(updateObject(root, "release"), "id", "artifacts") {
+		return doc, nil, fmt.Errorf("--update requires canonical configuration field names")
+	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return doc, nil, err
 	}
@@ -103,7 +133,8 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		return doc, nil, fmt.Errorf("--update requires one destination object per provider; arrays are not supported")
 	}
 	for _, artifact := range cfg.Release.Artifacts {
-		if updateString(doc.Release.Artifacts[artifact.Name], "source") != artifact.Source ||
+		if !updateKeys(doc.Release.Artifacts[artifact.Name], "source", "mediaType") ||
+			updateString(doc.Release.Artifacts[artifact.Name], "source") != artifact.Source ||
 			updateString(doc.Release.Artifacts[artifact.Name], "mediaType") != artifact.MediaType {
 			return doc, nil, fmt.Errorf("--update requires canonical artifact field names")
 		}
@@ -121,16 +152,8 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		}
 		options := updateObject(entry, "options")
 		d := updateDestination{variant: provider, id: target.ID, artifact: updateString(entry, "artifact"), entry: entry, options: options}
-		if options == nil || doc.Release.Artifacts[d.artifact] == nil || (updateString(entry, "id") != target.ID && !(updateString(entry, "id") == "" && target.ID == provider)) {
+		if !updateKeys(entry, "id", "artifact", "options", "executable") || options == nil || doc.Release.Artifacts[d.artifact] == nil {
 			return doc, nil, fmt.Errorf("--update requires canonical destination field names")
-		}
-		// Refuse configurations that would be reinterpreted by a case-insensitive decoder.
-		var normalized map[string]any
-		if err := json.Unmarshal(target.Configuration, &normalized); err != nil {
-			return doc, nil, err
-		}
-		if updateString(normalized, "artifact") != d.artifact {
-			return doc, nil, fmt.Errorf("--update requires an explicit declared artifact reference")
 		}
 		switch provider {
 		case "npm":
@@ -163,7 +186,7 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 			}
 		}
 		if _, err := normalizeInitDestinations([]string{d.variant}); err != nil {
-			return doc, nil, fmt.Errorf("--update does not support destination layout %s", d.variant)
+			return doc, nil, fmt.Errorf("--update does not support destination layout %s", safeDisplay(d.variant))
 		}
 		if provider != "npm" && (updateString(d.version, "version") == "" || updateString(d.download, "url") == "") {
 			return doc, nil, fmt.Errorf("--update requires existing version and URL metadata")
@@ -183,7 +206,7 @@ func updateIdentity(id, previous string, records []runstate.Record) error {
 	}
 	for _, record := range records {
 		if record.ReleaseID == id {
-			return fmt.Errorf("release %q already has saved plan %q; inspect distroplane runs --release or status --release for the existing run", id, record.PlanID)
+			return fmt.Errorf("release %q already has saved plan %q; select the existing release with distroplane runs --release ID or status --release ID", id, record.PlanID)
 		}
 	}
 	if id == previous {
@@ -276,11 +299,11 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		if !filepath.IsAbs(oldPath) {
 			oldPath = filepath.Join(base, old)
 		}
+		if sameUpdateArtifact(path, artifact.Path) {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("configuration cannot be its own artifact"))
+		}
 		if err := validateUpdateArtifactPath(base, doc, records, artifact.Path); err != nil {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
-		}
-		if previous, exists := sources[d.artifact]; exists && previous != source {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("destinations sharing artifact %q must select the same new path", d.artifact))
 		}
 		sources[d.artifact] = source
 		selected[provider] = artifact
@@ -345,7 +368,7 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
 	}
 	if !jsonMode {
-		fmt.Fprintf(stderr, "Release: %s -> %s\nDestinations unchanged:\n", safeDisplay(oldRelease), safeDisplay(releaseID))
+		fmt.Fprintf(stderr, "Release: %s -> %s\nDestinations unchanged (account, repository, credential sources and other settings preserved):\n", safeDisplay(oldRelease), safeDisplay(releaseID))
 		for _, c := range changes {
 			fmt.Fprintf(stderr, "  %s: %s -> %s (SHA-256 %s)\n", safeDisplay(c.Destination), safeDisplay(c.OldArtifact), safeDisplay(c.NewArtifact), c.SHA256)
 			if c.NewVersion != "" {
@@ -600,6 +623,9 @@ func writeUpdatedConfig(ctx context.Context, path string, original, data []byte)
 	if err := os.Link(saved.Name(), backup); err != nil {
 		return "", fmt.Errorf("cannot install non-overwriting update backup: %w", err)
 	}
+	if err := syncUpdateDirectory(dir); err != nil {
+		return backup, fmt.Errorf("cannot sync backup directory; configuration unchanged: %w", err)
+	}
 	current, err = readUpdateConfig(path)
 	if err != nil || !bytes.Equal(current, original) {
 		return backup, fmt.Errorf("configuration changed during update; original backup retained")
@@ -610,5 +636,20 @@ func writeUpdatedConfig(ctx context.Context, path string, original, data []byte)
 	if err := os.Rename(stage.Name(), path); err != nil {
 		return backup, fmt.Errorf("replace configuration; original backup retained: %w", err)
 	}
+	if err := syncUpdateDirectory(dir); err != nil {
+		return backup, fmt.Errorf("configuration replaced but directory sync failed; backup retained: %w", err)
+	}
 	return backup, nil
+}
+
+func syncUpdateDirectory(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	file, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return file.Sync()
 }
