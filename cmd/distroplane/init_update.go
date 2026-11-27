@@ -11,12 +11,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/frontend/official"
+	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
@@ -98,6 +99,15 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return doc, nil, err
 	}
+	if doc.Release.ID != cfg.Release.ID || len(doc.Release.Artifacts) != len(cfg.Release.Artifacts) || len(doc.Destinations) != len(cfg.Targets) {
+		return doc, nil, fmt.Errorf("--update requires one destination object per provider; arrays are not supported")
+	}
+	for _, artifact := range cfg.Release.Artifacts {
+		if updateString(doc.Release.Artifacts[artifact.Name], "source") != artifact.Source ||
+			updateString(doc.Release.Artifacts[artifact.Name], "mediaType") != artifact.MediaType {
+			return doc, nil, fmt.Errorf("--update requires canonical artifact field names")
+		}
+	}
 	var destinations []updateDestination
 	used := map[string]bool{}
 	for _, target := range cfg.Targets {
@@ -111,6 +121,17 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		}
 		options := updateObject(entry, "options")
 		d := updateDestination{variant: provider, id: target.ID, artifact: updateString(entry, "artifact"), entry: entry, options: options}
+		if options == nil || doc.Release.Artifacts[d.artifact] == nil || (updateString(entry, "id") != target.ID && !(updateString(entry, "id") == "" && target.ID == provider)) {
+			return doc, nil, fmt.Errorf("--update requires canonical destination field names")
+		}
+		// Refuse configurations that would be reinterpreted by a case-insensitive decoder.
+		var normalized map[string]any
+		if err := json.Unmarshal(target.Configuration, &normalized); err != nil {
+			return doc, nil, err
+		}
+		if updateString(normalized, "artifact") != d.artifact {
+			return doc, nil, fmt.Errorf("--update requires an explicit declared artifact reference")
+		}
 		switch provider {
 		case "npm":
 			if updateString(options, "packagePath") != updateString(doc.Release.Artifacts[d.artifact], "source") {
@@ -124,7 +145,7 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		case "homebrew":
 			manifest := updateObject(options, "manifest")
 			d.variant += ":" + updateString(manifest, "type")
-			if updateString(manifest, "installLayout") == "jvm-distribution" {
+			if updateString(manifest, "installLayout") == "jvm-distribution" && updateString(manifest, "type") == "formula" {
 				d.variant = "homebrew:jvm"
 			} else if updateString(manifest, "installLayout") != "" {
 				return doc, nil, fmt.Errorf("--update does not support this Homebrew install layout")
@@ -143,6 +164,9 @@ func decodeUpdate(data []byte) (updateDocument, []updateDestination, error) {
 		}
 		if _, err := normalizeInitDestinations([]string{d.variant}); err != nil {
 			return doc, nil, fmt.Errorf("--update does not support destination layout %s", d.variant)
+		}
+		if provider != "npm" && (updateString(d.version, "version") == "" || updateString(d.download, "url") == "") {
+			return doc, nil, fmt.Errorf("--update requires existing version and URL metadata")
 		}
 		used[d.artifact] = true
 		destinations = append(destinations, d)
@@ -181,6 +205,9 @@ func updateFields(raw []string) (map[string]string, error) {
 }
 
 func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFields []string, input io.Reader, prompt, jsonMode bool, stdout, stderr io.Writer) int {
+	if path == "" {
+		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--output is required"))
+	}
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_output", err)
@@ -194,6 +221,14 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
 	}
 	base := filepath.Dir(path)
+	for dir := base; ; dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == ".distroplane" {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "unsafe_output", fmt.Errorf("configuration must be outside saved execution state"))
+		}
+		if dir == filepath.Dir(dir) {
+			break
+		}
+	}
 	store := runstate.Store{Root: filepath.Join(base, ".distroplane")}
 	records, err := store.Inventory()
 	if err != nil {
@@ -219,7 +254,7 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		return writeCommandError(stderr, jsonMode, exitUsage, "invalid_option", err)
 	}
 	// A scripted update must explicitly select every artifact, not discover a stale build.
-	paths, err := updateArtifactPaths(destinations, artifacts, base, prompt, reader, stderr)
+	paths, err := updateArtifactPaths(doc, destinations, artifacts, base, prompt, reader, stderr)
 	if err != nil {
 		return initFailure(ctx, stderr, jsonMode, exitInvalid, "invalid_artifact", err)
 	}
@@ -241,8 +276,8 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		if !filepath.IsAbs(oldPath) {
 			oldPath = filepath.Join(base, old)
 		}
-		if sameUpdateArtifact(oldPath, artifact.Path) {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("choose a new artifact path; preserve the original artifact for existing runs"))
+		if err := validateUpdateArtifactPath(base, doc, records, artifact.Path); err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
 		}
 		if previous, exists := sources[d.artifact]; exists && previous != source {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("destinations sharing artifact %q must select the same new path", d.artifact))
@@ -252,6 +287,9 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 		change := updateChange{Destination: d.id + " (" + d.variant + ")", OldArtifact: old, NewArtifact: source, SHA256: artifact.SHA256}
 		builder.destination = d.variant
 		if provider == "npm" {
+			if _, _, err := inspectInitArtifact(base, oldPath); err != nil {
+				return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("original npm artifact is unavailable; retain it for recovery or edit manually"))
+			}
 			oldName, oldVersion, err := inspectUpdateNPM(oldPath)
 			if err != nil {
 				return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("original npm package metadata is unavailable; preserve the original package or edit manually: %w", err))
@@ -292,7 +330,9 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 	if len(fields) != 0 {
 		return writeCommandError(stderr, jsonMode, exitUsage, "unknown_option", fmt.Errorf("--update accepts only destination version and URL changes"))
 	}
+	previousArtifacts := make(map[string]map[string]any, len(doc.Release.Artifacts))
 	for name, source := range sources {
+		previousArtifacts[name] = map[string]any{"source": updateString(doc.Release.Artifacts[name], "source")}
 		doc.Release.Artifacts[name]["source"] = source
 	}
 	oldRelease := doc.Release.ID
@@ -333,7 +373,11 @@ func runInitUpdate(ctx context.Context, path, releaseID string, artifacts, rawFi
 	if err := updateIdentity(releaseID, oldRelease, records); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "release_conflict", err)
 	}
+	previous := updateDocument{Release: updateRelease{Artifacts: previousArtifacts}}
 	for _, artifact := range selected {
+		if err := validateUpdateArtifactPath(base, previous, records, artifact.Path); err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", err)
+		}
 		actual, _, err := inspectInitArtifact(base, artifact.Path)
 		if err != nil || actual != artifact {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_artifact", fmt.Errorf("artifact changed during update review"))
@@ -387,17 +431,35 @@ func sameUpdateArtifact(old, next string) bool {
 	return errA == nil && errB == nil && os.SameFile(a, b)
 }
 
-func updateArtifactPaths(destinations []updateDestination, raw []string, base string, prompt bool, reader *bufio.Reader, stderr io.Writer) (map[string]string, error) {
-	var variants []string
+func validateUpdateArtifactPath(base string, doc updateDocument, records []runstate.Record, next string) error {
+	for _, artifact := range doc.Release.Artifacts {
+		old := updateString(artifact, "source")
+		if !filepath.IsAbs(old) {
+			old = filepath.Join(base, old)
+		}
+		if sameUpdateArtifact(old, next) {
+			return fmt.Errorf("choose a new artifact path; preserve original artifacts for existing runs")
+		}
+	}
+	for _, record := range records {
+		plan, err := planner.Load(record.PlanPath)
+		if err != nil {
+			return fmt.Errorf("cannot verify saved artifact paths: %w", err)
+		}
+		for _, artifact := range plan.Plan().Release().Artifacts() {
+			if sameUpdateArtifact(artifact.Source(), next) {
+				return fmt.Errorf("artifact path belongs to saved release %q; choose a new path", record.ReleaseID)
+			}
+		}
+	}
+	return nil
+}
+
+func updateArtifactPaths(doc updateDocument, destinations []updateDestination, raw []string, base string, prompt bool, reader *bufio.Reader, stderr io.Writer) (map[string]string, error) {
 	providers := map[string]bool{}
 	for _, d := range destinations {
-		variants = append(variants, d.variant)
 		provider, _, _ := strings.Cut(d.variant, ":")
 		providers[provider] = true
-	}
-	variants, err := normalizeInitDestinations(variants)
-	if err != nil {
-		return nil, err
 	}
 	var shared string
 	explicit := map[string]string{}
@@ -415,50 +477,76 @@ func updateArtifactPaths(destinations []updateDestination, raw []string, base st
 			shared = item
 		}
 	}
-	for _, variant := range variants {
-		provider, _, _ := strings.Cut(variant, ":")
-		if explicit[provider] != "" || shared != "" {
-			continue
-		}
-		if !prompt {
-			return nil, fmt.Errorf("supply --artifact %s=PATH", provider)
-		}
-		var candidates []string
-		if found, err := discoverArtifacts(base); err == nil {
-			for _, path := range found {
-				if validateInitArtifactKind(variant, path) == nil {
-					candidates = append(candidates, path)
-				}
-			}
-		}
-		sort.Strings(candidates)
-		for _, path := range candidates {
-			fmt.Fprintf(stderr, "  %s\n", safeDisplay(path))
-		}
-		value, err := promptValidated(reader, stderr, "new artifact path for "+variant, func(value string) error {
-			if err := validateInitArtifactKind(variant, value); err != nil {
-				return err
-			}
-			path := value
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(base, path)
-			}
-			info, err := os.Lstat(path)
-			if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || !initSafeDescendant(base, path) {
-				return fmt.Errorf("choose an existing nonempty regular artifact")
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		explicit[provider] = value
-	}
-	paths := map[string]string{}
-	for provider := range providers {
+	byArtifact := map[string]string{}
+	for _, d := range destinations {
+		provider, _, _ := strings.Cut(d.variant, ":")
 		value := explicit[provider]
 		if value == "" {
 			value = shared
+		}
+		if value == "" {
+			continue
+		}
+		if !filepath.IsAbs(value) {
+			value = filepath.Join(base, value)
+		}
+		value = filepath.Clean(value)
+		if prior := byArtifact[d.artifact]; prior != "" && prior != value {
+			return nil, fmt.Errorf("destinations sharing artifact %q must select the same new path", d.artifact)
+		}
+		byArtifact[d.artifact] = value
+	}
+	paths := map[string]string{}
+	for _, d := range destinations {
+		provider, _, _ := strings.Cut(d.variant, ":")
+		value := byArtifact[d.artifact]
+		if value == "" {
+			if !prompt {
+				return nil, fmt.Errorf("supply --artifact %s=PATH", provider)
+			}
+			compatible := func(value string) error {
+				for _, target := range destinations {
+					if target.artifact == d.artifact {
+						if err := validateInitArtifactKind(target.variant, value); err != nil {
+							return err
+						}
+					}
+				}
+				if !filepath.IsAbs(value) {
+					value = filepath.Join(base, value)
+				}
+				info, err := os.Lstat(value)
+				if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || !initSafeDescendant(base, value) {
+					return fmt.Errorf("choose an existing nonempty regular artifact")
+				}
+				return validateUpdateArtifactPath(base, doc, nil, value)
+			}
+			var candidates []string
+			if found, err := discoverArtifacts(base); err == nil {
+				for _, candidate := range found {
+					if compatible(candidate) == nil {
+						candidates = append(candidates, candidate)
+						fmt.Fprintf(stderr, "  %d. %s\n", len(candidates), safeDisplay(candidate))
+					}
+				}
+			}
+			_, err := promptValidated(reader, stderr, "new artifact path or candidate number for "+safeDisplay(d.artifact), func(answer string) error {
+				if index, err := strconv.Atoi(answer); err == nil {
+					if index < 1 || index > len(candidates) {
+						return fmt.Errorf("choose a listed candidate or enter a path")
+					}
+					answer = candidates[index-1]
+				}
+				if err := compatible(answer); err != nil {
+					return err
+				}
+				value = answer
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			byArtifact[d.artifact] = value
 		}
 		paths[provider] = value
 	}

@@ -24,7 +24,7 @@ distroplane init --update --release v1.2.4 --artifact dist/tool-1.2.4.tgz --non-
 
 For SDKMAN, Homebrew and WinGet, also supply the corresponding `--set PROVIDER.version=VALUE` and `--set PROVIDER.url=HTTPS_URL` when scripting. Use `--artifact PROVIDER=PATH` for distinct artifacts; destinations sharing a named artifact must still share it. Interactive updates require typing the displayed confirmation. Updates preserve the previous configuration in a non-overwriting backup, never publish, and refuse existing saved release identities. Keep original artifact paths and bytes for recovery; use a new path for each updated artifact.
 
-Guided updates support schema 2 with one object per official provider and the seven setup layouts. Destination arrays, explicit provider executables, unreferenced artifacts, custom providers, schema 1, and SDKMAN configurations with explicit checksums require manual editing instead. `--force` remains a separate replacement operation. To continue an earlier release, use `status --release ID` or `resume --release ID`, not `init --update`.
+Guided updates support schema 2 with one object per official provider and the seven setup layouts. Destination arrays, explicit provider executables, unreferenced artifacts, custom providers, schema 1, SDKMAN configurations with explicit checksums, and WinGet configurations with explicit release notes URLs require manual editing instead. `--force` remains a separate replacement operation. To continue an earlier release, use `status --release ID` or `resume --release ID`, not `init --update`.
 
 ## Check and resume
 
