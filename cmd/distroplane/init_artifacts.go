@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -47,23 +49,67 @@ func initArtifactPaths(destinations, raw []string, baseDir string, prompt bool, 
 		if err != nil {
 			return nil, err
 		}
-		switch len(candidates) {
-		case 0:
-			if !prompt {
+		if !prompt {
+			switch len(candidates) {
+			case 0:
 				return nil, fmt.Errorf("no recent build artifacts in target/, build/, or dist/; specify --artifact")
-			}
-		case 1:
-			unscoped = candidates[0]
-		default:
-			if !prompt {
+			case 1:
+				unscoped = candidates[0]
+			default:
 				return nil, fmt.Errorf("%d build artifacts found; choose with --artifact provider=PATH or --artifact PATH (candidates: %s)", len(candidates), strings.Join(candidates, ", "))
 			}
-			fmt.Fprintf(stderr, "Artifact candidates: %s\n", strings.Join(candidates, ", "))
-		}
-		if unscoped == "" && prompt {
-			unscoped, err = promptInit(reader, stderr, "artifact path")
-			if err != nil {
-				return nil, err
+		} else {
+			for _, variant := range destinations {
+				provider, _, _ := strings.Cut(variant, ":")
+				if explicit[provider] != "" {
+					continue
+				}
+				compatible := make([]string, 0, len(candidates))
+				for _, candidate := range candidates {
+					if validateInitArtifactKind(variant, candidate) == nil {
+						compatible = append(compatible, candidate)
+					}
+				}
+				if len(compatible) == 1 && len(candidates) == 1 {
+					explicit[provider] = compatible[0]
+					continue
+				}
+				if len(compatible) > 0 {
+					fmt.Fprintf(stderr, "Artifact candidates for %s:\n", variant)
+					for i, candidate := range compatible {
+						info, err := os.Lstat(filepath.Join(baseDir, candidate))
+						if err != nil || !info.Mode().IsRegular() {
+							return nil, fmt.Errorf("artifact candidates changed; rerun init or specify --artifact")
+						}
+						fmt.Fprintf(stderr, "  %d. %s (%d bytes)\n", i+1, safeDisplay(candidate), info.Size())
+					}
+				}
+				var choice string
+				_, err := promptValidated(reader, stderr, "artifact path for "+variant+" (or candidate number)", func(value string) error {
+					if index, err := strconv.Atoi(value); err == nil {
+						if index < 1 || index > len(compatible) {
+							return fmt.Errorf("choose a listed candidate number or enter a path")
+						}
+						value = compatible[index-1]
+					}
+					if err := validateInitArtifactKind(variant, value); err != nil {
+						return err
+					}
+					path := value
+					if !filepath.IsAbs(path) {
+						path = filepath.Join(baseDir, path)
+					}
+					info, err := os.Lstat(path)
+					if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || !initSafeDescendant(baseDir, path) {
+						return fmt.Errorf("choose an existing nonempty regular artifact without symbolic links")
+					}
+					choice = value
+					return nil
+				})
+				if err != nil {
+					return nil, err
+				}
+				explicit[provider] = choice
 			}
 		}
 	}

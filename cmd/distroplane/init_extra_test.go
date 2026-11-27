@@ -43,13 +43,19 @@ func TestInitArtifactSelectorErrorsAndExplicitMapping(t *testing.T) {
 
 func TestInitArtifactSelectorPromptsWithoutCandidates(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "packages"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "packages", "package.tgz"), []byte("artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	var diagnostic bytes.Buffer
 	got, err := initArtifactPaths([]string{"npm"}, nil, dir, true,
-		bufio.NewReader(strings.NewReader("target/package.tgz\n")), &diagnostic)
+		bufio.NewReader(strings.NewReader("packages/package.tgz\n")), &diagnostic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got["npm"] != filepath.Join(dir, "target", "package.tgz") {
+	if got["npm"] != filepath.Join(dir, "packages", "package.tgz") {
 		t.Fatalf("prompt path changed: %+v", got)
 	}
 	if !strings.Contains(diagnostic.String(), "artifact path") {

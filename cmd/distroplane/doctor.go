@@ -48,9 +48,10 @@ type doctorOutput struct {
 }
 
 type doctorChecks struct {
-	output    doctorOutput
-	localBad  bool
-	remoteBad bool
+	output          doctorOutput
+	localBad        bool
+	remoteBad       bool
+	planCredentials map[string][]doctorCredential
 }
 
 func (d *doctorChecks) add(code, severity, subject, message, fix string) {
@@ -177,6 +178,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 	}
 	endpoints := make(map[planner.Endpoint]bool)
 	credentialOwners := make(map[string]string)
+	credentialPurposes := make(map[string]string)
 	requiredReferences := make(map[string]bool)
 	client, clientErr := providerhost.New(providerhost.Options{})
 	for _, target := range loaded.Config.Targets {
@@ -193,7 +195,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			trusted = err == nil && target.Provider.Executable == "" && planner.IsTrustedInstalledProvider(target.Provider.Name, executable)
 		}
 		if err != nil {
-			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable is missing or unsafe", "Check the provider beside the selected CLI installation or correct the configured executable path")
+			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider "+safeDisplay(target.Provider.Name)+" executable is missing or unsafe", "Install the matching distroplane-provider-"+safeDisplay(target.Provider.Name)+" beside the CLI or correct the configured executable path")
 			d.add("CREDENTIAL_SKIPPED", doctorSkip, target.ID, "provider identity not verified", "")
 			continue
 		}
@@ -268,17 +270,27 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 				d.add("GIT_AVAILABLE", doctorPass, target.ID, "Git command found on PATH", "")
 			}
 		}
-		for _, credential := range doctorCredentialRefs(target) {
+		requirements := doctorCredentialRefs(target)
+		if bindings != nil {
+			requirements = d.planCredentials[target.ID]
+		}
+		for _, credential := range requirements {
 			requiredReferences[credential.ref] = true
+			purpose := target.Provider.Name + "/" + credential.environment
+			if previous, exists := credentialPurposes[credential.ref]; exists && previous != purpose {
+				d.add("CREDENTIAL_COLLISION", doctorFail, target.ID+"/"+credential.ref, "credential reference has incompatible destination purposes", "Use distinct credential references for distinct destinations")
+				continue
+			}
+			credentialPurposes[credential.ref] = purpose
 			source := doctorCredentialSource(credential.ref, target.Provider.Name, credential.environment, loaded.Config.CredentialSources, options.credentials, providerCounts[target.Provider.Name] == 1 && trusted)
 			if source == "" {
-				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential reference has no approved environment source", "Provide --credential REF=ENV or configure credentialSources with an isolated source")
+				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential reference has no approved environment source", "Provide --credential "+safeDisplay(credential.ref)+"=ENV or configure credentialSources with an isolated source")
 			} else if previous, taken := credentialOwners[strings.ToUpper(source)]; taken && previous != credential.ref {
-				d.add("CREDENTIAL_COLLISION", doctorFail, target.ID+"/"+credential.ref, "different credential references map to the same environment source", "Assign a separate environment name per credential reference")
+				d.add("CREDENTIAL_COLLISION", doctorFail, target.ID+"/"+credential.ref, "credential references "+safeDisplay(previous)+" and "+safeDisplay(credential.ref)+" map to "+safeDisplay(source), "Assign a separate environment name per credential reference")
 			} else if value, present := os.LookupEnv(source); !present || value == "" {
-				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential environment source is unset or empty", "Set the mapped environment variable before publishing")
+				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential environment source "+safeDisplay(source)+" is unset or empty", "Set "+safeDisplay(source)+" before publishing")
 			} else {
-				d.add("CREDENTIAL_AVAILABLE", doctorPass, target.ID+"/"+credential.ref, "mapped credential environment source is populated (value not displayed)", "")
+				d.add("CREDENTIAL_AVAILABLE", doctorPass, target.ID+"/"+credential.ref, "mapped credential environment source is populated (value not displayed; authorization not verified)", "")
 			}
 			if source != "" {
 				credentialOwners[strings.ToUpper(source)] = credential.ref
@@ -351,26 +363,7 @@ func doctorCredentialRefs(target config.Target) []doctorCredential {
 		if value, exists := auth[key]; exists {
 			var name string
 			if json.Unmarshal(value, &name) == nil && name != "" {
-				environment := ""
-				switch target.Provider.Name + "/" + key {
-				case "npm/credential":
-					environment = "DISTROPLANE_NPM_TOKEN"
-					if mode == "trusted-publishing" {
-						environment = "DISTROPLANE_NPM_ID_TOKEN"
-					}
-				case "homebrew/credential":
-					environment = "DISTROPLANE_HOMEBREW_TOKEN"
-				case "winget/credential":
-					environment = "DISTROPLANE_WINGET_TOKEN"
-				case "sdkman/emailCredential":
-					environment = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
-				case "sdkman/passwordCredential":
-					environment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
-				case "sdkman/consumerKeyCredential":
-					environment = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
-				case "sdkman/consumerTokenCredential":
-					environment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
-				}
+				environment := official.CredentialEnvironment(target.Provider.Name, key, mode)
 				names = append(names, doctorCredential{ref: name, environment: environment})
 			}
 		}

@@ -165,6 +165,12 @@ func TestDoctorChecksCredentialsWithoutLeakingValues(t *testing.T) {
 	_, cfg, _ := doctorFixtureNPM(t, "token")
 	const secret = "doctor-credential-secret-canary"
 	t.Setenv("DOCTOR_NPM_TOKEN", secret)
+	t.Setenv("DOCTOR_UNSET_TOKEN", "")
+	named := doctorRun(t, exitInvalid, "--config", cfg, "--credential", "npm-publish=DOCTOR_UNSET_TOKEN", "--json")
+	namedJSON, err := json.Marshal(named)
+	if err != nil || !bytes.Contains(namedJSON, []byte("DOCTOR_UNSET_TOKEN")) || bytes.Contains(namedJSON, []byte(secret)) {
+		t.Fatalf("missing source not identified safely: %s %v", namedJSON, err)
+	}
 	missing := doctorRun(t, exitInvalid, "--config", cfg, "--json")
 	if !hasDoctorCode(missing, "MISSING_CREDENTIAL", doctorFail) {
 		t.Fatalf("ambient discovery incorrectly passed: %+v", missing)
@@ -376,5 +382,29 @@ func TestDoctorFlagSafetyAndCancellation(t *testing.T) {
 	var out, diagnostic bytes.Buffer
 	if code := runDoctorContext(ctx, []string{"--json"}, &out, &diagnostic); code != exitOperational {
 		t.Fatalf("cancelled doctor code=%d", code)
+	}
+}
+
+func TestDoctorUsesSavedProviderCredentialRequirements(t *testing.T) {
+	_, cfg := publishFixture(t, `{"mode":"published","credential":"custom-auth","credentialEnvironment":"DISTROPLANE_FAKE_CREDENTIAL"}`)
+	var out, diagnostic bytes.Buffer
+	if code := runPlanContext(context.Background(), []string{"--config", cfg, "--json"}, &out, &diagnostic); code != exitOK {
+		t.Fatalf("plan: %d %s", code, diagnostic.String())
+	}
+	var plan planOutput
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CUSTOM_AUTH_SOURCE", "")
+	report := doctorRun(t, exitInvalid, "--config", cfg, "--plan", plan.Path, "--credential", "custom-auth=CUSTOM_AUTH_SOURCE", "--json")
+	raw, err := json.Marshal(report)
+	if err != nil || !hasDoctorCode(report, "MISSING_CREDENTIAL", doctorFail) || !bytes.Contains(raw, []byte("CUSTOM_AUTH_SOURCE")) {
+		t.Fatalf("saved requirement not diagnosed: %s %v", raw, err)
+	}
+	t.Setenv("CUSTOM_AUTH_SOURCE", "secret-canary-value")
+	report = doctorRun(t, exitOK, "--config", cfg, "--plan", plan.Path, "--credential", "custom-auth=CUSTOM_AUTH_SOURCE", "--json")
+	raw, err = json.Marshal(report)
+	if err != nil || bytes.Contains(raw, []byte("secret-canary-value")) || !hasDoctorCode(report, "CREDENTIAL_AVAILABLE", doctorPass) {
+		t.Fatalf("saved requirement check failed: %s %v", raw, err)
 	}
 }

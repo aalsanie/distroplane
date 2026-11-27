@@ -10,7 +10,7 @@ distroplane doctor
 distroplane publish
 ```
 
-`init` asks for a release ID, destination, and artifact if not supplied. Missing provider-specific details must be provided by you. `doctor` checks your configuration and local readiness. `publish` previews the immutable plan and asks for explicit approval **before** any publication.
+`init` asks for a release ID, destination, and artifact if not supplied. Choose a numbered artifact or enter its path. Required destination metadata includes a short example and is checked as you enter it. Invalid answers can be corrected without restarting. Press Ctrl-C to cancel without writing configuration. Optional advanced fields use `--set FIELD=VALUE`; use `--credential REF=ENV` to select an environment variable name, never its value. `doctor` checks your configuration and local readiness. `publish` previews the immutable plan and asks for explicit approval **before** any publication.
 
 In scripts, supply all `init` metadata with flags (`distroplane init --help`). For noninteractive publishing, use `--yes` only after reviewing the plan; `--dry-run` never publishes.
 
@@ -53,3 +53,7 @@ Existing journal-v2 authorization records remain readable. An unfinished run wit
 `0` success · `1` operational error · `2` invalid options · `3` invalid input · `4` pending · `5` rejected · `6` failed/cancelled.
 
 [Configuration](configuration.md) · [Security model](security-model.md)
+
+### Setup metadata
+
+Choose a built artifact and its existing destination; setup does not create external accounts, package identifiers or licenses. npm reads package identity during planning. For SDKMAN, provide candidate, version and public download URL; authentication mode and platform are optional `--set` fields. Homebrew requires tap repository, manifest path, name, description, homepage, version, public artifact URL and installation layout fields; pull-request mode also requires the destination repository. WinGet requires fork repository, package identifier, version, publisher, name, actual license, description, public installer URL, architecture and pull-request repository; ZIP additionally requires nested installer type and relative file path. A single ZIP member can be entered as a plain path; advanced portable layouts retain the JSON-array `--set winget.nested-files=VALUE` form. Use `--set` for optional nonsecret settings and `--credential REF=ENV` for explicitly scoped credential sources. The setup summary lists environment names, never their values. Doctor's optional `--remote` probes HTTPS TCP reachability only, not account authorization or publication acceptance.

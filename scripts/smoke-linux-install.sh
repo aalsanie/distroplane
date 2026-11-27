@@ -19,6 +19,7 @@ for provider in homebrew npm sdkman winget; do
   test -x "$prefix/lib/distroplane/versions/$version/libexec/distroplane-provider-$provider"
 done
 python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version"
+python3 scripts/smoke-init-terminal.py --cli "$prefix/bin/distroplane"
 python3 scripts/smoke_installed.py --cli "$prefix/bin/distroplane" --version "$version" --prepare-recovery "$work/recovery"
 # Repeat installation is an integrity-checked no-op.
 python3 scripts/install-linux.py --version "$version" --offline-dir "$dist" --prefix "$prefix"

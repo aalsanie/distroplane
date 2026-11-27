@@ -24,3 +24,27 @@ func credentialCandidates() map[credentials.SourceKey]string {
 func DefaultSource(provider, environment string) string {
 	return credentialCandidates()[credentials.SourceKey{Provider: provider, Environment: environment}]
 }
+
+func CredentialEnvironment(provider, field, mode string) string {
+	environment := ""
+	switch provider + "/" + field {
+	case "npm/credential":
+		environment = "DISTROPLANE_NPM_TOKEN"
+		if mode == "trusted-publishing" {
+			environment = "DISTROPLANE_NPM_ID_TOKEN"
+		}
+	case "homebrew/credential":
+		environment = "DISTROPLANE_HOMEBREW_TOKEN"
+	case "winget/credential":
+		environment = "DISTROPLANE_WINGET_TOKEN"
+	case "sdkman/emailCredential":
+		environment = "DISTROPLANE_SDKMAN_VENDOR_EMAIL"
+	case "sdkman/passwordCredential":
+		environment = "DISTROPLANE_SDKMAN_VENDOR_PASSWORD"
+	case "sdkman/consumerKeyCredential":
+		environment = "DISTROPLANE_SDKMAN_CONSUMER_KEY"
+	case "sdkman/consumerTokenCredential":
+		environment = "DISTROPLANE_SDKMAN_CONSUMER_TOKEN"
+	}
+	return environment
+}
