@@ -214,6 +214,11 @@ class Compatibility(unittest.TestCase):
                             dict(events[0], futureField=True)):
                 bad_journal.write_bytes(frame(changed) + b"DP")
                 refuse(plan, bad_journal)
+            duplicate = json.dumps(events[0], separators=(",", ":")).encode("utf-8")
+            duplicate = duplicate.replace(b'"sequence":1', b'"sequence":2,"sequence":1', 1)
+            bad_journal.write_bytes(b"DPJ1" + struct.pack(">II", len(duplicate), zlib.crc32(duplicate))
+                                    + duplicate + b"DP")
+            refuse(plan, bad_journal)
             bad_event = copy.deepcopy(events[1])
             bad_event["operationId"] = "unknown-operation"
             bad_journal.write_bytes(frame(events[0]) + frame(bad_event) + b"DP")

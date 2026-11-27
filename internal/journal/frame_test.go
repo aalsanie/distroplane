@@ -135,3 +135,26 @@ func FuzzRead(f *testing.F) {
 	f.Add(valid[:len(valid)-1])
 	f.Fuzz(func(t *testing.T, data []byte) { _, _ = Read(bytes.NewReader(data)) })
 }
+
+func TestJournalRejectsDuplicateJSONKeys(t *testing.T) {
+	payload, err := json.Marshal(runStarted(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := bytes.Replace(payload, []byte(`"sequence":1`), []byte(`"sequence":2,"sequence":1`), 1)
+	if bytes.Equal(payload, duplicate) {
+		t.Fatal("fixture did not contain sequence")
+	}
+	if _, err := Read(bytes.NewReader(rawFrame(t, json.RawMessage(duplicate)))); !errors.Is(err, ErrCorruptRecord) {
+		t.Fatalf("duplicate journal key accepted: %v", err)
+	}
+	value := event(2, EventOperationPublished, "op-a", "target-a", Payload{
+		Attempt: 1, Evidence: json.RawMessage(`{"ref":"a","ref":"b"}`),
+	})
+	if _, err := encodeFrame(value); !errors.Is(err, ErrCorruptRecord) {
+		t.Fatalf("duplicate evidence key accepted for writing: %v", err)
+	}
+	if _, err := Read(bytes.NewReader(append(mustFrame(t, runStarted(1)), rawFrame(t, value)...))); !errors.Is(err, ErrCorruptRecord) {
+		t.Fatalf("duplicate evidence key accepted for reading: %v", err)
+	}
+}
