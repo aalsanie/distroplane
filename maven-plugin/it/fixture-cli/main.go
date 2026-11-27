@@ -19,6 +19,7 @@ type state struct {
 	RunID     string `json:"runId"`
 	Attempts  int    `json:"attempts"`
 	Completed bool   `json:"completed"`
+	Failed    bool   `json:"failed,omitempty"`
 }
 
 func emit(value any) {
@@ -90,7 +91,9 @@ func main() {
 	}
 	run := func(s state) any {
 		result := "PUBLISHED"
-		if !s.Completed {
+		if s.Failed {
+			result = "FAILED"
+		} else if !s.Completed {
 			result = "WAITING_EXTERNAL"
 		}
 		return map[string]any{
@@ -182,6 +185,13 @@ func main() {
 			time.Sleep(30 * time.Second)
 			return
 		}
+		if _, err := os.Stat(filepath.Join(dir, ".fixture-failed")); err == nil {
+			s.Failed = true
+			s.Completed = true
+			write(s)
+			output(s, true)
+			os.Exit(6)
+		}
 		if _, err := os.Stat(filepath.Join(dir, ".fixture-pending")); err == nil {
 			output(s, true)
 			os.Exit(4)
@@ -193,6 +203,10 @@ func main() {
 		s, ok := read()
 		if !ok {
 			fail("STATE_CORRUPT", "", 3)
+		}
+		if s.Failed {
+			output(s, false)
+			os.Exit(6)
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".fixture-pending")); err == nil {
 			output(s, false)
@@ -207,6 +221,9 @@ func main() {
 			fail("STATE_CORRUPT", "", 3)
 		}
 		output(s, false)
+		if s.Failed {
+			os.Exit(6)
+		}
 		if !s.Completed {
 			os.Exit(4)
 		}

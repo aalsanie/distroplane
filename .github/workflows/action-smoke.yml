@@ -41,6 +41,76 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Action summary contract tests failed' }
           & $python scripts/test_release_acceptance.py
           if ($LASTEXITCODE -ne 0) { throw 'Release outcome acceptance tests failed' }
+      - name: Prepare independent native outcome fixtures
+        shell: pwsh
+        env:
+          CONFIG: ${{ steps.fixture.outputs.config }}
+        run: |
+          foreach ($mode in @('noop', 'rejected', 'blocked')) {
+            $dir = Join-Path $PWD "outcome fixture $mode"
+            New-Item -ItemType Directory -Path $dir | Out-Null
+            Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $env:CONFIG) 'app.bin') -Destination $dir
+            $config = Get-Content -LiteralPath $env:CONFIG -Raw | ConvertFrom-Json
+            $config.release.id = "action-$mode"
+            $config.targets[0].configuration.mode = if ($mode -eq 'blocked') { 'published' } else { $mode }
+            if ($mode -eq 'blocked') {
+              $config.targets[0].configuration | Add-Member -NotePropertyName credential -NotePropertyValue 'fixture-missing-auth'
+            }
+            $config | ConvertTo-Json -Depth 12 -Compress | Set-Content -LiteralPath (Join-Path $dir 'distroplane.json') -Encoding utf8NoBOM
+          }
+      - name: Complete native no-op without dispatch
+        id: noop
+        uses: ./
+        with:
+          command: publish
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: outcome fixture noop/distroplane.json
+          approve: 'true'
+      - name: Observe rejected native publication
+        id: rejected
+        continue-on-error: true
+        uses: ./
+        with:
+          command: publish
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: outcome fixture rejected/distroplane.json
+          approve: 'true'
+      - name: Observe native missing credential
+        id: blocked
+        uses: ./
+        with:
+          command: publish
+          binary: ${{ steps.fixture.outputs.cli }}
+          config: outcome fixture blocked/distroplane.json
+          approve: 'true'
+      - name: Verify exact native outcome identities and exit statuses
+        shell: pwsh
+        env:
+          NOOP_RESULT: ${{ steps.noop.outputs.result-json }}
+          NOOP_EXIT: ${{ steps.noop.outputs.exit-code }}
+          REJECTED_RESULT: ${{ steps.rejected.outputs.result-json }}
+          REJECTED_EXIT: ${{ steps.rejected.outputs.exit-code }}
+          REJECTED_FLAG: ${{ steps.rejected.outputs.rejected }}
+          REJECTED_OUTCOME: ${{ steps.rejected.outcome }}
+          BLOCKED_RESULT: ${{ steps.blocked.outputs.result-json }}
+          BLOCKED_EXIT: ${{ steps.blocked.outputs.exit-code }}
+          BLOCKED_PENDING: ${{ steps.blocked.outputs.pending }}
+        run: |
+          $noop = $env:NOOP_RESULT | ConvertFrom-Json
+          if ($env:NOOP_EXIT -ne '0' -or -not $noop.run.completed -or $noop.plan.operations -ne 0 -or
+              $noop.run.operations.Count -ne 0 -or $noop.plan.planId -cne $noop.run.planId -or -not $noop.run.runId) {
+            throw 'No-op native publication output was inconsistent'
+          }
+          $rejected = $env:REJECTED_RESULT | ConvertFrom-Json
+          if ($env:REJECTED_EXIT -ne '5' -or $env:REJECTED_FLAG -ne 'true' -or $env:REJECTED_OUTCOME -ne 'failure' -or
+              $rejected.run.targets[0].state -ne 'REJECTED' -or $rejected.plan.planId -cne $rejected.run.planId -or -not $rejected.run.runId) {
+            throw 'Rejected publication did not preserve the native outcome'
+          }
+          $blocked = $env:BLOCKED_RESULT | ConvertFrom-Json
+          if ($env:BLOCKED_EXIT -ne '4' -or $env:BLOCKED_PENDING -ne 'true' -or $blocked.run.completed -or
+              $blocked.run.targets[0].state -ne 'BLOCKED' -or $blocked.plan.planId -cne $blocked.run.planId -or -not $blocked.run.runId) {
+            throw 'Missing credential did not preserve the original blocked run'
+          }
       - name: Plan with local action
         id: plan
         uses: ./
@@ -354,6 +424,8 @@ jobs:
           config: recovery-smoke/distroplane.json
           binary: recovery-smoke/bin/distroplane${{ runner.os == 'Windows' && '.exe' || '' }}
           restore-recovery: 'true'
+          release: action-smoke
+          reconcile-only: 'true'
           recovery-artifact-name: action-recovery-${{ matrix.os }}
       - name: Verify same-run recovery
         shell: pwsh
@@ -379,8 +451,9 @@ jobs:
             throw 'resume changed the original durable plan or run identity'
           }
           $output = $env:RESULT_JSON | ConvertFrom-Json
-          if ($output.targets.Count -ne 1 -or $output.targets[0].state -ne 'PUBLISHED') {
-            throw 'resume did not reconcile the controlled external publication'
+          if ($output.targets.Count -ne 1 -or $output.targets[0].state -ne 'PUBLISHED' -or
+              $output.operations.Count -ne 1 -or $output.operations[0].attempt -ne 1) {
+            throw 'resume did not reconcile the original publication exactly once'
           }
 
   evidence-handoff:

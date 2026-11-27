@@ -132,6 +132,19 @@ def main():
     for artifact in parsed['release']['artifacts']:
         if not Path(artifact['source']).is_file():raise AssertionError('legacy artifact mapping did not resolve packaged artifact')
     if source.read_bytes()!=original_legacy:raise AssertionError('legacy source config changed')
+    # A terminal native failure is not a successful build or an authorization to retry.
+    shutil.rmtree(simple/'.distroplane')
+    (simple/'.fixture-failed').touch()
+    failed=invoke(cmd+['-f',str(simple/'pom.xml'),'-Ddistroplane.approve=true',goal+'publish'],ok=False)
+    if 'code 6' not in failed or 'failed or cancelled' not in failed:
+        raise AssertionError('native failure was not propagated')
+    failed_state=(simple/'.distroplane/fixture-run.json').read_bytes()
+    for command in ('status','resume','publish'):
+        options=['-Ddistroplane.approve=true'] if command=='publish' else []
+        invoke(cmd+['-f',str(simple/'pom.xml')]+options+[goal+command],ok=False)
+        if (simple/'.distroplane/fixture-run.json').read_bytes()!=failed_state:
+            raise AssertionError('terminal failure triggered replacement publication')
+    (simple/'.fixture-failed').unlink()
     # Cache and artifact failures must not invoke publication.
     shutil.rmtree(simple/'.distroplane')
     try:

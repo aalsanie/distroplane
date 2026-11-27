@@ -1,10 +1,10 @@
 # Distroplane Gradle plugin
 
-The Gradle plugin invokes the native Distroplane CLI; it never publishes directly. It registers six opt-in tasks only and is not attached to `build`, `assemble`, or `publish`. The plugin source targets Java 17+, Gradle 8.14.6 and Gradle 9.8.2. The native CLI version defaults to `0.9.3`; the plugin is independently versioned and is not yet published.
+The Gradle plugin invokes the native Distroplane CLI; it never publishes directly. It registers seven opt-in tasks only and is not attached to `build`, `assemble`, or `publish`. The plugin source targets Java 17+, Gradle 8.14.6 and Gradle 9.8.2. The native CLI version defaults to `0.9.3`; the plugin is independently versioned. Select a published plugin version from the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.aalsanie.distroplane).
 
 ```groovy
 plugins {
-    id 'io.github.aalsanie.distroplane'
+    id 'io.github.aalsanie.distroplane' version '1.0.0'
 }
 
 distroplane {
@@ -39,4 +39,4 @@ distroplane {
 
 Only explicitly selected environment variable values are passed into the child process; CLI output containing any selected secret is suppressed. Configuration-cache execution is explicitly unsupported because exact archive task selection requires the live task graph. The native CLI remains authoritative for provider credentials, side effects, journaling and reconciliation.
 
-Run `gradle -p gradle-plugin check` to execute unit and functional tests and the strict **greater-than-90% line and branch coverage** gates. The CI matrix exercises Gradle 8 and 9, JDK 17 and 21, and Linux/macOS/Windows.
+Build the controlled fixture with `go build -o /absolute/path/to/fixture ./maven-plugin/it/fixture-cli/main.go` and set `DISTROPLANE_FIXTURE_BINARY` to its absolute path (use `.exe` on Windows). Run `gradle -p gradle-plugin check` to execute unit and functional tests and the strict **greater-than-90% line and branch coverage** gates. The CI matrix exercises Gradle 8 and 9, JDK 17 and 21, and Linux/macOS/Windows.

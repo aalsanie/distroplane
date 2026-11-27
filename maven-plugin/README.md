@@ -2,7 +2,7 @@
 
 A Maven **build plugin** which runs the native Distroplane CLI and providers. It does not build artifacts, publish directly, or attach publication goals to the normal Maven lifecycle.
 
-Published Maven Central coordinates: `io.github.aalsanie:distroplane-maven-plugin:1.0.0`. Supported baseline: **JDK 17+**, **Maven 3.9+**, and Distroplane **CLI 0.9.2**. The Maven plugin and native CLI are versioned independently.
+Published Maven Central coordinates: `io.github.aalsanie:distroplane-maven-plugin:1.0.1`. Supported baseline: **JDK 17+**, **Maven 3.9+**, and Distroplane **CLI 0.9.3**. The Maven plugin and native CLI are versioned independently.
 
 Add the published plugin to `<build><plugins>`:
 
@@ -10,9 +10,9 @@ Add the published plugin to `<build><plugins>`:
 <plugin>
   <groupId>io.github.aalsanie</groupId>
   <artifactId>distroplane-maven-plugin</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <configuration>
-    <cliVersion>0.9.2</cliVersion>
+    <cliVersion>0.9.3</cliVersion>
     <config>distroplane.json</config>
   </configuration>
 </plugin>
@@ -22,14 +22,14 @@ In a project with a configured destination and a prebuilt release artifact:
 
 ```sh
 mvn package
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:validate
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:plan
-mvn -Ddistroplane.approve=true io.github.aalsanie:distroplane-maven-plugin:1.0.0:publish
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:status
-mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:resume
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:validate
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:plan
+mvn -Ddistroplane.approve=true io.github.aalsanie:distroplane-maven-plugin:1.0.1:publish
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:status
+mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:resume
 ```
 
-`init` requires a selected provider, release, artifact and provider-specific nonsecret metadata (configure `<initFields><field>value</field></initFields>` for the native `--set` options): `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:init -Ddistroplane.destination=npm -Ddistroplane.release=v1`. No prompts or secret values are supported for Maven `init`; missing metadata fails without generating a guessed configuration. `publish` refuses to execute unless either `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>` is supplied. `resume` uses the original plan and journal and never generates a replacement publication run. Exit code 4 (`WAITING_EXTERNAL`) fails the Maven goal rather than falsely reporting completion.
+`init` requires a selected provider, release, artifact and provider-specific nonsecret metadata (configure `<initFields><field>value</field></initFields>` for the native `--set` options): `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:init -Ddistroplane.destination=npm -Ddistroplane.release=v1`. No prompts or secret values are supported for Maven `init`; missing metadata fails without generating a guessed configuration. `publish` refuses to execute unless either `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>` is supplied. `resume` uses the original plan and journal and never generates a replacement publication run. Exit code 4 (`WAITING_EXTERNAL`) fails the Maven goal rather than falsely reporting completion.
 
 ## Verified bootstrap and offline usage
 
@@ -72,12 +72,12 @@ The plugin passes only explicitly mapped environment values to the spawned CLI, 
 ## Compatibility and external publication
 
 Maven plugin integration tests cover Maven 3.9+ with JDK 17/21 on Linux,
-macOS, and Windows native runners. They verify the six explicit goals,
+macOS, and Windows native runners. They verify the seven explicit goals,
 immutable cache imports, offline execution, cancellation after durable state
 creation, pending-to-resume handoff, duplicate-publication rejection, and
 multi-module/classifier selection. The controlled test fixture **never publishes**
 to a remote registry. Maven plugin version and CLI version are independently
-versioned; CLI `0.9.2` is the current tested bootstrap target.
+versioned; CLI `0.9.3` is the source test matrix's bootstrap target.
 
 The Central Portal release profile (`-Pcentral-release`) prepares main,
 source, JavaDoc, POM, and GPG-signed artifacts. The manual
@@ -94,4 +94,4 @@ Version `1.0.0` was signed, staged, and manually published through the Central
 Portal. [The clean-consumer verification](https://github.com/aalsanie/distroplane/actions/runs/41023374518)
 passed on Linux, macOS, and Windows with fresh Maven repositories and the
 real native CLI bootstrap. [The npm example](examples/npm/README.md) uses
-the published `1.0.0` version.
+the published `1.0.1` version.

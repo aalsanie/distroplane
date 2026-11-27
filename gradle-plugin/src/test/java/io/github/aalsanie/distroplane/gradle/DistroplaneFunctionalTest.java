@@ -156,6 +156,23 @@ final class DistroplaneFunctionalTest {
         assertArrayEquals(original, Files.readAllBytes(stateFile));
     }
 
+    @Test void propagatesTerminalFailureWithoutReplacementPublication() throws Exception {
+        cacheFixture();
+        configure("approve = true");
+        Files.writeString(project.resolve("distroplane.json"), config());
+        Files.createFile(project.resolve(".fixture-failed"));
+        String failed = run(false, "distroplanePublish").getOutput();
+        assertTrue(failed.contains("exited with code 6"));
+        assertTrue(failed.contains("failed or cancelled"));
+        Path recorded = project.resolve(".distroplane/fixture-run.json");
+        byte[] before = Files.readAllBytes(recorded);
+        assertTrue(JSON.readTree(before).path("failed").asBoolean());
+        for (String task : List.of("distroplaneStatus", "distroplaneResume", "distroplanePublish")) {
+            run(false, task);
+            assertArrayEquals(before, Files.readAllBytes(recorded));
+        }
+    }
+
     @Test void refusesUnapprovedPublicationAndMismatchedApprovalOptions() throws Exception {
         cacheFixture();
         Files.writeString(project.resolve("distroplane.json"), config());
