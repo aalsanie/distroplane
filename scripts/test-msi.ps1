@@ -20,6 +20,7 @@ $cli = Join-Path $bin 'distroplane.exe'
 $providers = Join-Path $installed 'libexec'
 $state = Join-Path $env:USERPROFILE '.distroplane\msi-lifecycle-test'
 $marker = Join-Path $state 'run.journal'
+$recovery = Join-Path $state ([Guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $state -Force | Out-Null
 [IO.File]::WriteAllText($marker, 'retained across MSI lifecycle')
 function Invoke-Msi([string]$Operation, [string]$Package, [string]$LogName) {
@@ -46,6 +47,8 @@ function Assert-Installed([string]$wantVersion) {
             throw "Installed provider failed describe: $name"
         }
     }
+    & python (Join-Path $PSScriptRoot "smoke_installed.py") --cli $cli --version $wantVersion
+    if ($LASTEXITCODE -ne 0) { throw "Installed CLI workflow failed" }
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     if (-not ($machinePath -split ';' | Where-Object {
         $_.TrimEnd('\') -ieq $bin.TrimEnd('\')
@@ -55,9 +58,15 @@ try {
     if ($oldMsi) {
         Invoke-Msi 'i' $oldMsi 'distroplane-previous-install.log'
         if (-not (Test-Path -PathType Leaf $cli)) { throw 'Previous MSI was not installed' }
+        & python (Join-Path $PSScriptRoot 'smoke_installed.py') --cli $cli --version $Version --prepare-recovery $recovery
+        if ($LASTEXITCODE -ne 0) { throw 'Previous MSI could not prepare recovery fixture' }
     }
     Invoke-Msi 'i' $msiPath 'distroplane-install.log'
     Assert-Installed $Version
+    if ($oldMsi) {
+        & python (Join-Path $PSScriptRoot 'smoke_installed.py') --cli $cli --version $Version --verify-recovery $recovery
+        if ($LASTEXITCODE -ne 0) { throw 'MSI upgrade changed saved provider recovery' }
+    }
     if ((Get-Content -Raw -LiteralPath $marker) -cne 'retained across MSI lifecycle') {
         throw 'MSI upgrade deleted release state'
     }
@@ -72,6 +81,15 @@ try {
 if (Test-Path -PathType Leaf $cli) { throw 'MSI uninstall left installed CLI behind' }
 if ((Get-Content -Raw -LiteralPath $marker) -cne 'retained across MSI lifecycle') {
     throw 'MSI uninstall deleted release state'
+}
+if ($oldMsi) {
+    $saved = Get-Content -LiteralPath (Join-Path $recovery 'recovery-check.json') -Raw | ConvertFrom-Json
+    foreach ($file in $saved.files.PSObject.Properties) {
+        if (-not (Test-Path -LiteralPath $file.Name -PathType Leaf)) { throw 'MSI uninstall removed a recovery file' }
+        if ((Get-FileHash -LiteralPath $file.Name -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$file.Value) {
+            throw 'MSI uninstall changed recovery bytes'
+        }
+    }
 }
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 if ($machinePath -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin.TrimEnd('\') }) {

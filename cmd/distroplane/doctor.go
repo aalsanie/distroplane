@@ -193,7 +193,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			trusted = err == nil && target.Provider.Executable == "" && planner.IsTrustedInstalledProvider(target.Provider.Name, executable)
 		}
 		if err != nil {
-			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable is missing or unsafe", "Install the matching provider executable or correct its explicit path")
+			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable is missing or unsafe", "Check the provider beside the selected CLI installation or correct the configured executable path")
 			d.add("CREDENTIAL_SKIPPED", doctorSkip, target.ID, "provider identity not verified", "")
 			continue
 		}
@@ -250,10 +250,10 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 				describe, err := client.Describe(callCtx, endpoint)
 				cancel()
 				if err != nil {
-					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider Describe protocol failed or timed out", "Install a compatible provider binary")
+					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider Describe protocol failed or timed out", "Check the selected provider at "+executable)
 				} else if describe.Provider.Name != target.Provider.Name || describe.Provider.Version == "" ||
 					(bindings != nil && describe.Provider.Version != string(binding.Provider.Version())) {
-					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider identity or version is incompatible", "Install the matching provider version")
+					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider identity or version is incompatible", "Check the provider at "+executable+" against the selected CLI or saved plan")
 				} else if !doctorSupportsProtocol(describe.ProtocolVersions) {
 					d.add("VERSION_MISMATCH", doctorFail, target.ID, "provider does not advertise the required protocol version", "Install a provider compatible with the CLI protocol")
 				} else {

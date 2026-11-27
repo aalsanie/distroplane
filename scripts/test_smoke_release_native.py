@@ -8,6 +8,7 @@ import platform
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 MODULE = Path(__file__).with_name("smoke-release-native.py")
 spec = importlib.util.spec_from_file_location("native_smoke", MODULE)
@@ -31,7 +32,7 @@ def executable(name):
             "'payload':{'provider':{'name':" + repr(provider) + ", 'version':'0.9.2'}}}))\n").encode()
 
 
-def fixture(root, corrupt=None):
+def fixture(root, corrupt=None, bad_mode=False):
     os_name, arch = "linux", "amd64" if platform.machine().lower() == "x86_64" else "arm64"
     records, source = [], {}
     for key in ("distroplane", "distroplane-provider-npm", "distroplane-provider-homebrew",
@@ -49,6 +50,8 @@ def fixture(root, corrupt=None):
         for name, blob in source.items():
             entry = tarfile.TarInfo(name if name != corrupt else "../escape")
             entry.mode = 0o755 if name != "PACKAGE-METADATA.json" else 0o644
+            if bad_mode and name == "bin/distroplane":
+                entry.mode = 0o644
             entry.size = len(blob)
             archive.addfile(entry, io.BytesIO(blob))
     (root / f"distroplane_{VERSION}_{os_name}_{arch}.tar.gz").write_bytes(data.getvalue())
@@ -65,6 +68,20 @@ class NativeSmokeTests(unittest.TestCase):
 
     def test_native_archive_runs_all_executables(self):
         native.run(self.root, VERSION, COMMIT, "linux")
+
+    def test_fresh_workflow_is_invoked_for_extracted_cli(self):
+        with patch.object(native, "fresh_install") as smoke:
+            native.run(self.root, VERSION, COMMIT, "linux", fresh=True)
+        smoke.assert_called_once()
+        args, kwargs = smoke.call_args
+        self.assertEqual(args[0].name, "distroplane")
+        self.assertEqual(args[1:], (VERSION, COMMIT))
+        self.assertEqual(kwargs, {"exercise_missing": True})
+
+    def test_rejects_nonexecutable_archive_member(self):
+        fixture(self.root, bad_mode=True)
+        with self.assertRaisesRegex(native.SmokeError, "unsafe tar entry"):
+            native.run(self.root, VERSION, COMMIT, "linux")
 
     def test_refuses_mislabeled_runner(self):
         with self.assertRaises(native.SmokeError):

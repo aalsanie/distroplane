@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
@@ -183,13 +184,14 @@ def verify_and_stage(blob, version, commit, arch, destination):
     (destination / "PACKAGE-METADATA.json").chmod(0o644)
 
 
-def smoke(location, version):
+def smoke(location, version, commit):
     cli = location / "bin" / "distroplane"
     try:
         output = subprocess.run([str(cli), "version", "--json"], capture_output=True,
                                 check=True, text=True, timeout=20)
-        if strict_json(output.stdout).get("version") != version:
-            fail("installed CLI version does not match requested release")
+        identity = strict_json(output.stdout)
+        if identity.get("version") != version or identity.get("commit") != commit:
+            fail("installed CLI identity does not match requested release")
         for name in PROVIDERS:
             request = {"protocolVersion": "1", "requestId": "install-check",
                        "operation": "describe", "payload": {}}
@@ -304,22 +306,29 @@ def install(args):
                     for relative in expected_files:
                         counterpart = destination / relative
                         if (counterpart.is_symlink() or not counterpart.is_file()
+                                or stat.S_IMODE(counterpart.stat().st_mode) !=
+                                stat.S_IMODE((expected / relative).stat().st_mode)
                                 or read_regular(counterpart, MAX_BINARY) !=
                                 (expected / relative).read_bytes()):
                             fail("installed release differs from verified published bytes")
-                smoke(destination, args.version)
+                smoke(destination, args.version, commit)
             else:
                 staging = Path(tempfile.mkdtemp(dir=versions, prefix=".install-"))
                 try:
                     staging.chmod(0o755)
                     verify_and_stage(blob, args.version, commit, arch, staging)
-                    smoke(staging, args.version)
+                    smoke(staging, args.version, commit)
                     os.replace(staging, destination)
                 finally:
                     if staging.exists():
                         shutil.rmtree(staging)
             replace_owned_link(link, versions, destination)
     print(f"Installed Distroplane {args.version} at {link}")
+    search = {Path(os.path.realpath(entry)) for entry in os.get_exec_path() if entry}
+    if link.parent not in search:
+        print(f"Run now: {shlex.quote(str(link))} version")
+        print(f"POSIX shells: export PATH={shlex.quote(str(link.parent))}:\"$PATH\"")
+        print(f"fish: fish_add_path {shlex.quote(str(link.parent))}")
 
 
 def main():

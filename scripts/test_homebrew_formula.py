@@ -18,6 +18,10 @@ SCRIPT = Path(__file__).with_name("homebrew_formula.py")
 spec = importlib.util.spec_from_file_location("homebrew_formula", SCRIPT)
 formula = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formula)
+smoke_spec = importlib.util.spec_from_file_location(
+    "homebrew_install_smoke", SCRIPT.with_name("smoke-homebrew-install.py"))
+smoke = importlib.util.module_from_spec(smoke_spec)
+smoke_spec.loader.exec_module(smoke)
 
 
 def sha(data):
@@ -82,6 +86,31 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(rendered, formula.generate(self.directory, "1.2.3"))
         proc = subprocess.run(["ruby", "-c"], input=rendered, text=True, capture_output=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_staged_formula_uses_verified_version_not_architecture_suffix(self):
+        directory = self.directory / "staged é space"
+        directory.mkdir()
+        build_release(directory, "0.9.3")
+        published = formula.generate(directory, "0.9.3")
+        staged = smoke.staged_formula(directory, "0.9.3")
+        self.assertEqual(staged.count('  version "0.9.3"\n'), 1)
+        self.assertNotIn('  version "', published)
+        self.assertEqual(staged.count("sha256 "), 4)
+        restored = staged.replace('  version "0.9.3"\n', "", 1)
+        for platform in ("darwin", "linux"):
+            for arch in ("amd64", "arm64"):
+                name = f"distroplane_0.9.3_{platform}_{arch}.tar.gz"
+                uri = (directory.resolve() / name).as_uri()
+                self.assertEqual(staged.count(uri), 1)
+                restored = restored.replace(
+                    uri, f"https://github.com/aalsanie/distroplane/releases/download/v0.9.3/{name}", 1)
+        self.assertEqual(restored, published)
+        proc = subprocess.run(["ruby", "-c"], input=staged, text=True, capture_output=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        archive = directory / "distroplane_0.9.3_darwin_arm64.tar.gz"
+        archive.write_bytes(archive.read_bytes() + b"corruption")
+        with self.assertRaises(ValueError):
+            smoke.staged_formula(directory, "0.9.3")
 
     def test_non_overwriting_command(self):
         output = self.directory / "Formula.rb"
