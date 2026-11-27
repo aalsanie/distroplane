@@ -20,3 +20,7 @@ func terminateProcessTree(process *os.Process) error {
 		return err
 	}
 }
+
+func attachProcessTree(process *os.Process) (func() error, func(), error) {
+	return func() error { return terminateProcessTree(process) }, func() {}, nil
+}
