@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -49,14 +50,33 @@ type callOptions struct {
 	onResponse   func() error
 }
 
+// gatedReader makes request delivery a single, irreversible decision. Closing
+// gate alone does not authorize any bytes: abort wakes the stdin copier at EOF.
 type gatedReader struct {
-	reader io.Reader
-	gate   <-chan struct{}
+	reader    io.Reader
+	gate      chan struct{}
+	once      sync.Once
+	committed bool
 }
 
 func (r *gatedReader) Read(p []byte) (int, error) {
 	<-r.gate
+	if !r.committed {
+		return 0, io.EOF
+	}
 	return r.reader.Read(p)
+}
+
+func (r *gatedReader) commit(ctx context.Context) bool {
+	r.once.Do(func() {
+		r.committed = ctx.Err() == nil
+		close(r.gate)
+	})
+	return r.committed
+}
+
+func (r *gatedReader) abort() {
+	r.once.Do(func() { close(r.gate) })
 }
 
 type ProcessError struct {
@@ -209,21 +229,17 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	stderr := &captureWriter{limit: c.maxStderr}
 	command := exec.CommandContext(ctx, executable, c.args...)
 	configureProcessTree(command)
+	inputGate := &gatedReader{reader: bytes.NewReader(input.Bytes()), gate: make(chan struct{})}
+	var terminateOnce sync.Once
+	var terminateErr error
 	command.Cancel = func() error {
-		if command.Process == nil {
-			return nil
-		}
-		return terminateProcessTree(command.Process)
+		inputGate.abort()
+		terminateOnce.Do(func() {
+			terminateErr = terminateProcessTree(command.Process)
+		})
+		return terminateErr
 	}
-	inputGate := make(chan struct{})
-	inputReleased := false
-	releaseInput := func() {
-		if !inputReleased {
-			close(inputGate)
-			inputReleased = true
-		}
-	}
-	command.Stdin = &gatedReader{reader: bytes.NewReader(input.Bytes()), gate: inputGate}
+	command.Stdin = inputGate
 	command.Stdout = stdout
 	command.Stderr = stderr
 	environment := c.environment
@@ -236,18 +252,19 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	redactions := newRedactor(options.redactions)
 
 	if err := command.Start(); err != nil {
-		releaseInput()
+		inputGate.abort()
 		return &ProcessError{
 			Executable: executable,
 			Err:        err,
 		}
 	}
 	cleanup := func() {
-		releaseInput()
-		if command.Process != nil {
-			_ = terminateProcessTree(command.Process)
-		}
+		_ = command.Cancel()
 		_ = command.Wait()
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cleanup()
+		return ctxErr
 	}
 	if options.onStarted != nil {
 		if err := options.onStarted(); err != nil {
@@ -265,7 +282,10 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 			return err
 		}
 	}
-	releaseInput()
+	if !inputGate.commit(ctx) {
+		cleanup()
+		return ctx.Err()
+	}
 	runErr := command.Wait()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
