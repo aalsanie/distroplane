@@ -90,6 +90,7 @@ type stateOutput struct {
 	Completed            bool                   `json:"completed"`
 	Cancelled            bool                   `json:"cancelled"`
 	JournalTruncatedTail bool                   `json:"journalTruncatedTail,omitempty"`
+	LegacyRetryPending   bool                   `json:"legacyRetryPending,omitempty"`
 	Targets              []targetStateOutput    `json:"targets"`
 	Operations           []operationStateOutput `json:"operations"`
 }
@@ -529,7 +530,8 @@ func stateView(plan domain.Plan, state journal.DerivedState, truncated bool) sta
 	output := stateOutput{
 		OutputSchemaVersion: outputSchemaVersion,
 		PlanID:              string(plan.ID()), RunID: string(state.RunID), Completed: state.Completed, Cancelled: state.Cancelled,
-		JournalTruncatedTail: truncated, Targets: []targetStateOutput{}, Operations: []operationStateOutput{},
+		JournalTruncatedTail: truncated, LegacyRetryPending: state.CheckExecutionAllowed() != nil,
+		Targets: []targetStateOutput{}, Operations: []operationStateOutput{},
 	}
 	for _, target := range state.Targets() {
 		output.Targets = append(output.Targets, targetStateOutput{
@@ -621,7 +623,7 @@ func writeCommandError(w io.Writer, jsonMode bool, code int, kind string, err er
 		}
 		return code
 	}
-	fmt.Fprintf(w, "%s: %v\n", kind, err)
+	fmt.Fprintf(w, "%s: %s\n", kind, safeDisplay(err.Error()))
 	if hint != "" {
 		fmt.Fprintf(w, "Next: %s\n", hint)
 	}

@@ -33,9 +33,9 @@ func diagnosticGuidance(kind string, err error) (string, string) {
 		if err != nil && strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
 			return "RUN_AMBIGUOUS", "List existing releases with distroplane runs, then select the exact recorded --run or --release; never choose arbitrarily"
 		}
-		return "STATE_CORRUPT", "Inspect the original run catalog, plan, and journal; never create a replacement run"
+		return "STATE_CORRUPT", "Inspect the original run catalog, plan, and journal; restore the exact files and retained providers if missing; never create a replacement run"
 	case "invalid_run", "journal_read_failed", "journal_reduce_failed", "run_catalog_conflict", "journal_open_failed":
-		return "STATE_CORRUPT", "Preserve and inspect the original plan, journal, and run binding; do not replan or republish"
+		return "STATE_CORRUPT", "Preserve and restore the original plan, journal, run binding, exact artifacts and retained provider executables; seek compatible recovery, not a new publication"
 	case "approval_required", "approval_denied", "approval_mismatch":
 		return "APPROVAL_REQUIRED", "Review the current immutable plan; publication requires an explicit matching plan ID or separate approval"
 	case "execution_failed":

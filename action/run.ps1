@@ -295,6 +295,9 @@ if ($result.Stdout) {
         $planPath = [string]$parsed.plan.path
     }
     if ($parsed.PSObject.Properties.Name -contains 'run' -and $null -ne $parsed.run) {
+        if ($planID -cne [string]$parsed.run.planId -or -not $parsed.approved) {
+            throw 'Distroplane returned conflicting publication identities or approval.'
+        }
         $runID = [string]$parsed.run.runId
         $completed = ([bool]$parsed.run.completed).ToString().ToLowerInvariant()
     }

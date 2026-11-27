@@ -498,7 +498,7 @@ func TestReleaseGuidanceTargetFallbackAndUnknownStates(t *testing.T) {
 		{"REJECTED", "finished with rejection"},
 		{"FAILED", "failed or cancelled"},
 		{"CANCELLED", "failed or cancelled"},
-		{"PUBLISHED", "finished without all targets published"},
+		{"PUBLISHED", "completed no-op"},
 		{"READY", "finished without all targets published"},
 	} {
 		out := stateOutput{Completed: true, Targets: []targetStateOutput{{ID: "target", State: tc.state}}}
