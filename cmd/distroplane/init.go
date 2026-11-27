@@ -47,6 +47,7 @@ type initOutput struct {
 	Artifact            initArtifact            `json:"artifact"`
 	Artifacts           map[string]initArtifact `json:"artifacts"`
 	Destinations        []string                `json:"destinations"`
+	CredentialSources   []initCredentialSource  `json:"credentialSources"`
 }
 
 // runInitContext never starts a provider or performs a network request. Only a
@@ -55,6 +56,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	var releaseID, outputPath string
 	var force, jsonMode, noninteractive bool
 	var destinations, options, artifacts repeatedFlag
+	mappings := credentialFlags{}
 	fs := commandFlags("init")
 	fs.StringVar(&releaseID, "release", "", "")
 	fs.Var(&artifacts, "artifact", "")
@@ -64,6 +66,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	fs.BoolVar(&noninteractive, "non-interactive", false, "")
 	fs.Var(&destinations, "destination", "")
 	fs.Var(&options, "set", "")
+	fs.Var(mappings, "credential", "")
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
@@ -91,10 +94,16 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	}
 	allowPrompt := interactive && !noninteractive && !jsonMode && input != nil
 	reader := bufio.NewReader(input)
+	if allowPrompt && ctx.Done() != nil {
+		reader = bufio.NewReader(initContextReader{ctx: ctx, input: input})
+	}
 	if len(destinations) == 0 && allowPrompt {
-		value, err := promptInit(reader, stderr, "destinations (comma-separated: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip)")
+		value, err := promptValidated(reader, stderr, "destinations (comma-separated: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip)", func(value string) error {
+			_, err := normalizeInitDestinations([]string{value})
+			return err
+		})
 		if err != nil {
-			return writeCommandError(stderr, jsonMode, exitUsage, "missing_destinations", err)
+			return initFailure(ctx, stderr, jsonMode, exitUsage, "missing_destinations", err)
 		}
 		destinations = append(destinations, strings.Split(value, ",")...)
 	}
@@ -103,9 +112,15 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		return writeCommandError(stderr, jsonMode, exitUsage, "invalid_destination", err)
 	}
 	if releaseID == "" && allowPrompt {
-		releaseID, err = promptInit(reader, stderr, "release ID")
+		releaseID, err = promptValidated(reader, stderr, "release ID (e.g. v1.2.3; identifies this release)", func(value string) error {
+			_, err := domain.NewReleaseID(value)
+			if err != nil {
+				return fmt.Errorf("enter a valid release ID")
+			}
+			return nil
+		})
 		if err != nil {
-			return writeCommandError(stderr, jsonMode, exitUsage, "missing_release", err)
+			return initFailure(ctx, stderr, jsonMode, exitUsage, "missing_release", err)
 		}
 	}
 	if _, err := domain.NewReleaseID(releaseID); err != nil {
@@ -132,7 +147,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		} else if strings.Contains(err.Error(), "too many") {
 			kind = "artifact_discovery_failed"
 		}
-		return writeCommandError(stderr, jsonMode, exitInvalid, kind, err)
+		return initFailure(ctx, stderr, jsonMode, exitInvalid, kind, err)
 	}
 	artifactsByProvider := make(map[string]initArtifact, len(destinations))
 	sources := make(map[string]string, len(destinations))
@@ -164,7 +179,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		provider, _, _ := strings.Cut(variant, ":")
 		options, err := b.providerOptions(variant, sources[provider])
 		if err != nil {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "missing_metadata", err)
+			return initFailure(ctx, stderr, jsonMode, exitInvalid, "missing_metadata", err)
 		}
 		artifactName := "release"
 		if !allSame {
@@ -198,8 +213,23 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "encode_failed", err)
 	}
-	if _, err := official.Decode(strings.NewReader(string(data))); err != nil {
+	decoded, err := official.Decode(strings.NewReader(string(data)))
+	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
+	}
+	credentialSources, err := initSources(decoded, mappings)
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
+	}
+	if len(mappings) != 0 {
+		document["credentialSources"] = mappings
+		data, err = json.MarshalIndent(document, "", "  ")
+		if err != nil {
+			return writeCommandError(stderr, jsonMode, exitOperational, "encode_failed", err)
+		}
+		if _, err := official.Decode(strings.NewReader(string(data))); err != nil {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
@@ -216,6 +246,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		Artifact:            artifactsByProvider[first],
 		Artifacts:           artifactsByProvider,
 		Destinations:        destinations,
+		CredentialSources:   credentialSources,
 	}
 	if jsonMode {
 		return writeJSON(stdout, result)
@@ -224,19 +255,23 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	if backup != "" {
 		fmt.Fprintf(stdout, "backup %s\n", safeDisplay(backup))
 	}
+	writeInitSummary(stdout, result)
 	writeInitFollowUp(stdout, outputPath)
 	return exitOK
 }
 
 func promptInit(reader *bufio.Reader, stderr io.Writer, field string) (string, error) {
 	fmt.Fprintf(stderr, "%s: ", field)
-	value, err := reader.ReadString('\n')
+	line, err := reader.ReadSlice('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
-	value = strings.TrimSpace(value)
+	value := strings.TrimSpace(string(line))
 	if value == "" {
-		return "", fmt.Errorf("%s is required", field)
+		if errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("%s is required: %w", field, io.EOF)
+		}
+		return "", fmt.Errorf("%s is required: %w", field, errEmptyInitAnswer)
 	}
 	return value, nil
 }
@@ -256,7 +291,7 @@ func normalizeInitDestinations(raw []string) ([]string, error) {
 			switch name {
 			case "npm", "sdkman", "homebrew:formula", "homebrew:cask", "homebrew:jvm", "winget:msi", "winget:zip":
 			default:
-				return nil, fmt.Errorf("unsupported destination %q", name)
+				return nil, fmt.Errorf("unsupported destination; choose npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi or winget:zip")
 			}
 			p, _, _ := strings.Cut(name, ":")
 			if seen[p] {
@@ -277,6 +312,9 @@ func discoverArtifacts(baseDir string) ([]string, error) {
 	var found []string
 	for _, name := range []string{"target", "build/distributions", "build/libs", "build", "dist"} {
 		dir := filepath.Join(baseDir, filepath.FromSlash(name))
+		if !initSafeDescendant(baseDir, dir) {
+			continue
+		}
 		info, err := os.Lstat(dir)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -340,6 +378,9 @@ func inspectInitArtifact(baseDir, chosen string) (initArtifact, string, error) {
 	if err != nil {
 		return initArtifact{}, "", err
 	}
+	if !initSafeDescendant(baseDir, path) {
+		return initArtifact{}, "", fmt.Errorf("artifact path traverses a symbolic link")
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return initArtifact{}, "", fmt.Errorf("artifact %q: %w", chosen, err)
@@ -352,12 +393,17 @@ func inspectInitArtifact(baseDir, chosen string) (initArtifact, string, error) {
 		return initArtifact{}, "", err
 	}
 	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() {
+		return initArtifact{}, "", fmt.Errorf("artifact changed before hashing")
+	}
 	hash := sha256.New()
 	n, err := io.Copy(hash, file)
 	if err != nil {
 		return initArtifact{}, "", err
 	}
-	if n != info.Size() {
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, after) || n != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
 		return initArtifact{}, "", fmt.Errorf("artifact changed during hashing")
 	}
 	source := path
@@ -371,7 +417,9 @@ type initBuilder struct {
 	fields  map[string]string
 	reader  *bufio.Reader
 	prompts bool
-	stderr  io.Writer
+	stderr      io.Writer
+	destination string
+	nestedType  string
 }
 
 func (b *initBuilder) field(key, fallback string, required bool) (string, error) {
@@ -386,14 +434,12 @@ func (b *initBuilder) field(key, fallback string, required bool) (string, error)
 		return fallback, nil
 	}
 	if b.prompts && required {
-		value, err := promptInit(b.reader, b.stderr, key)
-		if err != nil {
-			return "", err
-		}
-		return value, nil
+		return promptValidated(b.reader, b.stderr, initFieldPrompt(key, b.destination), func(value string) error {
+			return validateInitField(key, value, b.destination, b.nestedType)
+		})
 	}
 	if required {
-		return "", fmt.Errorf("%s is required; supply --set %s=VALUE", key, key)
+		return "", fmt.Errorf("%s is required; supply --set %s=VALUE (%s)", key, key, initFieldPrompt(key, b.destination))
 	}
 	return "", nil
 }
@@ -409,6 +455,7 @@ func (b *initBuilder) defaulted(key, def string) string {
 }
 
 func (b *initBuilder) providerOptions(destination, artifact string) (map[string]any, error) {
+	b.destination = destination
 	switch destination {
 	case "npm":
 		mode := b.defaulted("npm.auth-mode", "token")
@@ -565,13 +612,14 @@ func (b *initBuilder) providerOptions(destination, artifact string) (map[string]
 			if err != nil {
 				return nil, err
 			}
+			b.nestedType = nestedType
 			nested, err := b.required("winget.nested-files")
 			if err != nil {
 				return nil, err
 			}
-			var files []map[string]string
-			if err := json.Unmarshal([]byte(nested), &files); err != nil || len(files) == 0 {
-				return nil, fmt.Errorf("winget.nested-files: expected nonempty JSON array of relativeFilePath objects")
+			files, err := parseInitNestedFiles(nested, nestedType)
+			if err != nil {
+				return nil, err
 			}
 			installer["nestedInstallerType"] = nestedType
 			installer["nestedInstallerFiles"] = files

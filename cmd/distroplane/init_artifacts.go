@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -58,12 +60,29 @@ func initArtifactPaths(destinations, raw []string, baseDir string, prompt bool, 
 			if !prompt {
 				return nil, fmt.Errorf("%d build artifacts found; choose with --artifact provider=PATH or --artifact PATH (candidates: %s)", len(candidates), strings.Join(candidates, ", "))
 			}
-			fmt.Fprintf(stderr, "Artifact candidates: %s\n", strings.Join(candidates, ", "))
+			fmt.Fprintln(stderr, "Artifact candidates:")
+			for i, candidate := range candidates {
+				info, err := os.Lstat(filepath.Join(baseDir, candidate))
+				if err != nil || !info.Mode().IsRegular() {
+					return nil, fmt.Errorf("artifact candidates changed; rerun init or specify --artifact")
+				}
+				fmt.Fprintf(stderr, "  %d. %s (%d bytes)\n", i+1, safeDisplay(candidate), info.Size())
+			}
 		}
 		if unscoped == "" && prompt {
-			unscoped, err = promptInit(reader, stderr, "artifact path")
+			unscoped, err = promptValidated(reader, stderr, "artifact path (or candidate number)", func(value string) error {
+				if index, err := strconv.Atoi(value); err == nil {
+					if index < 1 || index > len(candidates) {
+						return fmt.Errorf("choose a listed candidate number or enter a path")
+					}
+				}
+				return nil
+			})
 			if err != nil {
 				return nil, err
+			}
+			if index, err := strconv.Atoi(unscoped); err == nil {
+				unscoped = candidates[index-1]
 			}
 		}
 	}
