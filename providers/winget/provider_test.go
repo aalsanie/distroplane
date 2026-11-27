@@ -855,3 +855,16 @@ func TestMissingCredentialFailsExecution(t *testing.T) {
 		t.Fatalf("err=%v", providerErr)
 	}
 }
+
+func TestReviewRejectsUnsafeRepositoryAndOverlongValue(t *testing.T) {
+	repo := newRepo(t)
+	_, server := newAPIServer(t, "normal")
+	defer server.Close()
+	for _, repository := range []string{"https://example.test/fork?token=secret-canary", strings.Repeat("a", 513)} {
+		cfg := baseConfiguration(repo, server)
+		cfg.Repository = repository
+		if _, e := (Provider{}).Plan(context.Background(), planRequest(t, cfg)); e == nil || strings.Contains(e.Message, "secret-canary") {
+			t.Fatalf("unsafe review accepted or exposed: %v", e)
+		}
+	}
+}

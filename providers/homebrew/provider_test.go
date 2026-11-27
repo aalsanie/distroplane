@@ -387,3 +387,12 @@ func TestLostPushConfirmationIsObserved(t *testing.T) {
 		t.Fatalf("response=%+v err=%v", response, providerErr)
 	}
 }
+
+func TestReviewRejectsUnsafeRepositoryAndOverlongValue(t *testing.T) {
+	for _, repository := range []string{"https://example.test/tap?token=secret-canary", strings.Repeat("a", 513)} {
+		cfg := formulaConfiguration(repository, "direct")
+		if _, e := (Provider{}).Plan(context.Background(), planRequest(t, cfg)); e == nil || strings.Contains(e.Message, "secret-canary") {
+			t.Fatalf("unsafe review accepted or exposed: %v", e)
+		}
+	}
+}

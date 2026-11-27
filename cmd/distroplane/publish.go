@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/planner"
@@ -20,6 +21,12 @@ import (
 	"github.com/aalsanie/distroplane/internal/providerretention"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
+
+type publicationApproval struct {
+	id        domain.PlanID
+	planBytes []byte
+	config    config.Loaded
+}
 
 type publishOutput struct {
 	OutputSchemaVersion string          `json:"outputSchemaVersion"`
@@ -154,6 +161,11 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
 	}
 
+	planBytes, err := distribution.Bytes()
+	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitOperational, "invalid_plan", err)
+	}
+	approval := publicationApproval{id: plan.ID(), planBytes: planBytes, config: loaded}
 	journalPath := filepath.Join(root, "runs", planned.PlanID+".journal")
 	applyArgs := []string{"--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--concurrency", strconv.Itoa(concurrency), "--json"}
 	refs := make([]domain.CredentialRef, 0, len(mappings))
@@ -165,7 +177,7 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		applyArgs = append(applyArgs, "--credential", string(ref)+"="+mappings[ref])
 	}
 	var executionJSON bytes.Buffer
-	code := runExecutionContextWithApproval(ctx, applyArgs, &executionJSON, stderr, false, false, plan.ID())
+	code := runExecutionContextWithApproval(ctx, applyArgs, &executionJSON, stderr, false, false, &approval)
 	if executionJSON.Len() == 0 {
 		return code
 	}

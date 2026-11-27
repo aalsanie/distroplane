@@ -530,3 +530,11 @@ func TestCancelledLookup(t *testing.T) {
 		t.Fatalf("err=%v", providerErr)
 	}
 }
+
+func TestReviewRejectsOversizedRegistry(t *testing.T) {
+	archive, artifact := packageFixture(t, "widget", "1.0.0")
+	request := planRequest(t, archive, artifact, "https://example.test/"+strings.Repeat("a", 512), "token")
+	if _, e := (Provider{}).Plan(context.Background(), request); e == nil {
+		t.Fatal("oversized review accepted")
+	}
+}
