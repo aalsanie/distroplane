@@ -127,7 +127,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Distroplane — release distribution control plane")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Get started:")
-	fmt.Fprintln(w, "  distroplane init       create release configuration")
+	fmt.Fprintln(w, "  distroplane init       create or update release configuration")
 	fmt.Fprintln(w, "  distroplane doctor     check local readiness and next steps")
 	fmt.Fprintln(w, "  distroplane publish    review and publish the release")
 	fmt.Fprintln(w)
@@ -136,7 +136,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  distroplane resume     continue a pending release safely")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  init [--destination PROVIDER] [--release ID] [--artifact PATH]")
+	fmt.Fprintln(w, "  init [--update] [--destination PROVIDER] [--release ID] [--artifact PATH]")
 	fmt.Fprintln(w, "  doctor [--config PATH] [--remote] [--json]")
 	fmt.Fprintln(w, "  publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID]")
 	fmt.Fprintln(w, "  status [--config PATH] [--release ID] [--run ID]")
@@ -157,7 +157,7 @@ func printCommandHelp(command string, w io.Writer) bool {
 	var summary string
 	switch command {
 	case "init":
-		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE] [--credential REF=ENV]\n  Options: --output PATH, --force, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip"
+		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE] [--credential REF=ENV]\n  Options: --output PATH, --force, --update, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip"
 	case "doctor":
 		summary = "Check local readiness without publishing.\n  distroplane doctor [--config PATH] [--plan PATH] [--remote] [--timeout 3s] [--credential REF=ENV] [--json]"
 	case "publish":

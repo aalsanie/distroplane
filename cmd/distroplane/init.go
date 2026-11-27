@@ -54,7 +54,7 @@ type initOutput struct {
 // real terminal session can enter interactive mode; automation must supply data.
 func runInitContext(ctx context.Context, args []string, input io.Reader, interactive bool, stdout, stderr io.Writer) int {
 	var releaseID, outputPath string
-	var force, jsonMode, noninteractive bool
+	var force, jsonMode, noninteractive, update bool
 	var destinations, options, artifacts repeatedFlag
 	var sourceFlags initSourceFlags
 	mappings := credentialFlags{}
@@ -63,6 +63,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	fs.Var(&artifacts, "artifact", "")
 	fs.StringVar(&outputPath, "output", "distroplane.json", "")
 	fs.BoolVar(&force, "force", false, "")
+	fs.BoolVar(&update, "update", false, "")
 	fs.BoolVar(&jsonMode, "json", false, "")
 	fs.BoolVar(&noninteractive, "non-interactive", false, "")
 	fs.Var(&destinations, "destination", "")
@@ -73,6 +74,12 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	}
 	if err := ctx.Err(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
+	}
+	if update {
+		if force || len(destinations) != 0 || len(sourceFlags) != 0 {
+			return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--update preserves destinations and credential sources; cannot combine with --force, --destination or --credential"))
+		}
+		return runInitUpdate(ctx, outputPath, releaseID, artifacts, options, input, interactive && !noninteractive && !jsonMode && input != nil, jsonMode, stdout, stderr)
 	}
 	for _, value := range sourceFlags {
 		if err := mappings.Set(value); err != nil {
