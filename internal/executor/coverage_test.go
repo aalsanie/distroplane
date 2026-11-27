@@ -642,19 +642,46 @@ func TestResultEntryAndCategoryBranches(t *testing.T) {
 }
 
 func TestOperationContextBranches(t *testing.T) {
-	ctx, cancel := operationContext(context.Background(), time.Millisecond)
-	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("timeout context has no deadline")
+	for _, timeout := range []time.Duration{0, 5 * time.Second, 5 * time.Minute} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			want := timeout
+			if want == 0 {
+				want = 120 * time.Second
+			}
+			for _, parentTimeout := range []time.Duration{0, time.Second, 10 * time.Minute} {
+				parent := context.Background()
+				if parentTimeout != 0 {
+					ctx, cancel := context.WithTimeout(parent, parentTimeout)
+					defer cancel()
+					parent = ctx
+				}
+				start := time.Now()
+				ctx, cancel := operationContext(parent, timeout)
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					cancel()
+					t.Fatal("operation has no deadline")
+				}
+				if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(start.Add(want)) {
+					if !deadline.Equal(parentDeadline) {
+						t.Errorf("deadline=%v want parent %v", deadline, parentDeadline)
+					}
+				} else if deadline.Before(start.Add(want)) || deadline.After(time.Now().Add(want)) {
+					t.Errorf("deadline=%v want timeout %s", deadline, want)
+				}
+				cancel()
+				if !errors.Is(ctx.Err(), context.Canceled) {
+					t.Fatalf("context err=%v", ctx.Err())
+				}
+			}
+		})
 	}
-	cancel()
-
-	ctx, cancel = operationContext(context.Background(), 0)
-	if _, ok := ctx.Deadline(); ok {
-		t.Fatal("zero-timeout context unexpectedly has a deadline")
-	}
-	cancel()
+	parent, stop := context.WithCancel(context.Background())
+	stop()
+	ctx, cancel := operationContext(parent, 0)
+	defer cancel()
 	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatalf("context err=%v", ctx.Err())
+		t.Fatalf("cancelled parent ignored: %v", ctx.Err())
 	}
 }
 

@@ -385,6 +385,11 @@ jobs:
           cache: false
       - name: Test
         run: go test ./...
+      - name: Native provider execution race tests
+        if: runner.os == 'Windows'
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./internal/providerhost ./internal/executor
       - name: Build native binaries
         run: |
           go build -trimpath ./cmd/distroplane

@@ -663,10 +663,10 @@ func persistPreparationFailure(parent, callCtx context.Context, writer *journal.
 }
 
 func operationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout > 0 {
-		return context.WithTimeout(parent, timeout)
+	if timeout <= 0 {
+		timeout = domain.DefaultOperationTimeout
 	}
-	return context.WithCancel(parent)
+	return context.WithTimeout(parent, timeout)
 }
 
 func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, providerStarted, dispatched bool, result Result, callErr error) (bool, error) {
