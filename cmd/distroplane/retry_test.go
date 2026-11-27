@@ -165,7 +165,7 @@ func TestCLIRetryRefusesNewAndUnconsumedHistoricalAuthorization(t *testing.T) {
 		stdout.Reset()
 		stderr.Reset()
 		if code := execute([]string{command, "--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--json"}, &stdout, &stderr); code != exitInvalid ||
-			stdout.Len() != 0 || !strings.Contains(stderr.String(), "unconsumed historical retry authorization") {
+			stdout.Len() != 0 || !strings.Contains(stderr.String(), "unconsumed historical retry authorization") || !strings.Contains(stderr.String(), "do not resume this grant") {
 			t.Fatalf("%s did not fail closed: %d %s %s", command, code, stdout.String(), stderr.String())
 		}
 		after, err := os.ReadFile(journalPath)

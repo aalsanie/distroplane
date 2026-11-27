@@ -27,9 +27,10 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 		environment string
 	}
 	uses := make(map[domain.CredentialRef]usage)
-	providerTargets := make(map[string]map[domain.TargetID]struct{})
+	providerTargets := make(map[string]int)
 	for _, target := range plan.Targets() {
 		provider := string(target.Provider().Name())
+		providerTargets[provider]++
 		for _, raw := range target.Requirements() {
 			if raw.Kind() != "credential" {
 				continue
@@ -45,10 +46,6 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 			} else {
 				uses[requirement.Ref] = usage{provider: provider, environment: requirement.Environment}
 			}
-			if providerTargets[provider] == nil {
-				providerTargets[provider] = make(map[domain.TargetID]struct{})
-			}
-			providerTargets[provider][target.ID()] = struct{}{}
 		}
 	}
 	for ref, environment := range explicit {
@@ -81,7 +78,7 @@ func SelectSources(plan domain.Plan, configured map[string]string, explicit map[
 		if !selected {
 			source, selected = configured[string(ref)]
 		}
-		if !selected && trustedProviders[use.provider] && len(providerTargets[use.provider]) == 1 {
+		if !selected && trustedProviders[use.provider] && providerTargets[use.provider] == 1 {
 			source = candidates[SourceKey{Provider: use.provider, Environment: use.environment}]
 			if source != "" && !ValidEnvironmentName(source) {
 				return nil, fmt.Errorf("invalid candidate source for reference %q", ref)

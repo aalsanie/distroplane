@@ -52,3 +52,16 @@ func (d DerivedState) CheckExecutionAllowed() error {
 	}
 	return nil
 }
+
+func CheckHistoricalExecution(plan domain.Plan, events []Event) error {
+	for _, event := range events {
+		if event.Type == EventRetryAuthorized {
+			state, err := Reduce(plan, events)
+			if err != nil {
+				return err
+			}
+			return state.CheckExecutionAllowed()
+		}
+	}
+	return nil
+}

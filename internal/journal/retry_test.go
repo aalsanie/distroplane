@@ -201,3 +201,52 @@ func TestHistoricalAuthorizationReplayAndExecutionGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenWriterForExecutionPreservesHistoricalGrantAndTail(t *testing.T) {
+	plan := npmRetryPlan(t)
+	events := ambiguousNpmEvents()
+	events[5].Payload.ProviderState = "absent"
+	events = append(events,
+		event(7, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
+		attemptStarted(8, "op-a", "target-a", 2),
+		dispatched(9, "op-a", "target-a", 2),
+	)
+	var prefix []byte
+	for i, e := range events {
+		frame, err := encodeFrame(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix = append(prefix, frame...)
+		if i < 5 {
+			continue
+		}
+		path := filepath.Join(t.TempDir(), "run.journal")
+		before := append(append([]byte(nil), prefix...), 'D', 'P')
+		if err := os.WriteFile(path, before, 0600); err != nil {
+			t.Fatal(err)
+		}
+		writer, err := OpenWriterForExecution(path, runID(), plan)
+		if i == 6 || i == 7 {
+			if writer != nil {
+				_ = writer.Close()
+				t.Fatal("unconsumed historical authorization opened for execution")
+			}
+			if !errors.Is(err, ErrLegacyRetryPending) {
+				t.Fatalf("prefix %d: %v", i+1, err)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("prefix %d: %v", i+1, err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before = prefix
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("prefix %d changed unexpectedly: %v", i+1, err)
+		}
+	}
+}

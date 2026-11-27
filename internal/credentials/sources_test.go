@@ -247,3 +247,24 @@ func TestSelectSourcesRejectsUntrustedOrInvalidCandidates(t *testing.T) {
 		t.Fatalf("explicit mapping lost: %v %v", sources, err)
 	}
 }
+
+func TestSelectSourcesCountsTargetsWithoutCredentialRequirements(t *testing.T) {
+	plan := planForSources(t, sourceUsage{"npm", "primary", "release", "DISTROPLANE_NPM_TOKEN"})
+	targets := plan.Targets()
+	secondary, err := domain.NewTarget("secondary", targets[0].Provider(), targets[0].Configuration())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = domain.NewPlan(plan.ID(), plan.SchemaVersion(), plan.ProtocolVersion(), plan.Release(), append(targets, secondary), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, err := SelectSources(plan, nil, nil, installedDefaults, sourceCandidates)
+	if err != nil || len(sources) != 0 {
+		t.Fatalf("ambient source selected for multiple targets: %v %v", sources, err)
+	}
+	sources, err = SelectSources(plan, nil, map[domain.CredentialRef]string{"release": "EXPLICIT"}, installedDefaults, sourceCandidates)
+	if err != nil || sources["release"] != "EXPLICIT" {
+		t.Fatalf("explicit source lost: %v %v", sources, err)
+	}
+}

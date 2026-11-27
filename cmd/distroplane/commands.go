@@ -255,15 +255,21 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_run", err)
 	}
 	if err := checkHistoricalExecution(persisted.Plan(), journalPath); err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
+		if errors.Is(err, journal.ErrLegacyRetryPending) {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
+		}
+		return writeCommandError(stderr, jsonMode, exitInvalid, "journal_reduce_failed", err)
 	}
 	// Reserve the immutable plan/run/journal binding before any provider
 	// process is allowed to dispatch an irreversible side effect.
 	if err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).ClaimRun(planPath, journalPath, runID); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "run_catalog_conflict", err)
 	}
-	writer, err := journal.OpenWriter(journalPath, runID)
+	writer, err := journal.OpenWriterForExecution(journalPath, runID, persisted.Plan())
 	if err != nil {
+		if errors.Is(err, journal.ErrLegacyRetryPending) {
+			return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
+		}
 		return writeCommandError(stderr, jsonMode, exitOperational, "journal_open_failed", err)
 	}
 	engine, err := executor.New(driver, executor.Options{ReconcileOnly: reconcileOnly, MaxConcurrency: concurrency})
@@ -492,16 +498,7 @@ func checkHistoricalExecution(plan domain.Plan, path string) error {
 	if err != nil {
 		return err
 	}
-	for _, event := range read.Events {
-		if event.Type == journal.EventRetryAuthorized {
-			state, err := journal.Reduce(plan, read.Events)
-			if err != nil {
-				return err
-			}
-			return state.CheckExecutionAllowed()
-		}
-	}
-	return nil
+	return journal.CheckHistoricalExecution(plan, read.Events)
 }
 
 func readJournal(path string) (journal.ReadResult, error) {
