@@ -214,6 +214,24 @@ final class CliFeedbackTest {
         bad("status", 0, targetOnlyUncertain);
     }
 
+    @Test void terminalOutcomeDoesNotDependOnCompletionFlag() throws Exception {
+        for (String status : List.of("CANCELLED", "FAILED", "REJECTED")) {
+            int exit = status.equals("REJECTED") ? 5 : 6;
+            for (boolean completed : new boolean[]{false, true}) {
+                ObjectNode value = state(status, completed, false, false);
+                value.put("cancelled", status.equals("CANCELLED"));
+                CliFeedback.Detail terminal = inspect("status", exit, value);
+                assertFalse(terminal.summary().contains("mixed"), terminal.summary());
+                assertTrue(terminal.action().contains("recorded cause"), terminal.action());
+                value.withArray("targets").addObject().put("id", "other").put("state", "READY")
+                    .put("reconcileRequired", false).put("ambiguous", false);
+                value.withArray("operations").addObject().put("id", "other-op").put("targetId", "other")
+                    .put("state", "READY").put("reconcileRequired", false).put("ambiguous", false);
+                assertTrue(inspect("status", exit, value).summary().contains("mixed"));
+            }
+        }
+    }
+
     @Test void rejectsUntrustedOrInconsistentState() throws Exception {
         ObjectNode normal = state("PUBLISHED", true, false, false);
         for (int exit : List.of(1, 4, 5, 6)) bad("status", exit, normal);
@@ -238,7 +256,7 @@ final class CliFeedbackTest {
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
         invalid.putArray("operations");
-        bad("status", 0, invalid);
+        assertTrue(inspect("status", 0, invalid).summary().contains("completed no-op"));
         invalid = normal.deepCopy();
         invalid.withArray("targets").removeAll().add("not-an-object");
         bad("status", 0, invalid);
@@ -258,7 +276,7 @@ final class CliFeedbackTest {
         invalid.withArray("operations").removeAll().add(false);
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
-        ((ObjectNode)invalid.withArray("operations").get(0)).put("id", "bad id");
+        ((ObjectNode)invalid.withArray("operations").get(0)).put("id", " bad id");
         bad("status", 0, invalid);
         invalid = normal.deepCopy();
         ((ObjectNode)invalid.withArray("operations").get(0)).remove("targetId");
@@ -356,7 +374,7 @@ final class CliFeedbackTest {
         bad("init", 0, invalid);
         bad("plan", 4, plan());
         invalid = plan();
-        invalid.put("planId", "bad/id");
+        invalid.put("planId", "bad\n/id");
         bad("plan", 0, invalid);
         invalid = plan();
         invalid.put("path", 14);
@@ -412,5 +430,47 @@ final class CliFeedbackTest {
         wrong = published.deepCopy();
         wrong.put("approved", "true");
         bad("publish", 0, wrong);
+        wrong = published.deepCopy();
+        ((ObjectNode)wrong.get("run")).put("planId", "different");
+        bad("publish", 0, wrong);
+        wrong = published.deepCopy();
+        ((ObjectNode)wrong.get("plan")).put("operations", 0);
+        bad("publish", 0, wrong);
     }
+    @Test void validIdentityBoundariesAndMalformedBindings() throws Exception {
+        ObjectNode good = state("PUBLISHED", true, false, false);
+        for (String id : List.of("例" + "x".repeat(180), "run / ' ;", "x".repeat(256))) {
+            good.put("runId", id);
+            assertTrue(inspect("status", 0, good).summary().contains(id));
+        }
+        good.put("runId", "run\u202econtrol");
+        String displayed = inspect("status", 0, good).summary();
+        assertFalse(displayed.contains("\u202e"));
+        assertTrue(displayed.contains("\\u{202e}"));
+        for (String id : List.of("", " x", "x ", "x\u0085", "x\n", "x".repeat(257), "\ud800")) {
+            good.put("runId", id);
+            bad("status", 0, good);
+        }
+        good.put("runId", "run-valid");
+        ObjectNode wrong = good.deepCopy();
+        ((ObjectNode)wrong.withArray("operations").get(0)).put("targetId", "other-target");
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.withArray("targets").add(wrong.withArray("targets").get(0).deepCopy());
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.withArray("operations").add(wrong.withArray("operations").get(0).deepCopy());
+        bad("status", 0, wrong);
+        wrong = good.deepCopy();
+        wrong.put("legacyRetryPending", "true");
+        bad("status", 0, wrong);
+        assertThrows(IOException.class, () -> CliFeedback.interpret("status",
+            new CliRunner.Result(0, "{\"outputSchemaVersion\":\"1\",\"outputSchemaVersion\":\"1\"}", "")));
+        ObjectNode noop = state("PUBLISHED", true, false, false);
+        noop.putArray("operations");
+        ObjectNode wrapped = publish(noop);
+        ((ObjectNode)wrapped.get("plan")).put("operations", 0);
+        assertTrue(inspect("publish", 0, wrapped).summary().contains("completed no-op"));
+    }
+
 }

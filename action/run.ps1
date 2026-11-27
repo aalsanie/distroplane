@@ -103,6 +103,17 @@ function Invoke-Distroplane {
         return [PSCustomObject]@{
             ExitCode = [int]$code
             Stdout = $stdout.Trim()
+            DiagnosticCode = $(if (-not $stdout.Trim() -and $code -in @(1, 2, 3, 4, 5, 6)) {
+                try {
+                    $diagnostic = $stderr | ConvertFrom-Json -ErrorAction Stop
+                    $known = @('STATE_CORRUPT', 'RUN_AMBIGUOUS', 'RUN_ALREADY_EXISTS', 'RELEASE_CONFLICT',
+                        'UNSAFE_RETRY', 'PROVIDER_NOT_FOUND', 'VERSION_MISMATCH', 'MISSING_ARTIFACT',
+                        'MISSING_CONFIG', 'INVALID_CONFIG', 'INTERRUPTED', 'AWAITING_EXTERNAL', 'APPROVAL_REQUIRED')
+                    if ($diagnostic.outputSchemaVersion -ceq '1' -and $diagnostic.error.code -is [string] -and
+                        $diagnostic.error.code -cin $known) { $diagnostic.error.code }
+                    else { '' }
+                } catch { '' }
+            } else { '' })
         }
     } finally {
         Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
@@ -265,7 +276,7 @@ Set-ActionOutput -Name 'exit-code' -Value ([string]$result.ExitCode)
 Set-ActionOutput -Name 'pending' -Value (($result.ExitCode -eq 4).ToString().ToLowerInvariant())
 Set-ActionOutput -Name 'failed' -Value (($result.ExitCode -eq 6 -or $result.ExitCode -in @(1, 2, 3)).ToString().ToLowerInvariant())
 Set-ActionOutput -Name 'rejected' -Value (($result.ExitCode -eq 5).ToString().ToLowerInvariant())
-Set-ActionOutput -Name 'result-json' -Value $result.Stdout
+Set-ActionOutput -Name 'diagnostic-code' -Value $result.DiagnosticCode
 
 $planID = ''
 $planPath = ''
@@ -295,6 +306,13 @@ if ($result.Stdout) {
         $planPath = [string]$parsed.plan.path
     }
     if ($parsed.PSObject.Properties.Name -contains 'run' -and $null -ne $parsed.run) {
+        if (-not $planID -or $planID -cne [string]$parsed.run.planId -or
+            $parsed.approved -isnot [bool] -or -not $parsed.approved -or
+            $parsed.run.targets -isnot [array] -or $parsed.run.operations -isnot [array] -or
+            $parsed.plan.targets -ne $parsed.run.targets.Count -or
+            $parsed.plan.operations -ne $parsed.run.operations.Count) {
+            throw 'Distroplane returned conflicting publication identities or approval.'
+        }
         $runID = [string]$parsed.run.runId
         $completed = ([bool]$parsed.run.completed).ToString().ToLowerInvariant()
     }
@@ -302,6 +320,7 @@ if ($result.Stdout) {
         $journalPath = [string]$parsed.journalPath
     }
 }
+Set-ActionOutput -Name 'result-json' -Value $result.Stdout
 Set-ActionOutput -Name 'plan-id' -Value $planID
 Set-ActionOutput -Name 'plan-path' -Value $planPath
 Set-ActionOutput -Name 'run-id' -Value $runID
@@ -323,7 +342,7 @@ if ($command -eq 'resume' -and $shouldGenerateEvidence) {
     $matches = @(Get-ChildItem -LiteralPath $runs -File -Filter '*.json' -ErrorAction Stop |
         Where-Object { $_.Name -notlike '*.backup' } |
         ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
-        Where-Object { $_.runId -eq $runID })
+        Where-Object { $_.runId -ceq $runID -and $_.planId -ceq $planID })
     if ($matches.Count -ne 1) { throw 'Cannot locate the unique durable journal for evidence export.' }
     $journalPath = [string]$matches[0].journalPath
     $planPath = [string]$matches[0].planPath

@@ -28,6 +28,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "evidence",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -57,6 +63,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -86,6 +98,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -116,6 +134,12 @@
             "errorCode": "CREDENTIAL_UNAVAILABLE"
           }
         ]
+      },
+      "expected": {
+        "primary": "resume",
+        "mayExist": false,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -146,6 +170,12 @@
             "errorCode": "DEPENDENCY_TERMINAL"
           }
         ]
+      },
+      "expected": {
+        "primary": "manual",
+        "mayExist": false,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -175,6 +205,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "status",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -204,6 +240,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "status",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -214,7 +256,7 @@
         "outputSchemaVersion": "1",
         "planId": "plan-acceptance",
         "runId": "run-acceptance",
-        "completed": true,
+        "completed": false,
         "cancelled": true,
         "targets": [
           {
@@ -233,6 +275,12 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "status",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -275,6 +323,12 @@
             "targetId": "winget"
           }
         ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -317,6 +371,12 @@
             "targetId": "winget"
           }
         ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -347,6 +407,12 @@
           }
         ],
         "journalTruncatedTail": true
+      },
+      "expected": {
+        "primary": "preserve",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     },
     {
@@ -376,6 +442,291 @@
             "targetId": "npm"
           }
         ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "zero-operation",
+      "kind": "noop",
+      "exit": 0,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": []
+      },
+      "expected": {
+        "primary": "no-op",
+        "mayExist": false,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "unicode-long-identifiers",
+      "kind": "published",
+      "exit": 0,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-例-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';$HOME",
+        "completed": true,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "目标 / xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "操作",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "目标 / xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      },
+      "expected": {
+        "primary": "evidence",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "mixed-terminal-blocked",
+      "kind": "mixed",
+      "exit": 5,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          },
+          {
+            "id": "winget",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "REJECTED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          },
+          {
+            "id": "op-winget",
+            "state": "BLOCKED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "winget",
+            "errorCode": "DEPENDENCY_TERMINAL"
+          }
+        ]
+      },
+      "expected": {
+        "primary": "manual",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "truncated-uncertain",
+      "kind": "truncated",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true,
+            "targetId": "npm"
+          }
+        ],
+        "journalTruncatedTail": true
+      },
+      "expected": {
+        "primary": "preserve",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "unsupported-retry-history",
+      "kind": "legacy",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true,
+            "targetId": "npm"
+          }
+        ],
+        "legacyRetryPending": true
+      },
+      "expected": {
+        "primary": "manual",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "incomplete-ready",
+      "kind": "incomplete",
+      "exit": 4,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "READY",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "READY",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          }
+        ]
+      },
+      "expected": {
+        "primary": "status",
+        "mayExist": false,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
+      }
+    },
+    {
+      "name": "partial-publication",
+      "kind": "mixed",
+      "exit": 6,
+      "state": {
+        "outputSchemaVersion": "1",
+        "planId": "plan-acceptance",
+        "runId": "run-acceptance",
+        "completed": false,
+        "cancelled": false,
+        "targets": [
+          {
+            "id": "npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          },
+          {
+            "id": "winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true
+          },
+          {
+            "id": "published-target",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ],
+        "operations": [
+          {
+            "id": "op-npm",
+            "state": "FAILED",
+            "reconcileRequired": false,
+            "ambiguous": false,
+            "targetId": "npm"
+          },
+          {
+            "id": "op-winget",
+            "state": "WAITING_EXTERNAL",
+            "reconcileRequired": true,
+            "ambiguous": true,
+            "targetId": "winget"
+          },
+          {
+            "id": "op-published",
+            "targetId": "published-target",
+            "state": "PUBLISHED",
+            "reconcileRequired": false,
+            "ambiguous": false
+          }
+        ]
+      },
+      "expected": {
+        "primary": "reconcile",
+        "mayExist": true,
+        "evidence": "recorded snapshot",
+        "selection": "exact run"
       }
     }
   ]

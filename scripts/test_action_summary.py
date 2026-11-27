@@ -122,6 +122,24 @@ class SummaryTests(unittest.TestCase):
                 self.assertIn("do not retry automatically", output)
                 self.assertNotIn("Recorded as published", output)
 
+    def test_terminal_outcome_does_not_depend_on_run_completion_flag(self):
+        for status, exit_code in (("CANCELLED", 6), ("FAILED", 6), ("REJECTED", 5)):
+            for completed in (False, True):
+                with self.subTest(status=status, completed=completed):
+                    state = record(status, completed)
+                    state["cancelled"] = status == "CANCELLED"
+                    data = env("resume", state, exit_code)
+                    detail = MODULE.state_from(state, exit_code)
+                    self.assertFalse(detail["mixed"])
+                    self.assertNotIn("Mixed terminal", MODULE.render(data))
+                    self.assertIn("do not retry automatically", MODULE.render(data))
+                    state["targets"].append({"id": "other", "state": "READY",
+                                             "reconcileRequired": False, "ambiguous": False})
+                    state["operations"].append({"id": "op-other", "targetId": "other",
+                                                "state": "READY", "reconcileRequired": False,
+                                                "ambiguous": False})
+                    self.assertTrue(MODULE.state_from(state, exit_code)["mixed"])
+
     def test_mixed_terminal_pending_and_ambiguous_targets(self):
         data = record("REJECTED", False)
         data["targets"].append({"id": "winget", "state": "WAITING_EXTERNAL", "reconcileRequired": True, "ambiguous": True})
@@ -144,6 +162,45 @@ class SummaryTests(unittest.TestCase):
         output = MODULE.render(env("resume", value, 4))
         self.assertIn("Waiting for external review", output)
         self.assertNotIn("Recorded as published", output)
+
+    def test_diagnostic_codes_never_echo_provider_message(self):
+        for code, advice in (("STATE_CORRUPT", "retained provider executables"),
+                             ("RUN_AMBIGUOUS", "select the exact run"),
+                             ("UNSAFE_RETRY", "manual recovery"),
+                             ("VERSION_MISMATCH", "original provider executable")):
+            data = env("resume", {}, 3)
+            data["SUMMARY_RESULT_JSON"] = ""
+            data["SUMMARY_DIAGNOSTIC_CODE"] = code
+            output = MODULE.render(data)
+            self.assertIn(code, output)
+            self.assertIn(advice, output)
+            self.assertNotIn("Recorded as published", output)
+        data["SUMMARY_DIAGNOSTIC_CODE"] = "SECRET-CANARY"
+        self.assertNotIn("SECRET-CANARY", MODULE.render(data))
+
+    def test_mismatched_publish_identity_and_counts_refuse(self):
+        for field, value in (("planId", "other"), ("targets", 2), ("operations", 0)):
+            data = env()
+            obj = json.loads(data["SUMMARY_RESULT_JSON"])
+            obj["plan"][field] = value
+            data["SUMMARY_RESULT_JSON"] = json.dumps(obj)
+            self.assertIn("publication status unknown", MODULE.render(data))
+
+    def test_identity_contract_and_safe_markdown(self):
+        for ident in ("例" + "x" * 180, "run / ' ;", "x" * 256, "x\u202ey", "run`<tag>"):
+            self.assertEqual(MODULE.identity(ident), ident)
+        for ident in ("", " x", "x\n", "x\x1b", "x" * 257, "\ud800"):
+            self.assertIsNone(MODULE.identity(ident))
+        state = record("WAITING_EXTERNAL", False, True)
+        state["runId"] = "run`<tag>\u202e"
+        data = env("resume", state, 4)
+        data["SUMMARY_RUN_ID"] = state["runId"]
+        output = MODULE.render(data)
+        self.assertNotIn("<tag>", output)
+        self.assertNotIn("\u202e", output)
+        self.assertIn("Waiting for external review", output)
+        data["SUMMARY_RESULT_JSON"] = '{"outputSchemaVersion":"1","outputSchemaVersion":"1"}'
+        self.assertIn("publication status unknown", MODULE.render(data))
 
     def test_invalid_and_missing_json_drop_identity(self):
         for raw in ("", "{", "[]", "{}", '{"outputSchemaVersion":"999"}',

@@ -35,7 +35,7 @@ func TestReleaseGuidanceStateDecisions(t *testing.T) {
 		{"ambiguous", "WAITING_EXTERNAL", "", "uncertain external outcome", "may already have occurred", false, true, true},
 		{"credential blocked", "BLOCKED", "CREDENTIAL_UNAVAILABLE", "blocked before publication dispatch", "approved credential", false, false, false},
 		{"resolution blocked", "BLOCKED", "CREDENTIAL_RESOLUTION_FAILED", "blocked before publication dispatch", "approved credential", false, false, false},
-		{"dependency blocked", "BLOCKED", "DEPENDENCY_TERMINAL", "unresolved prerequisite", "recorded prerequisite", false, false, false},
+		{"dependency blocked", "BLOCKED", "DEPENDENCY_TERMINAL", "unresolved prerequisite", "human decision", false, false, false},
 		{"rejected", "REJECTED", "", "finished with rejection", "recorded cause", true, false, false},
 		{"failed", "FAILED", "", "failed or cancelled", "recorded cause", true, false, false},
 		{"cancelled", "CANCELLED", "", "failed or cancelled", "recorded cause", true, false, false},
@@ -199,6 +199,10 @@ func TestReleaseGuidanceSelectorsAreSupportedAndQuoted(t *testing.T) {
 	if cat.command("evidence") != "" {
 		t.Fatal("evidence command invented without plan/journal")
 	}
+	cat.recoveryUnavailable = true
+	if cat.command("resume") != "" || cat.command("reconcile") != "" || cat.command("status") == "" {
+		t.Fatal("unavailable original configuration made recovery executable or blocked read-only status")
+	}
 }
 
 func TestReleaseGuidanceSafeFallbacksAndTruncatedState(t *testing.T) {
@@ -215,7 +219,7 @@ func TestReleaseGuidanceSafeFallbacksAndTruncatedState(t *testing.T) {
 	if strings.Contains(msg, "\x1b") || strings.Contains(msg, "\nspoof") ||
 		strings.Contains(msg, "\nfake") || strings.Contains(msg, "PROVIDER\nSECRET") ||
 		!strings.Contains(msg, "durable-prefix") ||
-		!strings.Contains(msg, "original plan and journal") ||
+		!strings.Contains(msg, "original journal and plan") ||
 		strings.Count(msg, "Next:") != 1 {
 		t.Fatalf("untrusted data rendered unsafely: %q", msg)
 	}
@@ -498,7 +502,7 @@ func TestReleaseGuidanceTargetFallbackAndUnknownStates(t *testing.T) {
 		{"REJECTED", "finished with rejection"},
 		{"FAILED", "failed or cancelled"},
 		{"CANCELLED", "failed or cancelled"},
-		{"PUBLISHED", "finished without all targets published"},
+		{"PUBLISHED", "completed no-op"},
 		{"READY", "finished without all targets published"},
 	} {
 		out := stateOutput{Completed: true, Targets: []targetStateOutput{{ID: "target", State: tc.state}}}
@@ -536,5 +540,27 @@ func TestReleaseGuidanceOperationCodesAreAllowlisted(t *testing.T) {
 	writeStateText(&b, out)
 	if strings.Contains(b.String(), "attacker controlled") {
 		t.Fatalf("raw provider error displayed: %s", b.String())
+	}
+}
+
+func TestReleaseGuidanceMissingOriginalConfigDoesNotOfferResume(t *testing.T) {
+	_, config := publishFixture(t, `{"mode":"waiting_external","reconcileState":"published"}`)
+	var out, diagnostic bytes.Buffer
+	if code := runPublishContext(t.Context(), []string{"--config", config, "--yes", "--json"}, nil, &out, &diagnostic); code != exitPending {
+		t.Fatalf("publish code=%d stderr=%s", code, diagnostic.String())
+	}
+	var result publishOutput
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Run == nil {
+		t.Fatalf("invalid publication output: %s %v", out.String(), err)
+	}
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := runStatus([]string{"--config", config, "--run", result.Run.RunID}, &out, &diagnostic); code != exitPending {
+		t.Fatalf("status code=%d stderr=%s", code, diagnostic.String())
+	}
+	if strings.Contains(out.String(), "distroplane resume") || !strings.Contains(out.String(), "restore the original configuration") {
+		t.Fatalf("unsafe missing-config recovery guidance: %s", out.String())
 	}
 }

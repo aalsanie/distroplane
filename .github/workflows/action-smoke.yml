@@ -645,7 +645,7 @@ jobs:
             *" --credential npm-publish=DISTROPLANE_ACTION_NPM_OIDC_TOKEN "*) ;;
             *) exit 24 ;;
           esac
-          printf '%s\n' '{"plan":{"planId":"oidc-test-plan","path":"/tmp/oidc-plan.json"},"run":{"runId":"oidc-test-run","completed":true},"journalPath":"/tmp/oidc-journal.json"}'
+          printf '%s\n' '{"outputSchemaVersion":"1","plan":{"outputSchemaVersion":"1","planId":"oidc-test-plan","path":"/tmp/oidc-plan.json","targets":1,"operations":1},"approved":true,"run":{"outputSchemaVersion":"1","planId":"oidc-test-plan","runId":"oidc-test-run","completed":true,"cancelled":false,"targets":[{"id":"npm-release","state":"PUBLISHED","reconcileRequired":false,"ambiguous":false}],"operations":[{"id":"npm-publish","targetId":"npm-release","state":"PUBLISHED","reconcileRequired":false,"ambiguous":false}]},"journalPath":"/tmp/oidc-journal.json"}'
           SH
           chmod +x oidc-publish/cli
       - name: Execute with a freshly acquired npm-audience JWT
@@ -676,7 +676,7 @@ jobs:
           cat > oidc-publish/cli-leak <<'SH'
           #!/bin/sh
           printf '%s\n' "${SENSITIVE_CANARY:-}" >&2
-          printf '%s\n' '{"plan":{"planId":"canary-plan","path":"/tmp/plan.json"},"run":{"runId":"canary-run","completed":true}}'
+          printf '%s\n' '{"outputSchemaVersion":"1","plan":{"outputSchemaVersion":"1","planId":"canary-plan","path":"/tmp/oidc-plan.json","targets":1,"operations":1},"approved":true,"run":{"outputSchemaVersion":"1","planId":"canary-plan","runId":"canary-run","completed":true,"cancelled":false,"targets":[{"id":"npm-release","state":"PUBLISHED","reconcileRequired":false,"ambiguous":false}],"operations":[{"id":"npm-publish","targetId":"npm-release","state":"PUBLISHED","reconcileRequired":false,"ambiguous":false}]},"journalPath":"/tmp/oidc-journal.json"}'
           SH
           chmod +x oidc-publish/cli-leak
       - name: Reject provider stderr that contains a credential value

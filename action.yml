@@ -279,6 +279,7 @@ runs:
         SUMMARY_EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
         SUMMARY_EXIT_CODE: ${{ steps.execute.outputs.exit-code }}
         SUMMARY_RESULT_JSON: ${{ steps.execute.outputs.result-json }}
+        SUMMARY_DIAGNOSTIC_CODE: ${{ steps.execute.outputs.diagnostic-code }}
         SUMMARY_PLAN_ID: ${{ steps.execute.outputs.plan-id }}
         SUMMARY_RUN_ID: ${{ steps.execute.outputs.run-id }}
         SUMMARY_RECOVERY_OUTCOME: ${{ steps.upload-recovery.outcome }}
@@ -319,7 +320,7 @@ runs:
           exit 0
         }
         if ($code -eq 4) {
-          Write-Host "::notice::Distroplane is waiting on external publication state; reconciliation can continue in a later job."
+          Write-Host "::notice::Distroplane has outstanding prerequisites or external publication work; inspect the exact run and its recovery guidance."
           exit 0
         }
         throw "Distroplane command failed with exit code $code."

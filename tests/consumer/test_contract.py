@@ -57,6 +57,74 @@ class ConsumerContract(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
+    def test_00_shared_guidance_contract_and_native_noop(self):
+        fixture = json.loads((Path(__file__).with_name("release-guidance-cases.json")).read_text(encoding="utf-8"))
+        self.assertEqual(fixture["schemaVersion"], "1")
+        for case in fixture["cases"]:
+            with self.subTest(case=case["name"]):
+                state = case["state"]
+                operations = state["operations"]
+                states = {op["state"] for op in operations}
+                flags = [op for op in operations if op["ambiguous"] or op["reconcileRequired"]]
+                terminal = state["cancelled"] or bool(states & {"FAILED", "CANCELLED", "REJECTED"})
+                pending = not state["completed"] or bool(flags) or bool(states - {"PUBLISHED", "FAILED", "CANCELLED", "REJECTED"})
+                expected_exit = 6 if state["cancelled"] or states & {"FAILED", "CANCELLED"} else 5 if "REJECTED" in states else 4 if pending else 0
+                self.assertEqual(expected_exit, case["exit"])
+                self.assertEqual(len({t["id"] for t in state["targets"]}), len(state["targets"]))
+                self.assertTrue(all(op["targetId"] in {t["id"] for t in state["targets"]} for op in operations))
+                for ident in [state["runId"], state["planId"]] + [t["id"] for t in state["targets"]]:
+                    self.assertGreater(len(ident.encode("utf-8")), 0)
+                    self.assertLessEqual(len(ident.encode("utf-8")), 256)
+                may_exist = bool(state.get("journalTruncatedTail") or state.get("legacyRetryPending") or
+                                 flags or states - {"PLANNED", "READY", "BLOCKED"})
+                expected = case["expected"]
+                self.assertEqual(may_exist, expected["mayExist"])
+                if state.get("legacyRetryPending"):
+                    action = "manual"
+                elif state.get("journalTruncatedTail"):
+                    action = "preserve"
+                elif flags or "WAITING_EXTERNAL" in states:
+                    action = "reconcile"
+                elif "BLOCKED" in states:
+                    action = "manual" if terminal or any(op.get("errorCode") == "DEPENDENCY_TERMINAL" for op in operations) else "resume"
+                elif terminal or pending:
+                    action = "status"
+                elif operations:
+                    action = "evidence"
+                else:
+                    action = "no-op"
+                self.assertEqual(action, expected["primary"])
+                self.assertEqual(expected["selection"], "exact run")
+                self.assertEqual(expected["evidence"], "recorded snapshot")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "app.bin"
+            artifact.write_bytes(b"no-op fixture")
+            config = root / "distroplane.json"
+            target = "目标-" + "x" * 180 + " / ' ;"
+            config.write_text(json.dumps({"schemaVersion": "1",
+                "release": {"id": "no-op", "artifacts": [{"name": "app", "source": str(artifact)}]},
+                "targets": [{"id": target, "provider": {"name": "fake", "executable": str(self.provider)},
+                             "configuration": {"mode": "noop"}}]}), encoding="utf-8")
+            publication = execute(self.cli, "publish", "--config", config, "--yes", "--json")
+            state = publication["run"]
+            self.assertEqual(publication["plan"]["planId"], state["planId"])
+            self.assertEqual(publication["plan"]["operations"], 0)
+            self.assertEqual(state["operations"], [])
+            self.assertTrue(state["completed"])
+            self.assertEqual(state["targets"][0]["id"], target)
+            journal = Path(publication["journalPath"])
+            before = journal.read_bytes()
+            events = journal_events(before, state["planId"], state["runId"])
+            self.assertFalse(any(event["type"] == "SIDE_EFFECT_DISPATCHED" for event in events))
+            native = subprocess.run([str(self.cli), "status", "--config", str(config), "--run", state["runId"]],
+                                    capture_output=True, check=False, timeout=12)
+            self.assertEqual(native.returncode, 0, native.stderr)
+            self.assertIn(b"completed no-op", native.stdout)
+            self.assertNotIn(b"recorded as published", native.stdout)
+            self.assertEqual(journal.read_bytes(), before)
+
     def test_01_cli_contract_and_approval_boundary(self):
         identity = execute(self.cli, "version", "--json")
         self.assertEqual(identity["outputSchemaVersion"], "1")

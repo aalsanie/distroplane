@@ -5,13 +5,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Strict, non-echoing interpretation of the public CLI JSON contract. */
 final class CliFeedback {
-    private static final ObjectMapper JSON = new ObjectMapper();
-    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+    private static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    private static final Pattern CODE = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
     private static final Set<String> STATES = Set.of(
         "PLANNED", "READY", "RUNNING", "WAITING_EXTERNAL", "BLOCKED",
         "PUBLISHED", "REJECTED", "FAILED", "CANCELLED");
@@ -60,8 +62,41 @@ final class CliFeedback {
         JsonNode value = parent.get(name);
         if (value == null || !value.isTextual() || value.textValue().isBlank()) throw invalid();
         String text = value.textValue();
-        if (identifier && !IDENTIFIER.matcher(text).matches()) throw invalid();
+        if (identifier && !validIdentifier(text)) throw invalid();
         return text;
+    }
+
+    private static boolean validIdentifier(String value) {
+        return !value.isEmpty() && StandardCharsets.UTF_8.newEncoder().canEncode(value) &&
+            value.getBytes(StandardCharsets.UTF_8).length <= 256 &&
+            !edgeSpace(value.codePointAt(0)) && !edgeSpace(value.codePointBefore(value.length())) &&
+            value.codePoints().noneMatch(Character::isISOControl);
+    }
+
+    private static boolean edgeSpace(int c) {
+        return Character.isSpaceChar(c) || c == 0x85 || c >= 9 && c <= 13;
+    }
+
+    private static String display(String value) {
+        StringBuilder out = new StringBuilder();
+        value.codePoints().forEach(c -> {
+            if (Character.getType(c) == Character.FORMAT || c == 0x2028 || c == 0x2029)
+                out.append(String.format("\\u{%x}", c));
+            else out.appendCodePoint(c);
+        });
+        return out.toString();
+    }
+
+    private static String requiredCode(JsonNode parent, String name) throws IOException {
+        String value = requiredText(parent, name, false);
+        if (!CODE.matcher(value).matches()) throw invalid();
+        return value;
+    }
+
+    private static JsonNode stateList(JsonNode parent, String name) throws IOException {
+        JsonNode value = parent.get(name);
+        if (value == null || !value.isArray()) throw invalid();
+        return value;
     }
 
     private static boolean booleanField(JsonNode parent, String name) throws IOException {
@@ -106,7 +141,7 @@ final class CliFeedback {
         requiredText(root, "path", false);
         count(root, "targets");
         count(root, "operations");
-        return new Detail("immutable plan " + planId + " saved", null,
+        return new Detail("immutable plan " + display(planId) + " saved", null,
             "Review the exact plan before explicit publication approval");
     }
 
@@ -114,17 +149,18 @@ final class CliFeedback {
         JsonNode plan = member(root, "plan");
         requiredText(plan, "outputSchemaVersion", false);
         if (!"1".equals(plan.get("outputSchemaVersion").textValue())) throw invalid();
-        requiredText(plan, "planId", true);
+        String planId = requiredText(plan, "planId", true);
         requiredText(plan, "path", false);
-        count(plan, "targets");
-        count(plan, "operations");
+        int targets = count(plan, "targets");
+        int operations = count(plan, "operations");
         boolean approved = booleanField(root, "approved");
         JsonNode run = root.get("run");
         if (run == null || run.isNull()) {
             if (exit != 0 || approved) throw invalid();
             return new Detail("plan preview completed; nothing published", null, "");
         }
-        if (!approved) throw invalid();
+        if (!approved || !planId.equals(requiredText(run, "planId", true)) ||
+            targets != stateList(run, "targets").size() || operations != stateList(run, "operations").size()) throw invalid();
         requiredText(root, "journalPath", false);
         return state(run, exit);
     }
@@ -140,7 +176,7 @@ final class CliFeedback {
         boolean remoteReachable = false;
         for (JsonNode check : checks) {
             if (!check.isObject()) throw invalid();
-            String code = requiredText(check, "code", true);
+            String code = requiredCode(check, "code");
             String severity = requiredText(check, "severity", false);
             requiredText(check, "subject", false);
             requiredText(check, "message", false);
@@ -169,82 +205,94 @@ final class CliFeedback {
         String runId = requiredText(root, "runId", true);
         boolean completed = booleanField(root, "completed");
         boolean cancelled = booleanField(root, "cancelled");
-        JsonNode tail = root.get("journalTruncatedTail");
-        if (tail != null && !tail.isBoolean()) throw invalid();
-        boolean truncated = tail != null && tail.booleanValue();
-        JsonNode targets = list(root, "targets");
-        JsonNode operations = list(root, "operations");
-        if (targets.isEmpty() || operations.isEmpty()) throw invalid();
+        boolean truncated = root.has("journalTruncatedTail") && booleanField(root, "journalTruncatedTail");
+        boolean legacy = root.has("legacyRetryPending") && booleanField(root, "legacyRetryPending");
+        JsonNode targets = stateList(root, "targets");
+        JsonNode operations = stateList(root, "operations");
+        if (targets.isEmpty()) throw invalid();
         boolean ambiguous = false, external = false, blocked = false, rejected = false;
-        boolean credentialBlocked = false;
-        boolean failed = cancelled, pending = !completed, allPublished = completed && !cancelled;
+        boolean credentialBlocked = false, dependencyBlocked = false, mayExist = truncated || legacy;
+        boolean failed = cancelled, outstanding = false, allPublished = completed && !cancelled;
+        Set<String> targetIds = new HashSet<>(), operationIds = new HashSet<>();
         for (JsonNode target : targets) {
-            if (!target.isObject()) throw invalid();
-            requiredText(target, "id", true);
+            if (!target.isObject() || !targetIds.add(requiredText(target, "id", true))) throw invalid();
             String status = requiredText(target, "state", false);
             if (!STATES.contains(status)) throw invalid();
             boolean reconcile = booleanField(target, "reconcileRequired");
             boolean unknown = booleanField(target, "ambiguous");
             ambiguous |= unknown;
-            external |= reconcile && !unknown;
+            external |= ("WAITING_EXTERNAL".equals(status) || reconcile) && !unknown;
             if (!status.equals("PUBLISHED") || reconcile || unknown) allPublished = false;
         }
         for (JsonNode operation : operations) {
-            if (!operation.isObject()) throw invalid();
-            requiredText(operation, "id", true);
-            requiredText(operation, "targetId", true);
+            if (!operation.isObject() || !operationIds.add(requiredText(operation, "id", true)) ||
+                !targetIds.contains(requiredText(operation, "targetId", true))) throw invalid();
             String status = requiredText(operation, "state", false);
             if (!STATES.contains(status)) throw invalid();
             boolean reconcile = booleanField(operation, "reconcileRequired");
             boolean unknown = booleanField(operation, "ambiguous");
             ambiguous |= unknown;
-            external |= reconcile && !unknown;
+            external |= ("WAITING_EXTERNAL".equals(status) || reconcile) && !unknown;
             if (!status.equals("PUBLISHED") || reconcile || unknown) allPublished = false;
             if ("FAILED".equals(status) || "CANCELLED".equals(status)) failed = true;
             else if ("REJECTED".equals(status)) rejected = true;
-            else if (!"PUBLISHED".equals(status) || reconcile) pending = true;
+            else if (!"PUBLISHED".equals(status) || reconcile || unknown) outstanding = true;
+            mayExist |= reconcile || unknown || !Set.of("PLANNED", "READY", "BLOCKED").contains(status);
             JsonNode reason = operation.get("errorCode");
             if (reason != null && !reason.isTextual()) throw invalid();
             if ("BLOCKED".equals(status)) {
                 blocked = true;
                 credentialBlocked |= reason != null && Set.of("CREDENTIAL_UNAVAILABLE", "CREDENTIAL_RESOLUTION_FAILED").contains(reason.textValue());
+                dependencyBlocked |= reason != null && "DEPENDENCY_TERMINAL".equals(reason.textValue());
             }
         }
-        int expected = failed ? 6 : rejected ? 5 : pending ? 4 : 0;
+        int expected = failed ? 6 : rejected ? 5 : !completed || outstanding ? 4 : 0;
         if (expected != exit || (exit == 0 && !allPublished)) throw invalid();
-        String outcome = failed && (ambiguous || external || blocked) || rejected && (ambiguous || external || blocked)
+        boolean noop = allPublished && operations.isEmpty();
+        mayExist |= ambiguous || external;
+        String outcome = (failed || rejected) && (ambiguous || external || blocked || outstanding)
             ? "mixed terminal and outstanding destinations"
-            : ambiguous ? "ambiguous external outcome"
+            : ambiguous ? "ambiguous external outcome; publication may already have occurred"
             : external ? "awaiting external acceptance"
             : blocked ? (credentialBlocked ? "blocked by unavailable credentials" : "blocked before completion")
             : failed ? "failed or cancelled"
             : rejected ? "rejected"
+            : noop ? "completed no-op; no publication operations were planned"
             : allPublished ? "recorded as published (public availability unverified)"
             : "pending";
-        if (truncated) return new Detail("run " + runId + " (plan " + planId +
-            "): journal has a truncated final record", "status",
-            "Preserve the original journal and verify its durable prefix before recovery");
+        String identity = "run " + display(runId) + " (plan " + display(planId) + "): ";
+        String recorded = "; publication may already exist (recorded run): " + mayExist +
+            "; evidence is a recorded snapshot, not fresh external verification";
+        String selector = "; select the exact recorded run shown above using distroplane.run";
+        if (legacy) return new Detail(identity + "unsupported retry authorization" + recorded, null,
+            "Preserve the original plan and journal and seek manual recovery; do not republish or resume this grant");
+        if (truncated) return new Detail(identity + "journal has a truncated final record" + recorded, "status",
+            "Preserve the original journal and verify its durable prefix before recovery" + selector);
         String next = exit == 0 ? null : "status";
         String action = ambiguous
-            ? "Reconcile the original recorded run before any retry; do not republish"
-            : external ? "Check the original external submission by reconciling its recorded run"
-            : blocked ? (credentialBlocked ? "Restore the approved credential environment source, then resume the same run" : "Restore the recorded prerequisite, then resume the same run")
-            : exit != 0 ? "Inspect the recorded cause; do not create a replacement run"
-            : "Verify destination availability independently";
-        return new Detail("run " + runId + " (plan " + planId + "): " + outcome, next, action);
+            ? "Reconcile the original recorded run before any retry; do not republish; use resume with reconcile-only" + selector
+            : external ? "Check the original external submission by reconciling its recorded run; use resume with reconcile-only" + selector
+            : blocked && (dependencyBlocked || failed || rejected)
+                ? "Inspect the recorded prerequisite and terminal outcomes of the original run; a human decision is required before further work on this same run" + selector
+            : blocked ? (credentialBlocked ? "Restore the approved credential environment source, then resume the same run" : "Restore the recorded prerequisite, then resume the same run") + selector
+            : exit != 0 ? "Inspect the recorded cause; do not create a replacement run" + selector
+            : noop ? "Inspect recorded evidence if needed; no publication was attempted by this run"
+            : "Inspect recorded evidence and verify destination availability independently";
+        return new Detail(identity + outcome + recorded, next, action);
     }
 
     private static Detail error(JsonNode root, int exit) throws IOException {
         JsonNode err = member(root, "error");
-        String kind = requiredText(err, "kind", true);
+        String kind = requiredCode(err, "kind");
         requiredText(err, "message", false);
         JsonNode codeNode = err.get("code");
-        String code = codeNode == null ? kind : requiredText(err, "code", true);
+        String code = codeNode == null ? kind : requiredCode(err, "code");
         JsonNode hint = err.get("hint");
         if (hint != null && !hint.isTextual()) throw invalid();
         String next = switch (code) {
-            case "RUN_AMBIGUOUS", "RUN_ALREADY_EXISTS", "RELEASE_CONFLICT", "STATE_CORRUPT",
-                 "AWAITING_EXTERNAL", "UNSAFE_RETRY", "INTERRUPTED" -> "status";
+            case "RUN_AMBIGUOUS", "RUN_ALREADY_EXISTS", "RELEASE_CONFLICT",
+                 "AWAITING_EXTERNAL", "INTERRUPTED" -> "status";
+            case "STATE_CORRUPT", "UNSAFE_RETRY" -> null;
             case "MISSING_CONFIG", "INVALID_CONFIG", "MISSING_ARTIFACT",
                  "PROVIDER_NOT_FOUND", "VERSION_MISMATCH" -> "doctor";
             default -> null;
@@ -257,17 +305,18 @@ final class CliFeedback {
             case "MISSING_CREDENTIAL", "CREDENTIAL_UNAVAILABLE", "CREDENTIAL_RESOLUTION_FAILED" ->
                 "Restore the approved credential environment source and rerun doctor";
             case "MISSING_ARTIFACT", "ARTIFACT_CHANGED" ->
-                "Build the mapped Gradle archive task and verify its original bytes";
+                "Restore the exact originally planned artifact bytes; do not create replacement artifacts or plans";
             case "MISSING_CONFIG", "INVALID_CONFIG" ->
                 "Correct distroplane.config in the root project; use a regular file inside the Gradle root";
             case "PROVIDER_NOT_FOUND", "VERSION_MISMATCH", "ARCH_MISMATCH" ->
                 "Restore the expected provider executable and verify its original identity";
             case "RUN_AMBIGUOUS" ->
                 "Select the exact recorded release/run using distroplane.release or distroplane.run";
-            case "AWAITING_EXTERNAL", "UNSAFE_RETRY", "INTERRUPTED" ->
+            case "UNSAFE_RETRY" -> "Preserve original files and seek manual recovery; do not resume an unsupported retry grant or republish";
+            case "AWAITING_EXTERNAL", "INTERRUPTED" ->
                 "Inspect and reconcile the original run before considering further publication";
             case "RUN_ALREADY_EXISTS", "RELEASE_CONFLICT", "STATE_CORRUPT" ->
-                "Preserve the original plan, run catalog, and journal; inspect existing state";
+                "Preserve the original plan, run catalog, journal, exact artifacts and retained provider executables; inspect existing state";
             case "APPROVAL_REQUIRED" ->
                 "Review the immutable plan and explicitly set distroplane.approve or distroplane.confirmPlan";
             case "REMOTE_UNREACHABLE", "REMOTE_INVALID" ->
