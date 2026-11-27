@@ -48,9 +48,10 @@ type doctorOutput struct {
 }
 
 type doctorChecks struct {
-	output    doctorOutput
-	localBad  bool
-	remoteBad bool
+	output          doctorOutput
+	localBad        bool
+	remoteBad       bool
+	planCredentials map[string][]doctorCredential
 }
 
 func (d *doctorChecks) add(code, severity, subject, message, fix string) {
@@ -177,6 +178,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 	}
 	endpoints := make(map[planner.Endpoint]bool)
 	credentialOwners := make(map[string]string)
+	credentialPurposes := make(map[string]string)
 	requiredReferences := make(map[string]bool)
 	client, clientErr := providerhost.New(providerhost.Options{})
 	for _, target := range loaded.Config.Targets {
@@ -268,8 +270,18 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 				d.add("GIT_AVAILABLE", doctorPass, target.ID, "Git command found on PATH", "")
 			}
 		}
-		for _, credential := range doctorCredentialRefs(target) {
+		requirements := doctorCredentialRefs(target)
+		if bindings != nil {
+			requirements = d.planCredentials[target.ID]
+		}
+		for _, credential := range requirements {
 			requiredReferences[credential.ref] = true
+			purpose := target.Provider.Name + "/" + credential.environment
+			if previous, exists := credentialPurposes[credential.ref]; exists && previous != purpose {
+				d.add("CREDENTIAL_COLLISION", doctorFail, target.ID+"/"+credential.ref, "credential reference has incompatible destination purposes", "Use distinct credential references for distinct destinations")
+				continue
+			}
+			credentialPurposes[credential.ref] = purpose
 			source := doctorCredentialSource(credential.ref, target.Provider.Name, credential.environment, loaded.Config.CredentialSources, options.credentials, providerCounts[target.Provider.Name] == 1 && trusted)
 			if source == "" {
 				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential reference has no approved environment source", "Provide --credential "+safeDisplay(credential.ref)+"=ENV or configure credentialSources with an isolated source")
@@ -278,7 +290,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			} else if value, present := os.LookupEnv(source); !present || value == "" {
 				d.add("MISSING_CREDENTIAL", doctorFail, target.ID+"/"+credential.ref, "credential environment source "+safeDisplay(source)+" is unset or empty", "Set "+safeDisplay(source)+" before publishing")
 			} else {
-				d.add("CREDENTIAL_AVAILABLE", doctorPass, target.ID+"/"+credential.ref, "environment source "+safeDisplay(source)+" is populated (value not displayed; authorization not verified)", "")
+				d.add("CREDENTIAL_AVAILABLE", doctorPass, target.ID+"/"+credential.ref, "mapped credential environment source is populated (value not displayed; authorization not verified)", "")
 			}
 			if source != "" {
 				credentialOwners[strings.ToUpper(source)] = credential.ref

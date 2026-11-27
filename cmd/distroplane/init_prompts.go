@@ -268,3 +268,31 @@ func initSafeDescendant(base, target string) bool {
 	}
 	return true
 }
+
+type initSourceFlags []string
+
+func (v *initSourceFlags) String() string { return "" }
+
+func (v *initSourceFlags) Set(value string) error {
+	*v = append(*v, value)
+	return nil
+}
+
+func validateInitRegistry(cfg config.Config) error {
+	for _, target := range cfg.Targets {
+		if target.Provider.Name != "npm" {
+			continue
+		}
+		var options struct {
+			Registry string `json:"registry"`
+		}
+		if err := json.Unmarshal(target.Configuration, &options); err != nil {
+			return fmt.Errorf("npm.registry: invalid registry configuration")
+		}
+		u, err := url.Parse(options.Registry)
+		if err != nil || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return fmt.Errorf("npm.registry: use --set npm.registry=HTTPS_URL without credentials, query or fragment")
+		}
+	}
+	return nil
+}

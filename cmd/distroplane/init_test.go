@@ -91,7 +91,7 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 			}
 			args := append(initArgs(dir, test.name), optionFlags(test.fields...)...)
 			result, _ := invokeInit(t, exitOK, "", false, args...)
-			if result.OutputSchemaVersion != outputSchemaVersion || result.Artifact.SHA256 == "" || len(result.Destinations) != 1 {
+			if result.OutputSchemaVersion != outputSchemaVersion || result.Artifact.SHA256 == "" || len(result.Destinations) != 1 || len(result.CredentialSources) == 0 {
 				t.Fatalf("invalid output: %+v", result)
 			}
 			data, err := os.ReadFile(result.ConfigPath)

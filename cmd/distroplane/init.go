@@ -56,6 +56,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	var releaseID, outputPath string
 	var force, jsonMode, noninteractive bool
 	var destinations, options, artifacts repeatedFlag
+	var sourceFlags initSourceFlags
 	mappings := credentialFlags{}
 	fs := commandFlags("init")
 	fs.StringVar(&releaseID, "release", "", "")
@@ -66,12 +67,17 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	fs.BoolVar(&noninteractive, "non-interactive", false, "")
 	fs.Var(&destinations, "destination", "")
 	fs.Var(&options, "set", "")
-	fs.Var(mappings, "credential", "")
+	fs.Var(&sourceFlags, "credential", "")
 	if err := parseCommand(fs, args); err != nil {
 		return writeCommandError(stderr, hasJSON(args), exitUsage, "usage", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
+	}
+	for _, value := range sourceFlags {
+		if err := mappings.Set(value); err != nil {
+			return writeCommandError(stderr, jsonMode, exitUsage, "invalid_option", fmt.Errorf("--credential must use a unique REF=ENV mapping"))
+		}
 	}
 	if outputPath == "" {
 		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--output is required"))
@@ -215,6 +221,9 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 	}
 	decoded, err := official.Decode(strings.NewReader(string(data)))
 	if err != nil {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
+	}
+	if err := validateInitRegistry(decoded); err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_template", err)
 	}
 	credentialSources, err := initSources(decoded, mappings)

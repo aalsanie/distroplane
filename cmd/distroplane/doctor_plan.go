@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/credentials"
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerhost"
@@ -87,8 +88,21 @@ func doctorPlanBindings(d *doctorChecks, loaded config.Loaded, planPath string) 
 		byProvider[binding.Provider] = binding
 	}
 	byTarget := make(map[string]providerhost.Binding, len(plan.Targets()))
+	d.planCredentials = make(map[string][]doctorCredential, len(plan.Targets()))
 	for _, target := range plan.Targets() {
-		byTarget[string(target.ID())] = byProvider[target.Provider()]
+		id := string(target.ID())
+		byTarget[id] = byProvider[target.Provider()]
+		for _, requirement := range target.Requirements() {
+			if requirement.Kind() != "credential" {
+				continue
+			}
+			parsed, err := credentials.ParseRequirement(requirement)
+			if err != nil {
+				d.add("INVALID_CREDENTIAL_MAPPING", doctorFail, id, "saved provider credential requirement is invalid", "Preserve the original plan and inspect its provider requirements")
+				return nil, nil, false
+			}
+			d.planCredentials[id] = append(d.planCredentials[id], doctorCredential{ref: string(parsed.Ref), environment: parsed.Environment})
+		}
 	}
 	return byTarget, trusted, true
 }
