@@ -73,20 +73,40 @@ type failureDecision struct {
 	cancelled bool
 }
 
+type eventAppender interface {
+	Append(journal.Entry) (journal.Event, error)
+}
+
+type reconciliationWriter struct {
+	writer *journal.Writer
+	lease  LeaseState
+}
+
+func (w reconciliationWriter) Append(entry journal.Entry) (journal.Event, error) {
+	return w.writer.AppendWithLease(entry, journal.LeasePayload{
+		ID: w.lease.ID, Owner: w.lease.Owner, AcquiredAt: w.lease.AcquiredAt, ExpiresAt: w.lease.ExpiresAt,
+	})
+}
+
 type journalExecutionObserver struct {
 	mu         sync.Mutex
 	runID      domain.RunID
-	writer     *journal.Writer
+	writer     eventAppender
 	operation  domain.Operation
 	attempt    uint32
 	started    bool
 	dispatched bool
 	responded  bool
+	closed     bool
+	reconcile  bool
 }
 
 func (o *journalExecutionObserver) ProviderProcessStarted() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		return journal.ErrLeaseAuthority
+	}
 	if o.started {
 		return fmt.Errorf("provider process start already recorded")
 	}
@@ -104,6 +124,9 @@ func (o *journalExecutionObserver) ProviderProcessStarted() error {
 func (o *journalExecutionObserver) SideEffectDispatched() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed || o.reconcile {
+		return fmt.Errorf("side-effect dispatch is not authorized")
+	}
 	if !o.started {
 		return fmt.Errorf("provider process start must be recorded before dispatch")
 	}
@@ -124,6 +147,9 @@ func (o *journalExecutionObserver) SideEffectDispatched() error {
 func (o *journalExecutionObserver) ProviderResponseReceived() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		return journal.ErrLeaseAuthority
+	}
 	if !o.started {
 		return fmt.Errorf("provider process start must be recorded before response")
 	}
@@ -139,6 +165,12 @@ func (o *journalExecutionObserver) ProviderResponseReceived() error {
 	}
 	o.responded = true
 	return nil
+}
+
+func (o *journalExecutionObserver) close() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.closed = true
 }
 
 func (o *journalExecutionObserver) snapshot() (started, dispatched, responded bool) {
@@ -452,7 +484,8 @@ func prepareTask(runID domain.RunID, writer *journal.Writer, current task) error
 		}
 		return nil
 	}
-	if _, err := writer.Append(journal.Entry{
+	reconcileWriter := reconciliationWriter{writer: writer, lease: current.lease.State()}
+	if _, err := reconcileWriter.Append(journal.Entry{
 		RunID: runID, Type: journal.EventReconcileStarted, OperationID: current.operation.ID(), TargetID: current.operation.TargetID(),
 		Payload: journal.Payload{Attempt: attempt, AttemptReason: journal.AttemptReasonReconcile},
 	}); err != nil {
@@ -470,13 +503,23 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	}
 
 	leaseCtx, stopLease := context.WithCancel(parent)
+	renewCtx, stopRenew := context.WithCancel(leaseCtx)
 	renewDone := make(chan error, 1)
 	go func() {
-		renewDone <- renewLease(leaseCtx, stopLease, runID, writer, current.operation, current.lease)
+		renewDone <- renewLease(renewCtx, stopLease, runID, writer, current.operation, current.lease)
 	}()
+	var renewOnce sync.Once
+	var renewErr error
+	stopRenewal := func() error {
+		renewOnce.Do(func() {
+			stopRenew()
+			renewErr = <-renewDone
+		})
+		return renewErr
+	}
 	defer func() {
 		stopLease()
-		if err := <-renewDone; err != nil && outcome.infrastructureErr == nil {
+		if err := stopRenewal(); err != nil && outcome.infrastructureErr == nil {
 			outcome.infrastructureErr = err
 		}
 		if err := releaseLease(runID, writer, current.operation, current.lease); err != nil && outcome.infrastructureErr == nil {
@@ -486,8 +529,21 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 
 	ctx, cancel := operationContext(leaseCtx, current.operation.Timeout())
 	defer cancel()
+	var invocationWriter eventAppender = writer
+	if current.kind == taskReconcile {
+		invocationWriter = reconciliationWriter{writer: writer, lease: current.lease.State()}
+	}
 	observer := &journalExecutionObserver{
-		runID: runID, writer: writer, operation: current.operation, attempt: outcome.attempt,
+		runID: runID, writer: invocationWriter, operation: current.operation, attempt: outcome.attempt,
+		reconcile: current.kind == taskReconcile,
+	}
+	defer observer.close()
+	finishReconcile := func(callCtx context.Context, result Result, callErr error) error {
+		observer.close()
+		if err := stopRenewal(); err != nil {
+			return err
+		}
+		return persistReconcileOutcome(parent, callCtx, invocationWriter, runID, current.operation, outcome.attempt, current.state.Ambiguous, result, callErr)
 	}
 	request := Request{
 		PlanID: planID, RunID: runID, Operation: current.operation, Attempt: outcome.attempt,
@@ -504,7 +560,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 		preparation, err := preparer.Prepare(ctx, request, operation)
 		if err != nil {
 			if current.kind == taskReconcile {
-				outcome.infrastructureErr = persistReconcileOutcome(parent, ctx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, Result{}, err)
+				outcome.infrastructureErr = finishReconcile(ctx, Result{}, err)
 			} else {
 				outcome.deferBlocked, outcome.infrastructureErr = persistPreparationFailure(parent, ctx, writer, runID, current.operation, outcome.attempt, err)
 			}
@@ -514,7 +570,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			callCtx = preparation.Context
 		}
 		release = preparation.Release
-		if err := recordCredentialResolution(runID, writer, current.operation, outcome.attempt, preparation.CredentialRefs); err != nil {
+		if err := recordCredentialResolution(runID, invocationWriter, current.operation, outcome.attempt, preparation.CredentialRefs); err != nil {
 			if release != nil {
 				release()
 			}
@@ -547,13 +603,17 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			Ambiguous:     current.state.Ambiguous,
 		}
 		result, err := e.driver.Reconcile(callCtx, request)
+		if renewErr := stopRenewal(); renewErr != nil {
+			outcome.infrastructureErr = renewErr
+			return outcome
+		}
 		if !boundaryAware && providerResponseReceived(err) {
 			if appendErr := observer.ProviderResponseReceived(); appendErr != nil {
 				outcome.infrastructureErr = appendErr
 				return outcome
 			}
 		}
-		outcome.infrastructureErr = persistReconcileOutcome(parent, callCtx, writer, runID, current.operation, outcome.attempt, current.state.Ambiguous, result, err)
+		outcome.infrastructureErr = finishReconcile(callCtx, result, err)
 		return outcome
 	}
 
@@ -571,7 +631,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 	return outcome
 }
 
-func recordCredentialResolution(runID domain.RunID, writer *journal.Writer, operation domain.Operation, attempt uint32, refs []domain.CredentialRef) error {
+func recordCredentialResolution(runID domain.RunID, writer eventAppender, operation domain.Operation, attempt uint32, refs []domain.CredentialRef) error {
 	for _, ref := range refs {
 		if _, err := writer.Append(journal.Entry{
 			RunID: runID, Type: journal.EventCredentialResolved, OperationID: operation.ID(), TargetID: operation.TargetID(),
@@ -651,7 +711,10 @@ func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer
 	return false, err
 }
 
-func persistReconcileOutcome(parent, callCtx context.Context, writer *journal.Writer, runID domain.RunID, operation domain.Operation, attempt uint32, wasAmbiguous bool, result Result, callErr error) error {
+func persistReconcileOutcome(parent, callCtx context.Context, writer eventAppender, runID domain.RunID, operation domain.Operation, attempt uint32, wasAmbiguous bool, result Result, callErr error) error {
+	if callCtx.Err() != nil {
+		callErr = callCtx.Err()
+	}
 	if callErr == nil {
 		if err := result.validate(); err != nil {
 			entry := reconcileResultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, "DRIVER_CONTRACT_ERROR", false)
@@ -894,7 +957,7 @@ func renewLease(ctx context.Context, cancel context.CancelFunc, runID domain.Run
 
 		renewed, err := lease.Renew(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 				return nil
 			}
 			cancel()
@@ -911,7 +974,11 @@ func releaseLease(runID domain.RunID, writer *journal.Writer, operation domain.O
 	state := lease.State()
 	if err := lease.Release(); err != nil {
 		if errors.Is(err, ErrLeaseExpired) {
-			if appendErr := appendLeaseEvent(runID, writer, operation, journal.EventLeaseExpired, state); appendErr != nil {
+			eventType := journal.EventLeaseExpired
+			if time.Now().Before(state.ExpiresAt) {
+				eventType = journal.EventLeaseReleased
+			}
+			if appendErr := appendLeaseEvent(runID, writer, operation, eventType, state); appendErr != nil {
 				return appendErr
 			}
 		}
