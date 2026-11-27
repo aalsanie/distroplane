@@ -31,7 +31,7 @@ func CredentialEnvironment(provider, field, mode string) string {
 	case "npm/credential":
 		environment = "DISTROPLANE_NPM_TOKEN"
 		if mode == "trusted-publishing" {
-				environment = "DISTROPLANE_NPM_ID_TOKEN"
+			environment = "DISTROPLANE_NPM_ID_TOKEN"
 		}
 	case "homebrew/credential":
 		environment = "DISTROPLANE_HOMEBREW_TOKEN"

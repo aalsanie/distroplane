@@ -180,7 +180,7 @@ func TestInitCancellationAndEOFAtEverySDKMANPrompt(t *testing.T) {
 			if data, err := os.ReadFile(output); err != nil || !bytes.Equal(data, original) {
 				t.Fatalf("original configuration changed: %v", err)
 			}
-			if _, err := os.Stat(output+".bak"); !errors.Is(err, os.ErrNotExist) {
+			if _, err := os.Stat(output + ".bak"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("backup created before completion: %v", err)
 			}
 		})
