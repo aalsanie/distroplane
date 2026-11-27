@@ -29,7 +29,7 @@ func TestPlanFromDocumentRejectsPersistedInvariantViolations(t *testing.T) {
 		mutate func(*planDocument)
 		want   string
 	}{
-		"schema":                {func(d *planDocument) { d.SchemaVersion = "2" }, "unsupported plan schema"},
+		"schema":                {func(d *planDocument) { d.SchemaVersion = "99" }, "unsupported plan schema"},
 		"protocol":              {func(d *planDocument) { d.ProtocolVersion = "2" }, "unsupported plan protocol"},
 		"empty plan id":         {func(d *planDocument) { d.PlanID = "" }, "plan ID must not be empty"},
 		"release id":            {func(d *planDocument) { d.Release.ID = " release" }, "release ID"},

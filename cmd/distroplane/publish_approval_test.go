@@ -78,7 +78,7 @@ func TestPublishCancellationAfterApprovalNeverDispatches(t *testing.T) {
 	}
 }
 
-func TestPublishAcceptsExactApprovalAtEOF(t *testing.T) {
+func TestPublishRefusesExactApprovalAtEOF(t *testing.T) {
 	_, path := publishFixture(t, `{"mode":"published"}`)
 	var out, diagnostic bytes.Buffer
 	if code := runPublishContext(context.Background(), []string{"--config", path, "--dry-run", "--json"}, nil, &out, &diagnostic); code != exitOK {
@@ -91,7 +91,7 @@ func TestPublishAcceptsExactApprovalAtEOF(t *testing.T) {
 	out.Reset()
 	diagnostic.Reset()
 	approval := strings.NewReader("publish " + preview.Plan.PlanID)
-	if code := runPublishContext(context.Background(), []string{"--config", path}, approval, &out, &diagnostic); code != exitOK {
+	if code := runPublishContext(context.Background(), []string{"--config", path}, approval, &out, &diagnostic); code != exitInvalid {
 		t.Fatalf("EOF approval code=%d stderr=%s", code, diagnostic.String())
 	}
 }

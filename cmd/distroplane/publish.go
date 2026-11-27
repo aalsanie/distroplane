@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -16,17 +15,19 @@ import (
 	"github.com/aalsanie/distroplane/internal/domain"
 	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/planner"
+	"github.com/aalsanie/distroplane/internal/protocol"
 	"github.com/aalsanie/distroplane/internal/providerhost"
 	"github.com/aalsanie/distroplane/internal/providerretention"
 	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
 type publishOutput struct {
-	OutputSchemaVersion string       `json:"outputSchemaVersion"`
-	Plan                planOutput   `json:"plan"`
-	Approved            bool         `json:"approved"`
-	JournalPath         string       `json:"journalPath,omitempty"`
-	Run                 *stateOutput `json:"run,omitempty"`
+	OutputSchemaVersion string          `json:"outputSchemaVersion"`
+	Plan                planOutput      `json:"plan"`
+	Approved            bool            `json:"approved"`
+	JournalPath         string          `json:"journalPath,omitempty"`
+	Run                 *stateOutput    `json:"run,omitempty"`
+	Review              []publishReview `json:"review"`
 }
 
 // runPublishContext never authorizes provider side effects until the exact
@@ -53,8 +54,8 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	if dryRun && (yes || confirmPlan != "") {
 		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--dry-run cannot be combined with approval flags"))
 	}
-	if jsonMode && !dryRun && !yes && confirmPlan == "" {
-		return writeCommandError(stderr, jsonMode, exitUsage, "approval_required", fmt.Errorf("noninteractive JSON publication requires --yes or --confirm-plan"))
+	if (jsonMode || input == nil) && !dryRun && !yes && confirmPlan == "" {
+		return writeCommandError(stderr, jsonMode, exitUsage, "approval_required", fmt.Errorf("noninteractive publication requires --yes or --confirm-plan"))
 	}
 	if err := ctx.Err(); err != nil {
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
@@ -120,27 +121,29 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		Operations:          len(plan.Operations()),
 	}
 
+	review := publicationReview(distribution)
 	if !jsonMode {
-		printPublishPreview(stderr, plan, planned.Path)
+		printPublishPreview(stderr, distribution, planned.Path)
 	}
 	if dryRun {
-		out := publishOutput{OutputSchemaVersion: outputSchemaVersion, Plan: planned}
+		out := publishOutput{OutputSchemaVersion: outputSchemaVersion, Plan: planned, Review: review}
 		if jsonMode {
 			return writeJSON(stdout, out)
 		}
-		fmt.Fprintln(stdout, "preview only; no publication was authorized")
+		fmt.Fprintln(stdout, "preview only; plan and provider snapshots saved; no publication was authorized")
 		return exitOK
 	}
 	if !yes && confirmPlan == "" {
-		if input == nil {
-			return writeCommandError(stderr, jsonMode, exitUsage, "approval_required", fmt.Errorf("publication needs explicit approval"))
+		fmt.Fprintf(stderr, "To publish this exact plan, type: publish %s\n> ", planned.PlanID)
+		reader := bufio.NewReader(input)
+		if ctx.Done() != nil {
+			reader = bufio.NewReader(initContextReader{ctx: ctx, input: input})
 		}
-		fmt.Fprintf(stderr, "To publish, type: publish %s\n> ", planned.PlanID)
-		line, readErr := bufio.NewReader(input).ReadString('\n')
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return writeCommandError(stderr, jsonMode, exitOperational, "approval_failed", fmt.Errorf("cannot read approval: %w", readErr))
+		line, readErr := reader.ReadSlice('\n')
+		if readErr != nil && readErr != io.EOF {
+			return initFailure(ctx, stderr, jsonMode, exitOperational, "approval_failed", fmt.Errorf("cannot read approval"))
 		}
-		if strings.TrimSpace(line) != "publish "+planned.PlanID {
+		if readErr == io.EOF || strings.TrimSpace(string(line)) != "publish "+planned.PlanID {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "approval_denied", fmt.Errorf("publication was not approved"))
 		}
 	}
@@ -148,6 +151,10 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
 	}
 
+	verified, err := planner.Load(planned.Path)
+	if err != nil || verified.ID() != plan.ID() {
+		return writeCommandError(stderr, jsonMode, exitInvalid, "approval_mismatch", fmt.Errorf("saved plan no longer matches the approved plan"))
+	}
 	journalPath := filepath.Join(root, "runs", planned.PlanID+".journal")
 	applyArgs := []string{"--config", configPath, "--plan", planned.Path, "--journal", journalPath, "--concurrency", strconv.Itoa(concurrency), "--json"}
 	refs := make([]domain.CredentialRef, 0, len(mappings))
@@ -177,7 +184,7 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	}
 	out := publishOutput{
 		OutputSchemaVersion: outputSchemaVersion, Plan: planned,
-		Approved: true, JournalPath: journalPath, Run: &run,
+		Approved: true, JournalPath: journalPath, Run: &run, Review: review,
 	}
 	if outputCode := writeJSON(stdout, out); outputCode != exitOK {
 		return outputCode
@@ -185,13 +192,37 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 	return code
 }
 
-func printPublishPreview(w io.Writer, plan domain.Plan, path string) {
-	fmt.Fprintf(w, "Release %s\nPlan %s\nSaved plan %s\n", plan.Release().ID(), plan.ID(), path)
+type publishReview struct {
+	TargetID string                `json:"targetId"`
+	Provider string                `json:"provider"`
+	Fields   protocol.ReviewFields `json:"reviewFields"`
+	Limited  bool                  `json:"limited"`
+}
+
+func publicationReview(plan planner.DistributionPlan) []publishReview {
+	targets := plan.Plan().Targets()
+	result := make([]publishReview, 0, len(targets))
+	for _, target := range targets {
+		fields := plan.ReviewFields(target.ID())
+		result = append(result, publishReview{TargetID: string(target.ID()), Provider: string(target.Provider().Name()), Fields: fields, Limited: len(fields) == 0})
+	}
+	return result
+}
+
+func printPublishPreview(w io.Writer, distribution planner.DistributionPlan, path string) {
+	plan := distribution.Plan()
+	fmt.Fprintf(w, "Release %s\nPlan %s\nSaved plan %s\n", safeDisplay(string(plan.Release().ID())), plan.ID(), safeDisplay(path))
 	for _, artifact := range plan.Release().Artifacts() {
-		fmt.Fprintf(w, "Artifact %s: %s (%s)\n", artifact.Name(), artifact.Source(), artifact.Digest())
+		fmt.Fprintf(w, "Artifact %s: %s (%s)\n", safeDisplay(artifact.Name()), safeDisplay(artifact.Source()), artifact.Digest())
 	}
-	for _, target := range plan.Targets() {
-		fmt.Fprintf(w, "Target %s: %s\n", target.ID(), target.Provider().Name())
+	for _, review := range publicationReview(distribution) {
+		fmt.Fprintf(w, "Target %s: %s\n", safeDisplay(review.TargetID), safeDisplay(review.Provider))
+		if review.Limited {
+			fmt.Fprintln(w, "  Limited preview: provider supplied no destination review fields; inspect the saved plan before approving.")
+		}
+		for _, field := range review.Fields {
+			fmt.Fprintf(w, "  %s: %s\n", field.Label, field.Value)
+		}
 	}
-	fmt.Fprintf(w, "Operations %d\n", len(plan.Operations()))
+	fmt.Fprintf(w, "Operations %d\nProvider descriptions are planned intent, not verified publication or external acceptance.\n", len(plan.Operations()))
 }

@@ -6,12 +6,12 @@ The [version inventory](../protocol/schema/v1/compatibility.json) describes the 
 | --- | --- |
 | Provider protocol | 1 |
 | Configuration | 1 (generic), 2 (official frontend) |
-| Saved plan | 1 |
+| Saved plan | 1 (read), 2 (read/write) |
 | Journal | 2 |
 | Evidence | 1 |
 | CLI JSON output | 1 |
 
-The inventory retains the legacy scalar `schemaVersions.config` for existing readers; `supportedConfigVersions` lists all supported configuration versions.
+The inventory retains the legacy scalar `schemaVersions.config` for existing readers; `supportedConfigVersions` lists all supported configuration versions. `schemaVersions.plan` identifies the current writer; `supportedPlanVersions` lists readable versions.
 
 ## Reader behavior
 
@@ -21,6 +21,12 @@ The inventory retains the legacy scalar `schemaVersions.config` for existing rea
 - CLI JSON and evidence readers should accept unknown additive fields in supported versions, reject unsupported schema versions and unknown normalized states, and inspect the exit status. JSON errors go to stderr. The `init`, `doctor`, `publish`, `status` and `resume` envelopes are distinct; do not infer success from a nonempty JSON object. See [exit codes](cli.md#exit-codes).
 
 The nine normalized states are `PLANNED`, `READY`, `RUNNING`, `BLOCKED`, `WAITING_EXTERNAL`, `PUBLISHED`, `REJECTED`, `FAILED` and `CANCELLED`. `BLOCKED` is a pre-dispatch prerequisite failure, not a provider result or an authorization to republish. A provider can report only `WAITING_EXTERNAL`, `PUBLISHED` or `REJECTED`. For mixed targets, inspect every operation's reconciliation requirement independently of the aggregate state.
+
+### Publication review
+
+Protocol 1 plan responses may include ordered `reviewFields` (zero to 16 plain label/value objects). Labels are unique, nonempty and at most 80 Unicode code points; values are nonempty and at most 512. The compact JSON representation is limited to 8192 UTF-8 bytes. Invalid UTF-8, replacement characters, control/format characters, line/paragraph separators, surrounding whitespace, duplicate labels and unknown entry keys are rejected. Providers must supply nonsecret fields derived from their actual planned action, not arbitrary configuration dumps. The runtime enforces these constraints beyond the structural schema.
+
+New saved plans use schema 2 and include review fields in the semantic plan ID. Schema 1 plans retain their original hash, are read without review fields, and are not migrated. Older clients may ignore the optional wire field but cannot read schema 2 saved plans; do not downgrade an unfinished run. Summary-less providers produce a limited preview, not a synthesized destination description.
 
 ## Upgrades and recovery
 

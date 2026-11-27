@@ -58,7 +58,7 @@ func Decode(reader io.Reader) (DistributionPlan, error) {
 }
 
 func planFromDocument(document planDocument) (DistributionPlan, error) {
-	if document.SchemaVersion != PlanSchemaVersion {
+	if document.SchemaVersion != PlanSchemaVersion && document.SchemaVersion != legacyPlanSchemaVersion {
 		return DistributionPlan{}, fmt.Errorf("unsupported plan schema version %q", document.SchemaVersion)
 	}
 	if document.ProtocolVersion != protocol.Version {
@@ -94,6 +94,12 @@ func planFromDocument(document planDocument) (DistributionPlan, error) {
 	targetProviderDigests := make(map[domain.TargetID]string, len(document.Targets))
 	providerDigests := make(map[domain.ProviderRef]string)
 	for _, value := range document.Targets {
+		if document.SchemaVersion == legacyPlanSchemaVersion && value.ReviewFields != nil {
+			return DistributionPlan{}, fmt.Errorf("schema 1 plan must not contain reviewFields")
+		}
+		if err := value.ReviewFields.Validate(); err != nil {
+			return DistributionPlan{}, err
+		}
 		targetID, err := domain.NewTargetID(value.ID)
 		if err != nil {
 			return DistributionPlan{}, err

@@ -77,7 +77,11 @@ func executeContext(ctx context.Context, args []string, stdout, stderr io.Writer
 	case "plan":
 		return runPlanContext(ctx, args[1:], stdout, stderr)
 	case "publish":
-		return runPublishContext(ctx, args[1:], os.Stdin, stdout, stderr)
+		var input io.Reader
+		if stdinIsTerminal() {
+			input = os.Stdin
+		}
+		return runPublishContext(ctx, args[1:], input, stdout, stderr)
 	case "resume":
 		return runResumeContext(ctx, args[1:], stdout, stderr)
 	case "apply":

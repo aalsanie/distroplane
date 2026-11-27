@@ -64,7 +64,7 @@ class Compatibility(unittest.TestCase):
     def test_inventory_preserves_scalar_reader(self):
         inventory = read_json(ROOT / "protocol/schema/v1/compatibility.json")
         versions = inventory["schemaVersions"]
-        self.assertEqual(versions, {"config": "1", "plan": "1", "evidence": "1",
+        self.assertEqual(versions, {"config": "1", "plan": "2", "evidence": "1",
                                     "journal": 2, "cliOutput": "1"})
         self.assertEqual(inventory["supportedConfigVersions"], ["1", "2"])
         self.assertEqual(set(inventory["normalizedStates"]), {

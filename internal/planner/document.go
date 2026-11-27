@@ -14,7 +14,8 @@ import (
 	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
-const PlanSchemaVersion = "1"
+const PlanSchemaVersion = "2"
+const legacyPlanSchemaVersion = "1"
 
 var ErrProviderDigestBinding = errors.New("missing provider executable digest binding")
 
@@ -49,6 +50,7 @@ type targetDocument struct {
 	Configuration        json.RawMessage       `json:"configuration"`
 	RequiredCapabilities []protocol.Capability `json:"requiredCapabilities"`
 	Requirements         []requirementDocument `json:"requirements,omitempty"`
+	ReviewFields         protocol.ReviewFields `json:"reviewFields,omitempty"`
 }
 
 type operationDocument struct {
@@ -127,6 +129,15 @@ type DistributionPlan struct {
 func (p DistributionPlan) Plan() domain.Plan { return p.plan }
 
 func (p DistributionPlan) ID() domain.PlanID { return p.plan.ID() }
+
+func (p DistributionPlan) ReviewFields(targetID domain.TargetID) protocol.ReviewFields {
+	for _, target := range p.document.Targets {
+		if target.ID == string(targetID) {
+			return append(protocol.ReviewFields(nil), target.ReviewFields...)
+		}
+	}
+	return nil
+}
 
 func (p DistributionPlan) ProviderDigests() map[domain.ProviderRef]domain.Digest {
 	result := make(map[domain.ProviderRef]domain.Digest)
