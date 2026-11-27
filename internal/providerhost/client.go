@@ -77,9 +77,9 @@ func (r *gatedReader) Read(p []byte) (int, error) {
 	return r.reader.Read(p)
 }
 
-func (r *gatedReader) commit(ctx context.Context) bool {
+func (r *gatedReader) commit(check func() error) bool {
 	r.once.Do(func() {
-		r.committed = ctx.Err() == nil
+		r.committed = check() == nil
 		close(r.gate)
 	})
 	return r.committed
@@ -225,10 +225,17 @@ func (c *Client) phaseContext(parent context.Context, operation protocol.Operati
 		return context.WithTimeout(parent, c.planTimeout)
 	default:
 		if _, ok := parent.Deadline(); ok {
-			return context.WithCancel(parent)
+			return parent, func() {}
 		}
 		return context.WithTimeout(parent, domain.DefaultOperationTimeout)
 	}
+}
+
+func invocationError(parent, phase context.Context) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
+	return phase.Err()
 }
 
 func (c *Client) callWithOptions(ctx context.Context, executable string, operation protocol.Operation, payload any, destination any, options callOptions) error {
@@ -244,9 +251,11 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	if destination == nil {
 		return fmt.Errorf("response destination must not be nil")
 	}
-	ctx, cancel := c.phaseContext(ctx, operation)
+	parent := ctx
+	ctx, cancel := c.phaseContext(parent, operation)
 	defer cancel()
-	if err := ctx.Err(); err != nil {
+	check := func() error { return invocationError(parent, ctx) }
+	if err := check(); err != nil {
 		return err
 	}
 	executable, err := validateExecutable(executable)
@@ -300,7 +309,7 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 	if err := command.Start(); err != nil {
 		close(treeReady)
 		inputGate.abort()
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		if ctxErr := check(); ctxErr != nil {
 			return ctxErr
 		}
 		return &ProcessError{
@@ -321,7 +330,7 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 		cleanup()
 		return &ProcessError{Executable: executable, Err: treeErr}
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	if ctxErr := check(); ctxErr != nil {
 		cleanup()
 		return ctxErr
 	}
@@ -331,7 +340,7 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 			return err
 		}
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	if ctxErr := check(); ctxErr != nil {
 		cleanup()
 		return ctxErr
 	}
@@ -341,15 +350,15 @@ func (c *Client) callWithOptions(ctx context.Context, executable string, operati
 			return err
 		}
 	}
-	if !inputGate.commit(ctx) {
+	if !inputGate.commit(check) {
 		cleanup()
-		return ctx.Err()
+		return check()
 	}
 	runErr := command.Wait()
-	if runErr != nil || ctx.Err() != nil {
+	if runErr != nil || check() != nil {
 		_ = command.Cancel()
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	if ctxErr := check(); ctxErr != nil {
 		return ctxErr
 	}
 	if stdout.exceeded {
