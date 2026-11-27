@@ -264,6 +264,42 @@ class Compatibility(unittest.TestCase):
             self.assertTrue(old_status["completed"])
             self.assertEqual(journal.read_bytes(), final)
 
+    def test_schema_two_downgrade_and_piped_approval_refuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "app.bin"
+            artifact.write_bytes(b"next release artifact")
+            provider = root / "distroplane-provider-fake"
+            shutil.copy2(self.old_provider, provider)
+            config = root / "distroplane.json"
+            config.write_text(json.dumps({
+                "schemaVersion": "1", "release": {"id": "next-release", "artifacts": [
+                    {"name": "app", "source": str(artifact)}]},
+                "targets": [{"id": "fake", "provider": {"name": "fake",
+                             "executable": str(provider)},
+                             "configuration": {"mode": "published"}}]
+            }), encoding="utf-8")
+            preview = output(self.cli, "publish", "--config", config, "--dry-run", "--json")
+            plan = Path(preview["plan"]["path"])
+            before = plan.read_bytes()
+            doc = json.loads(before)
+            self.assertEqual(doc["schemaVersion"], "2")
+            self.assertTrue(preview["review"][0]["limited"])
+            journal = root / "unapproved.journal"
+            rejected = run(self.old_cli, "apply", "--config", config, "--plan", plan,
+                           "--journal", journal, "--json", expected=3)
+            self.assertEqual(json.loads(rejected.stderr)["error"]["kind"], "invalid_plan")
+            piped = subprocess.run(
+                [str(self.cli), "publish", "--config", str(config)],
+                input=("publish " + doc["planId"] + "\n").encode("utf-8"),
+                capture_output=True, check=False, timeout=30)
+            self.assertEqual(piped.returncode, 2, piped.stderr)
+            self.assertIn(b"approval_required", piped.stderr)
+            self.assertEqual(plan.read_bytes(), before)
+            self.assertFalse(journal.exists())
+            self.assertFalse((root / ".distroplane" / "runs" /
+                              (doc["planId"] + ".journal")).exists())
+
     def test_init_output_and_refusal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
