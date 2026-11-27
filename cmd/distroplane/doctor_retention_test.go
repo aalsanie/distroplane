@@ -19,6 +19,7 @@ import (
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/planner"
 	"github.com/aalsanie/distroplane/internal/providerretention"
+	"github.com/aalsanie/distroplane/internal/runstate"
 )
 
 type doctorFileSnapshot struct {
@@ -369,6 +370,33 @@ func TestDoctorRejectsPlanWithoutDigestBinding(t *testing.T) {
 	}
 	report := assertDoctorReadOnly(t, root, cfg, exitInvalid, "PROVIDER_DIGEST_UNVERIFIED", doctorFail, "--plan", path)
 	requireNoDoctorExecution(t, root, report)
+
+	stateDir := filepath.Join(root, ".distroplane")
+	if err := (runstate.Store{Root: stateDir}).Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := json.Marshal(map[string]string{
+		"schemaVersion": "1",
+		"planId":        string(plan.ID()),
+		"planPath":      canonical,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogPath := filepath.Join(stateDir, "catalog", "plans", fmt.Sprintf("%x.json", sha256.Sum256([]byte(plan.ID()))))
+	if err := os.WriteFile(catalogPath, entry, 0600); err != nil {
+		t.Fatal(err)
+	}
+	report = assertDoctorReadOnly(t, root, cfg, exitInvalid, "PROVIDER_DIGEST_UNVERIFIED", doctorFail)
+	requireNoDoctorExecution(t, root, report)
+	if err := os.Remove(catalogPath); err != nil {
+		t.Fatal(err)
+	}
+
 	unsupported := strings.Replace(data, "\"version\":\"1.0.0\"", "\"version\":\"1.0.0\",\"digest\":\"sha512:unsupported\"", 1)
 	if unsupported == data {
 		t.Fatal("unsupported digest fixture was not constructed")
@@ -378,4 +406,31 @@ func TestDoctorRejectsPlanWithoutDigestBinding(t *testing.T) {
 	}
 	report = assertDoctorReadOnly(t, root, cfg, exitInvalid, "PROVIDER_DIGEST_UNVERIFIED", doctorFail, "--plan", path)
 	requireNoDoctorExecution(t, root, report)
+}
+
+func TestDoctorChecksSavedProviderVersion(t *testing.T) {
+	root, cfg := publishFixture(t, "{\"mode\":\"published\"}")
+	loaded, err := config.Load(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := (planner.FileHasher{}).Hash(loaded.Config.Targets[0].Provider.Executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _ := writeDoctorMetadataPlan(t, root, "9.9.9", digest.String())
+	plan, err := planner.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".distroplane"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := providerretention.Retain(loaded, plan); err != nil {
+		t.Fatal(err)
+	}
+	report := assertDoctorReadOnly(t, root, cfg, exitInvalid, "VERSION_MISMATCH", doctorFail, "--plan", path)
+	if !hasDoctorCode(report, "PROVIDER_DIGEST_MATCH", doctorPass) || hasDoctorCode(report, "PROVIDER_VERSION", doctorPass) {
+		t.Fatalf("digest match hid a provider version mismatch: %+v", report)
+	}
 }
