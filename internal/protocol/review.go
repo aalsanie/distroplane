@@ -30,10 +30,7 @@ func (fields ReviewFields) Validate() error {
 		}
 		seen[field.Label] = true
 	}
-	raw, err := json.Marshal(fields)
-	if err != nil {
-		return err
-	}
+	raw, _ := json.Marshal(fields)
 	if len(raw) > 8192 {
 		return fmt.Errorf("reviewFields exceeds 8192 canonical JSON bytes")
 	}

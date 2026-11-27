@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -183,6 +184,20 @@ func TestDescribeAndPlan(t *testing.T) {
 	}
 	if payload.Package != "@scope/widget" || payload.Version != "1.2.3" || payload.Tag != defaultTag || payload.PackagePath != archive {
 		t.Fatalf("payload=%+v", payload)
+	}
+	want := protocol.ReviewFields{
+		{Label: "Action", Value: "Publish package version"},
+		{Label: "Registry", Value: payload.Registry},
+		{Label: "Package", Value: payload.Package},
+		{Label: "Version", Value: payload.Version},
+		{Label: "Dist-tag", Value: payload.Tag},
+		{Label: "Access", Value: payload.Access},
+	}
+	if fmt.Sprint(response.ReviewFields) != fmt.Sprint(want) || response.ReviewFields.Validate() != nil {
+		t.Fatalf("review fields=%v want=%v", response.ReviewFields, want)
+	}
+	if strings.Contains(fmt.Sprint(response.ReviewFields), archive) {
+		t.Fatal("local archive path leaked into review")
 	}
 }
 

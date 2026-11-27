@@ -358,6 +358,21 @@ func TestDescribeAndPlanGeneratesCommunityManifestSet(t *testing.T) {
 	if len(payload.Files) != 3 || payload.ManifestVersion != defaultManifestVersion {
 		t.Fatalf("payload=%+v", payload)
 	}
+	want := protocol.ReviewFields{
+		{Label: "Action", Value: "Submit manifests by pull request; external review required"},
+		{Label: "Repository", Value: payload.Repository},
+		{Label: "Branch", Value: payload.Branch},
+		{Label: "Package", Value: payload.PackageID},
+		{Label: "Version", Value: payload.PackageVersion},
+		{Label: "Review repository", Value: payload.PullRequest.Repository},
+		{Label: "Review API", Value: payload.PullRequest.API},
+		{Label: "Update branch", Value: payload.UpdateBranch},
+		{Label: "Head owner", Value: payload.PullRequest.HeadOwner},
+		{Label: "Manifest directory", Value: "manifests/c/Contoso/Demo/1.2.3"},
+	}
+	if fmt.Sprint(response.ReviewFields) != fmt.Sprint(want) || response.ReviewFields.Validate() != nil {
+		t.Fatalf("review fields=%v want=%v", response.ReviewFields, want)
+	}
 	joined := payload.Files[0].Content + payload.Files[1].Content + payload.Files[2].Content
 	if strings.Contains(joined, "ManifestType: singleton") || !strings.Contains(joined, "ManifestType: installer") ||
 		!strings.Contains(joined, "ManifestType: defaultLocale") || !strings.Contains(joined, strings.ToUpper(strings.Repeat("a", 64))) {

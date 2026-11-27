@@ -143,6 +143,9 @@ func runPublishContext(ctx context.Context, args []string, input io.Reader, stdo
 		if readErr != nil && readErr != io.EOF {
 			return initFailure(ctx, stderr, jsonMode, exitOperational, "approval_failed", fmt.Errorf("cannot read approval"))
 		}
+		if err := ctx.Err(); err != nil {
+			return writeCommandError(stderr, jsonMode, exitOperational, "cancelled", err)
+		}
 		if readErr == io.EOF || strings.TrimSpace(string(line)) != "publish "+planned.PlanID {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "approval_denied", fmt.Errorf("publication was not approved"))
 		}
@@ -200,6 +203,9 @@ func publicationReview(plan planner.DistributionPlan) []publishReview {
 	result := make([]publishReview, 0, len(targets))
 	for _, target := range targets {
 		fields := plan.ReviewFields(target.ID())
+		if fields == nil {
+			fields = protocol.ReviewFields{}
+		}
 		result = append(result, publishReview{TargetID: string(target.ID()), Provider: string(target.Provider().Name()), Fields: fields, Limited: len(fields) == 0})
 	}
 	return result

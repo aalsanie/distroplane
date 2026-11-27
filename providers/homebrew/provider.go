@@ -162,7 +162,7 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Authenticated: cfg.Authentication.Credential != "", PullRequest: cfg.PullRequest,
 		Artifact: cfg.Artifact, ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 	}
-	if strings.ContainsAny(payload.Repository, "?#") {
+	if strings.ContainsAny(payload.Repository, "?#") || strings.ContainsAny(payload.PullRequest.Repository, "?#@:") {
 		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, "repository review requires a location without query or fragment", false)
 	}
 	review := protocol.ReviewFields{

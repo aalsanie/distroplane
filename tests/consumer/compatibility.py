@@ -67,6 +67,8 @@ class Compatibility(unittest.TestCase):
         self.assertEqual(versions, {"config": "1", "plan": "2", "evidence": "1",
                                     "journal": 2, "cliOutput": "1"})
         self.assertEqual(inventory["supportedConfigVersions"], ["1", "2"])
+        self.assertEqual(inventory["supportedPlanVersions"], ["1", "2"])
+        self.assertIn("planResponse.reviewFields", inventory["extensionPoints"])
         self.assertEqual(set(inventory["normalizedStates"]), {
             "PLANNED", "READY", "RUNNING", "BLOCKED", "WAITING_EXTERNAL",
             "PUBLISHED", "REJECTED", "FAILED", "CANCELLED"})
@@ -97,6 +99,18 @@ class Compatibility(unittest.TestCase):
                     invalid = copy.deepcopy(msg)
                     invalid["payload"]["capabilities"].append("unknown")
                     self.assertFalse(role.is_valid(invalid))
+                if example["name"] == "plan response":
+                    for fields in (
+                        [{"label": "", "value": "destination"}],
+                        [{"label": "x" * 81, "value": "destination"}],
+                        [{"label": "Destination", "value": "x" * 513}],
+                        [{"label": "Destination", "value": "example", "unknown": True}],
+                        [{"label": "Destination"}],
+                        [{"label": "Destination", "value": "example"}] * 17,
+                    ):
+                        invalid = copy.deepcopy(msg)
+                        invalid["payload"]["reviewFields"] = fields
+                        self.assertFalse(role.is_valid(invalid))
                 if example["name"] == "apply response":
                     invalid = copy.deepcopy(msg)
                     invalid["payload"]["result"]["state"] = "BLOCKED"

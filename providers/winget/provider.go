@@ -195,7 +195,7 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		Artifact: cfg.Artifact, ArtifactDigest: artifact.Digest, ArtifactSize: artifact.Size,
 		PackageID: cfg.Package.Identifier, PackageVersion: cfg.Package.Version, ManifestVersion: cfg.ManifestVersion,
 	}
-	if strings.ContainsAny(payload.Repository, "?#") {
+	if strings.ContainsAny(payload.Repository, "?#") || strings.ContainsAny(payload.PullRequest.Repository, "?#@:") {
 		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, "repository review requires a location without query or fragment", false)
 	}
 	review := protocol.ReviewFields{
@@ -207,6 +207,8 @@ func (p Provider) Plan(_ context.Context, request protocol.PlanRequest) (protoco
 		{Label: "Review repository", Value: payload.PullRequest.Repository},
 		{Label: "Review API", Value: payload.PullRequest.API},
 		{Label: "Update branch", Value: payload.UpdateBranch},
+		{Label: "Head owner", Value: payload.PullRequest.HeadOwner},
+		{Label: "Manifest directory", Value: path.Dir(payload.Files[0].Path)},
 	}
 	if err := review.Validate(); err != nil {
 		return protocol.PlanResponse{}, providerError(protocol.ErrorConfiguration, err.Error(), false)

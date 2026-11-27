@@ -3,6 +3,7 @@ package sdkman
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -252,6 +253,16 @@ func TestDescribeAndPlanAreProviderLocal(t *testing.T) {
 	if payload.Platform != "UNIVERSAL" || payload.StatePlatform != "universal" || payload.Checksums["SHA-256"] != strings.Repeat("a", 64) {
 		t.Fatalf("payload=%+v", payload)
 	}
+	want := protocol.ReviewFields{
+		{Label: "Action", Value: "Legacy release registration"},
+		{Label: "Registration API", Value: payload.API},
+		{Label: "Candidate", Value: payload.Candidate},
+		{Label: "Version", Value: payload.Version},
+		{Label: "Platform", Value: payload.Platform},
+	}
+	if fmt.Sprint(response.ReviewFields) != fmt.Sprint(want) || response.ReviewFields.Validate() != nil {
+		t.Fatalf("review fields=%v want=%v", response.ReviewFields, want)
+	}
 	fixture.mu.Lock()
 	calls := fixture.releases + fixture.stateLookups
 	fixture.mu.Unlock()
@@ -276,6 +287,9 @@ func TestPlanSupportsVendorPlatformAndAdditionalChecksums(t *testing.T) {
 	_ = json.Unmarshal(response.Operations[0].ProviderPayload, &payload)
 	if payload.Vendor != "zulu" || payload.StatePlatform != "linuxx64" || payload.StateDistribution != "ZULU" || payload.Checksums["MD5"] != strings.Repeat("b", 32) {
 		t.Fatalf("payload=%+v", payload)
+	}
+	if !strings.Contains(fmt.Sprint(response.ReviewFields), "{Vendor zulu}") || !strings.Contains(fmt.Sprint(response.ReviewFields), "{State distribution ZULU}") {
+		t.Fatalf("registration scope missing: %v", response.ReviewFields)
 	}
 }
 
