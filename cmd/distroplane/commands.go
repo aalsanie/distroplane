@@ -254,7 +254,7 @@ func runExecutionContextForSelection(ctx context.Context, args []string, stdout,
 	if err != nil {
 		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_run", err)
 	}
-	if err := checkHistoricalExecution(persisted.Plan(), journalPath); err != nil {
+	if err := checkExecutionHistory(persisted.Plan(), journalPath); err != nil {
 		if errors.Is(err, journal.ErrLegacyRetryPending) {
 			return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
 		}
@@ -490,7 +490,7 @@ func resolveRunID(path, requested string, allowCreate bool) (domain.RunID, error
 	return domain.NewRunID("run-" + hex.EncodeToString(random[:]))
 }
 
-func checkHistoricalExecution(plan domain.Plan, path string) error {
+func checkExecutionHistory(plan domain.Plan, path string) error {
 	read, err := readJournal(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -498,7 +498,7 @@ func checkHistoricalExecution(plan domain.Plan, path string) error {
 	if err != nil {
 		return err
 	}
-	return journal.CheckHistoricalExecution(plan, read.Events)
+	return journal.CheckExecutionHistory(plan, read.Events)
 }
 
 func readJournal(path string) (journal.ReadResult, error) {

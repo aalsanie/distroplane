@@ -30,8 +30,9 @@ func TestFrozenV1CompatibilityContract(t *testing.T) {
 			Journal   uint16 `json:"journal"`
 			CLIOutput string `json:"cliOutput"`
 		} `json:"schemaVersions"`
-		NormalizedStates []string       `json:"normalizedStates"`
-		ExitCodes        map[string]int `json:"exitCodes"`
+		SupportedConfigVersions []string       `json:"supportedConfigVersions"`
+		NormalizedStates        []string       `json:"normalizedStates"`
+		ExitCodes               map[string]int `json:"exitCodes"`
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
@@ -45,6 +46,9 @@ func TestFrozenV1CompatibilityContract(t *testing.T) {
 		manifest.SchemaVersions.Journal != journal.SchemaVersion ||
 		manifest.SchemaVersions.CLIOutput != outputSchemaVersion {
 		t.Fatalf("schema contract drift: %+v", manifest.SchemaVersions)
+	}
+	if !reflect.DeepEqual(manifest.SupportedConfigVersions, []string{config.SchemaVersion, config.SchemaVersionV2}) {
+		t.Fatalf("supported configuration versions drift: %v", manifest.SupportedConfigVersions)
 	}
 	states := []string{
 		string(domain.StatePlanned), string(domain.StateReady), string(domain.StateRunning),

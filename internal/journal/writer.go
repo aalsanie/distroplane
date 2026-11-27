@@ -39,7 +39,7 @@ func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
 
 func OpenWriterForExecution(path string, runID domain.RunID, plan domain.Plan) (*Writer, error) {
 	return openWriter(path, runID, func(events []Event) error {
-		return CheckHistoricalExecution(plan, events)
+		return CheckExecutionHistory(plan, events)
 	})
 }
 
