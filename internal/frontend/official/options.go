@@ -1,4 +1,4 @@
-package config
+package official
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aalsanie/distroplane/internal/canonicaljson"
+	"github.com/aalsanie/distroplane/internal/config"
 )
 
 type optionRule struct {
@@ -117,7 +118,7 @@ func validateOptionObject(path string, raw json.RawMessage, fields map[string]op
 			if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &value) != nil {
 				return nil, fmt.Errorf("%s: expected string", field)
 			}
-			if err := validateText(field, value, !rule.required); err != nil {
+			if err := config.ValidateText(field, value, !rule.required); err != nil {
 				return nil, err
 			}
 		case "boolean":
@@ -134,10 +135,10 @@ func validateOptionObject(path string, raw json.RawMessage, fields map[string]op
 				return nil, fmt.Errorf("%s: expected map of strings", field)
 			}
 			for k, v := range value {
-				if err := validateText(field+"."+k, k, false); err != nil {
+				if err := config.ValidateText(field+"."+k, k, false); err != nil {
 					return nil, err
 				}
-				if err := validateText(field+"."+k, v, false); err != nil {
+				if err := config.ValidateText(field+"."+k, v, false); err != nil {
 					return nil, err
 				}
 			}
@@ -199,7 +200,7 @@ func normalizeV2Options(provider string, raw json.RawMessage, artifact, path str
 		if authMode := optionString(auth["mode"]); authMode != "token" && authMode != "trusted-publishing" {
 			return nil, fmt.Errorf("%s.authentication.mode: expected token or trusted-publishing", path)
 		}
-		if err := validLocalPath(path+".packagePath", optionString(options["packagePath"])); err != nil {
+		if err := config.ValidateLocalPath(path+".packagePath", optionString(options["packagePath"])); err != nil {
 			return nil, err
 		}
 	case "sdkman":

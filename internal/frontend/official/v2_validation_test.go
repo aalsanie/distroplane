@@ -1,4 +1,4 @@
-package config
+package official
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 
 func mutateV2Fixture(t *testing.T, fixture string, change func(map[string]any, map[string]any)) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "compatibility", fixture))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "testdata", "compatibility", fixture))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestV2CoreTypeAndDestinationSafety(t *testing.T) {
 }
 
 func TestV2JSONSchemaReferenceIsValid(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "config-v2.schema.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "schemas", "config-v2.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

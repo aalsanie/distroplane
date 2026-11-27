@@ -10,25 +10,26 @@ import (
 )
 
 type OperationState struct {
-	ID                domain.OperationID
-	TargetID          domain.TargetID
-	State             domain.NormalizedState
-	Attempt           uint32
-	BlockedAttempts   uint32 // Pre-dispatch preparation failures; excluded from apply retry budget.
-	ReadyJournaled    bool
-	LeaseActive       bool
-	LeaseID           string
-	LeaseOwner        string
-	LeaseAcquiredAt   time.Time
-	LeaseExpiresAt    time.Time
-	ProviderStarted   bool
-	ProviderResponded bool
-	ReconcileRequired bool
-	Ambiguous         bool
-	Retryable         bool
-	ProviderState     string
-	Evidence          json.RawMessage
-	ErrorCode         string
+	ID                 domain.OperationID
+	TargetID           domain.TargetID
+	State              domain.NormalizedState
+	Attempt            uint32
+	BlockedAttempts    uint32 // Pre-dispatch preparation failures; excluded from apply retry budget.
+	ReadyJournaled     bool
+	LeaseActive        bool
+	LeaseID            string
+	LeaseOwner         string
+	LeaseAcquiredAt    time.Time
+	LeaseExpiresAt     time.Time
+	ProviderStarted    bool
+	ProviderResponded  bool
+	ReconcileRequired  bool
+	Ambiguous          bool
+	Retryable          bool
+	ProviderState      string
+	Evidence           json.RawMessage
+	ErrorCode          string
+	legacyRetryPending bool
 }
 
 type TargetState struct {
@@ -77,14 +78,12 @@ func (d DerivedState) Target(id domain.TargetID) (TargetState, bool) {
 
 type mutableOperation struct {
 	OperationState
-	dependencies   []domain.OperationID
-	sideEffecting  bool
-	provider       domain.ProviderRef
-	kind           string
-	observedAbsent bool
-	dispatched     bool
-	reconciling    bool
-	interrupted    bool
+	dependencies  []domain.OperationID
+	sideEffecting bool
+	legacyRetry   legacyV2Retry
+	dispatched    bool
+	reconciling   bool
+	interrupted   bool
 }
 
 func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
@@ -97,8 +96,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			OperationState: OperationState{ID: operation.ID(), TargetID: operation.TargetID(), State: domain.StatePlanned},
 			dependencies:   operation.Dependencies(),
 			sideEffecting:  operation.SideEffecting(),
-			provider:       operation.Provider(),
-			kind:           operation.Kind(),
+			legacyRetry:    legacyV2RetryFor(operation),
 		}
 	}
 	targets := make(map[domain.TargetID][]domain.OperationID, len(plan.Targets()))
@@ -261,7 +259,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			operation.ProviderState = ""
 			operation.Evidence = nil
 			operation.ErrorCode = ""
-			operation.observedAbsent = false
+			operation.legacyRetry.observedAbsent = false
 		case EventCredentialResolved:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -304,6 +302,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				return DerivedState{}, fmt.Errorf("operation %q side effect already dispatched", operation.ID)
 			}
 			operation.dispatched = true
+			operation.legacyRetryPending = false
 			operation.ReconcileRequired = true
 			operation.Ambiguous = true
 		case EventProviderResponseReceived:
@@ -388,7 +387,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			}
 			operation.reconciling = true
 			operation.interrupted = false
-			operation.observedAbsent = false
+			operation.legacyRetry.observedAbsent = false
 			operation.ProviderStarted = false
 			operation.ProviderResponded = false
 		case EventRetryAuthorized:
@@ -396,23 +395,9 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if err != nil {
 				return DerivedState{}, err
 			}
-			if !operation.sideEffecting || operation.provider.Name() != "npm" || operation.kind != "publish" ||
-				operation.State != domain.StateWaitingExternal || !operation.ReconcileRequired ||
-				!operation.Ambiguous || !operation.observedAbsent || operation.reconciling ||
-				operation.LeaseActive || event.Payload.Attempt != operation.Attempt {
-				return DerivedState{}, fmt.Errorf("operation %q has no eligible reconciled absent npm publication to authorize", operation.ID)
+			if err := replayLegacyV2Authorization(operation, event); err != nil {
+				return DerivedState{}, err
 			}
-			// This is an explicit human-authorized risk decision, never an automatic
-			// consequence of a registry 404. A READY transition grants exactly one
-			// new attempt even if the ordinary retry budget was exhausted.
-			operation.observedAbsent = false
-			operation.State = domain.StateReady
-			operation.Retryable = false
-			operation.ReconcileRequired = false
-			operation.Ambiguous = false
-			operation.ProviderState = ""
-			operation.Evidence = nil
-			operation.ErrorCode = ""
 		case EventReconcileResult:
 			operation, err := eventOperation(event, operations)
 			if err != nil {
@@ -422,7 +407,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				return DerivedState{}, fmt.Errorf("operation %q has no matching reconciliation", operation.ID)
 			}
 			applyReconcileResult(operation, event.Payload)
-			operation.observedAbsent = event.Payload.State == domain.StateWaitingExternal && event.Payload.ProviderState == "absent" && event.Payload.ErrorCode == ""
+			operation.legacyRetry.observe(event.Payload)
 			refreshReady(operations)
 		default:
 			return DerivedState{}, fmt.Errorf("%w %q", ErrUnknownEventType, event.Type)
@@ -482,7 +467,7 @@ func interruptReconciliation(operation *mutableOperation) {
 	operation.interrupted = true
 	operation.ProviderStarted = false
 	operation.ProviderResponded = false
-	operation.observedAbsent = false
+	operation.legacyRetry.observedAbsent = false
 }
 
 func allowedAfterRunCancellation(eventType EventType) bool {

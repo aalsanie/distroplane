@@ -264,6 +264,9 @@ func (e *Executor) Execute(ctx context.Context, plan domain.Plan, runID domain.R
 	if state.Completed {
 		return state, nil
 	}
+	if err := state.CheckExecutionAllowed(); err != nil {
+		return state, err
+	}
 
 	reconciled := make(map[operationAttempt]struct{})
 	deferred := make(map[operationAttempt]struct{})

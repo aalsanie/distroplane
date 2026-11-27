@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 	"github.com/aalsanie/distroplane/internal/journal"
 )
 
@@ -34,6 +35,28 @@ func TestCLIUntrustedProviderRequiresExplicitCredentialSourceAndResumesBlockedRu
 	var planned planOutput
 	if err := json.Unmarshal(out.Bytes(), &planned); err != nil {
 		t.Fatal(err)
+	}
+	loaded, err := official.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.Config.SchemaVersion = "1"
+	equivalent, err := json.Marshal(loaded.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(dir, "legacy.json")
+	if err := os.WriteFile(legacyPath, equivalent, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	diagnostic.Reset()
+	if code := execute([]string{"plan", "--config", legacyPath, "--json"}, &out, &diagnostic); code != exitOK {
+		t.Fatalf("equivalent v1 plan code=%d stdout=%s stderr=%s", code, out.String(), diagnostic.String())
+	}
+	var legacy planOutput
+	if err := json.Unmarshal(out.Bytes(), &legacy); err != nil || legacy.PlanID != planned.PlanID {
+		t.Fatalf("equivalent v1/v2 inputs changed plan identity: %v %q != %q", err, legacy.PlanID, planned.PlanID)
 	}
 	path := filepath.Join(dir, "run.journal")
 	args := []string{"apply", "--config", configPath, "--plan", planned.Path, "--journal", path, "--run", "release-run", "--json"}

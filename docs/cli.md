@@ -38,19 +38,15 @@ Provider discovery (`Describe`) and planning calls are limited to 10 and 60 seco
 | `distroplane runs` | List stored releases |
 | `distroplane evidence --plan PATH --journal PATH` | Export release evidence |
 | `distroplane apply` / `reconcile` | Advanced plan/journal execution or read-only destination checks |
-| `distroplane retry` | Explicitly authorize a single reconciled, absent npm retry |
+| `distroplane retry` | Refuse new ambiguous-publication retry authorization |
 
 `distroplane help` lists all flags. Commands use `distroplane.json` by default; use `--config PATH` for another file.
 
-## Explicit retry of an ambiguous npm publish
+## Ambiguous publication recovery
 
-A lost npm response is **not** proof that publication failed. Reconcile the existing run, check the registry yourself, and use `retry` only after accepting the duplicate-publish risk:
+New manual retry authorizations are disabled. Absence at reconciliation does not prove an earlier publication cannot complete. Keep the original plan, retained provider, artifacts and journal; inspect status and reconcile the destination without republishing.
 
-```sh
-distroplane retry --plan PLAN.json --journal RUN.journal --operation OP_ID --confirm-plan PLAN_ID --acknowledge-duplicate-risk
-```
-
-The authorization does not itself publish. A later `apply` continues the **same** plan and journal. Retries are rejected for other providers or without a current absent observation.
+Existing journal-v2 authorization records remain readable. An unfinished run with an unconsumed historical grant refuses execution; preserve its files and seek manual recovery. Do not use an older CLI to bypass the refusal. Completed or already-dispatched historical attempts remain inspectable, and outstanding dispatched effects can be reconciled.
 
 ## Exit codes
 

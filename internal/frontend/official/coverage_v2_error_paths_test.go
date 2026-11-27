@@ -1,9 +1,11 @@
-package config
+package official
 
 import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/aalsanie/distroplane/internal/config"
 )
 
 func TestV2PathResolverRejectsMalformedProviderOptions(t *testing.T) {
@@ -22,8 +24,8 @@ func TestV2PathResolverRejectsMalformedProviderOptions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := Config{SchemaVersion: SchemaVersionV2, Targets: []Target{{
-				Provider: Provider{Name: tc.provider}, Configuration: json.RawMessage(tc.configuration),
+			cfg := config.Config{SchemaVersion: config.SchemaVersionV2, Targets: []config.Target{{
+				Provider: config.Provider{Name: tc.provider}, Configuration: json.RawMessage(tc.configuration),
 			}}}
 			err := resolveV2Paths(&cfg, t.TempDir())
 			if (err == nil) != tc.valid {
@@ -31,7 +33,7 @@ func TestV2PathResolverRejectsMalformedProviderOptions(t *testing.T) {
 			}
 		})
 	}
-	if err := resolveV2Paths(&Config{SchemaVersion: SchemaVersion}, filepath.Join(t.TempDir(), "nonexistent")); err != nil {
+	if err := resolveV2Paths(&config.Config{SchemaVersion: config.SchemaVersion}, filepath.Join(t.TempDir(), "nonexistent")); err != nil {
 		t.Fatalf("v1 config unexpectedly subject to v2 resolver: %v", err)
 	}
 }
@@ -41,12 +43,12 @@ func TestV2LiteralPathsRejectInterpolationSyntax(t *testing.T) {
 		"~/downloads/archive.zip", "${HOME}/archive.zip", "$(pwd)/archive.zip",
 		"%{APPDATA}/archive.zip", " path", "bad\npath",
 	} {
-		if err := validLocalPath("artifact", path); err == nil {
+		if err := config.ValidateLocalPath("artifact", path); err == nil {
 			t.Errorf("interpolated or unsafe filesystem path accepted: %q", path)
 		}
 	}
 	for _, path := range []string{"lib/archive.zip", "release.tgz", "/var/tmp/release.tgz"} {
-		if err := validLocalPath("artifact", path); err != nil {
+		if err := config.ValidateLocalPath("artifact", path); err != nil {
 			t.Errorf("literal local path rejected: %q, %v", path, err)
 		}
 	}
@@ -57,11 +59,5 @@ func TestV2LiteralPathsRejectInterpolationSyntax(t *testing.T) {
 	}
 	if supportedV2Provider("untrusted") {
 		t.Fatal("unsupported provider accepted")
-	}
-	var decoded struct {
-		A string `json:"a"`
-	}
-	if err := strictV2JSON([]byte(`{"a":"ok"} {}`), &decoded); err == nil {
-		t.Fatal("extra configuration object accepted")
 	}
 }

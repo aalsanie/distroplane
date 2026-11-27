@@ -28,9 +28,11 @@ The executor schedules ready DAG operations with bounded concurrency, attempts, 
 
 The append-only journal uses checksummed frames, sequence validation, file synchronization, and an OS writer lock. Journal schema v2 binds `RUN_STARTED` to the plan ID; replay against another plan fails even if operation IDs match. An incomplete final frame is recoverable, but corruption of a complete frame is not. The reducer derives state solely from the saved plan and journal.
 
-`reconcile` observes outstanding side effects and never starts a new publication. An unmet credential prerequisite is `BLOCKED` before dispatch and can resume with the same plan/journal after credentials are supplied. The [CLI guide](cli.md) documents the narrowly scoped, operator-authorized retry for an ambiguous npm publication.
+`reconcile` observes outstanding side effects and never starts a new publication. An unmet credential prerequisite is `BLOCKED` before dispatch and can resume with the same plan/journal after credentials are supplied. New ambiguous-publication retry authorizations are disabled; historical records remain readable. See [recovery guidance](cli.md#ambiguous-publication-recovery).
 
 ## Provider boundary
+
+The generic configuration and credential packages own envelope validation, opaque options, reference/source selection and collision checks. The official frontend translates typed configuration-v2 options, config-relative paths and eligible installed-provider credential defaults. The kernel never imports that frontend; configuration v1 remains the generic provider entry point.
 
 Each invocation exchanges one JSON request and response over stdin/stdout. The host enforces protocol size/deadline limits, provider identity and capability checks, executable digest binding, and an allowlisted environment with explicitly mapped credentials. Subprocesses are **not** security sandboxes.
 

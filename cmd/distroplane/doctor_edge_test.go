@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalsanie/distroplane/internal/config"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 func doctorFixtureSDKMAN(t *testing.T) string {
@@ -28,7 +28,7 @@ func doctorFixtureSDKMAN(t *testing.T) string {
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.Load(path); err != nil {
+	if _, err := official.Load(path); err != nil {
 		t.Fatal(err)
 	}
 	return path

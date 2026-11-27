@@ -34,6 +34,16 @@ type Writer struct {
 }
 
 func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
+	return openWriter(path, runID, nil)
+}
+
+func OpenWriterForExecution(path string, runID domain.RunID, plan domain.Plan) (*Writer, error) {
+	return openWriter(path, runID, func(events []Event) error {
+		return CheckHistoricalExecution(plan, events)
+	})
+}
+
+func openWriter(path string, runID domain.RunID, check func([]Event) error) (*Writer, error) {
 	if path == "" {
 		return nil, fmt.Errorf("journal path must not be empty")
 	}
@@ -64,6 +74,11 @@ func OpenWriter(path string, runID domain.RunID) (*Writer, error) {
 	}
 	if len(result.Events) != 0 && result.Events[0].RunID != runID {
 		return nil, fmt.Errorf("journal belongs to run %q", result.Events[0].RunID)
+	}
+	if check != nil {
+		if err := check(result.Events); err != nil {
+			return nil, err
+		}
 	}
 	_, statErr := os.Stat(absolute)
 	created := errors.Is(statErr, os.ErrNotExist)
@@ -216,6 +231,9 @@ func (w *Writer) appendLockedWithLease(entry Entry, lease *LeasePayload) (Event,
 	}
 	if err := entry.validate(); err != nil {
 		return Event{}, err
+	}
+	if entry.Type == EventRetryAuthorized {
+		return Event{}, ErrRetryAuthorizationDisabled
 	}
 	now := w.clock().UTC()
 	if lease != nil && !w.ownsLease(entry, *lease, now) {

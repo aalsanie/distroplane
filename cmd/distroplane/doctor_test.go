@@ -15,6 +15,7 @@ import (
 
 	"github.com/aalsanie/distroplane/internal/config"
 	"github.com/aalsanie/distroplane/internal/domain"
+	"github.com/aalsanie/distroplane/internal/frontend/official"
 )
 
 func doctorFixtureNPM(t *testing.T, mode string) (string, string, string) {
@@ -33,7 +34,7 @@ func doctorFixtureNPM(t *testing.T, mode string) (string, string, string) {
 	if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.Load(path); err != nil {
+	if _, err := official.Load(path); err != nil {
 		t.Fatal(err)
 	}
 	return dir, path, provider
@@ -125,7 +126,7 @@ func TestDoctorRejectsArtifactAndProviderFailures(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, cfg := publishFixture(t, `{"mode":"published"}`)
-			loaded, err := config.Load(cfg)
+			loaded, err := official.Load(cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,7 +244,7 @@ func TestDoctorDefaultCatalogVerificationAndCorruption(t *testing.T) {
 
 func TestDoctorGitCheckHonorsActualPATH(t *testing.T) {
 	dir, cfg := publishFixture(t, `{"mode":"published"}`)
-	loaded, err := config.Load(cfg)
+	loaded, err := official.Load(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func TestDoctorGitCheckHonorsActualPATH(t *testing.T) {
 func TestDoctorRemoteIsOptInAndNeverAuthenticates(t *testing.T) {
 	_, cfg, _ := doctorFixtureNPM(t, "token")
 	t.Setenv("DOCTOR_NPM_TOKEN", "remote-test-secret")
-	loaded, err := config.Load(cfg)
+	loaded, err := official.Load(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

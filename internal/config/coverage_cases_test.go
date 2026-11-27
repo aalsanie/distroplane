@@ -60,14 +60,14 @@ func TestConfigurationInputAndValidationBranches(t *testing.T) {
 		})
 	}
 	for _, val := range []string{string([]byte{0xff}), "bad\n", " space ", ""} {
-		if err := validateText("test", val, false); err == nil {
+		if err := ValidateText("test", val, false); err == nil {
 			t.Errorf("invalid text accepted: %q", val)
 		}
 	}
-	if err := validateText("optional", "", true); err != nil {
+	if err := ValidateText("optional", "", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateText("valid", "name", false); err != nil {
+	if err := ValidateText("valid", "name", false); err != nil {
 		t.Fatal(err)
 	}
 	var _ io.Reader = brokenConfigReader{}

@@ -8,12 +8,13 @@ import (
 )
 
 type stateTextSelection struct {
-	configPath     string
-	planPath       string
-	journalPath    string
-	runID          string
-	catalog        bool
-	configVerified bool
+	configPath         string
+	planPath           string
+	journalPath        string
+	runID              string
+	catalog            bool
+	configVerified     bool
+	legacyRetryPending bool
 }
 
 func (s stateTextSelection) command(verb string) string {
@@ -169,6 +170,8 @@ func (a releaseAssessment) label(output stateOutput) string {
 
 func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string {
 	switch {
+	case s.legacyRetryPending:
+		return "Preserve the original plan and journal, inspect the destination and seek manual recovery; do not republish or resume this grant"
 	case a.ambiguous:
 		if command := s.command("reconcile"); command != "" {
 			return "The remote side effect may already have occurred. Reconcile the original run before any retry: " + command

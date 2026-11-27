@@ -1,4 +1,4 @@
-package config
+package official
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aalsanie/distroplane/internal/config"
 )
 
 func TestV2AdditionalCoreAndProviderCases(t *testing.T) {
@@ -113,7 +115,7 @@ func TestV2CaskAndProviderTypedOptions(t *testing.T) {
 }
 
 func TestV2LoadPreservesRemoteProviderOptions(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "compatibility", "sdkman-state.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "testdata", "compatibility", "sdkman-state.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,7 @@ func TestV2LoadPreservesRemoteProviderOptions(t *testing.T) {
 }
 
 func TestV2PathResolutionRejectsTamperedNormalizedOptions(t *testing.T) {
-	cfg := Config{SchemaVersion: SchemaVersionV2, Targets: []Target{{Provider: Provider{Name: "npm"}, Configuration: json.RawMessage(`{}`)}}}
+	cfg := config.Config{SchemaVersion: config.SchemaVersionV2, Targets: []config.Target{{Provider: config.Provider{Name: "npm"}, Configuration: json.RawMessage(`{}`)}}}
 	if err := resolveV2Paths(&cfg, t.TempDir()); err == nil {
 		t.Fatal("npm archive path absent from normalized config")
 	}
