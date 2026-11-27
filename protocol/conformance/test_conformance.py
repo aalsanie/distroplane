@@ -293,6 +293,16 @@ class ProtocolConformance(unittest.TestCase):
             self.assertEqual(reconciled.returncode, 0, reconciled.stderr.decode(errors="replace"))
             self.assertEqual(audit.read_text(), "apply\n", "CLI reconciliation republished")
 
+    def test_cli_accepts_unknown_optional_provider_response_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = self.cli_plan(tmp, mode="optional-fields")
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            saved = json.loads(result.stdout)
+            plan = json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
+            self.assertNotIn("futureEnvelope", plan)
+            self.assertNotIn("futureOptional", plan)
+            self.assertEqual(len(plan["operations"]), 1)
+
     def test_cli_rejects_invalid_external_provider_responses(self):
         cases = ("wrong-id", "wrong-version", "wrong-operation", "malformed",
                  "oversized", "empty", "crash", "dual-envelope",

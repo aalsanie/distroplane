@@ -143,6 +143,11 @@ class Compatibility(unittest.TestCase):
                     array["destinations"][name] = [destination, dict(destination, id="second")]
                     validator.validate(array)
                     check(array, True)
+                    if name == "homebrew":
+                        empty_binary = copy.deepcopy(value)
+                        empty_binary["destinations"][name]["options"]["manifest"]["binary"] = ""
+                        self.assertFalse(validator.is_valid(empty_binary))
+                        check(empty_binary, False)
 
     def test_previous_release_recovery_and_refusals(self):
         self.assertEqual(output(self.old_cli, "version", "--json")["version"], "0.9.3")
@@ -193,14 +198,22 @@ class Compatibility(unittest.TestCase):
                     self.assertEqual(p.read_bytes(), data)
 
             bad_plan = root / "bad-plan.json"
+            bad_key = copy.deepcopy(doc)
+            bad_key["operations"][0]["idempotencyKey"] = "invalid"
+            bad_capability = copy.deepcopy(doc)
+            bad_capability["targets"][0]["requiredCapabilities"].append("unknown")
             for changed in (dict(doc, schemaVersion="99"), dict(doc, futureField=True),
-                            dict(doc, protocolVersion="99")):
+                            dict(doc, protocolVersion="99"), bad_key, bad_capability):
                 bad_plan.write_text(json.dumps(changed), encoding="utf-8")
                 refuse(bad_plan, journal)
 
             bad_journal = root / "bad.journal"
-            bad_journal.write_bytes(frame(dict(events[0], schemaVersion=99)) + b"DP")
-            refuse(plan, bad_journal)
+            for changed in (dict(events[0], schemaVersion=99),
+                            dict(events[0], schemaVersion=1),
+                            dict(events[0], type="FUTURE_EVENT"),
+                            dict(events[0], futureField=True)):
+                bad_journal.write_bytes(frame(changed) + b"DP")
+                refuse(plan, bad_journal)
             bad_event = copy.deepcopy(events[1])
             bad_event["operationId"] = "unknown-operation"
             bad_journal.write_bytes(frame(events[0]) + frame(bad_event) + b"DP")
@@ -231,6 +244,29 @@ class Compatibility(unittest.TestCase):
             self.assertEqual(old_status["runId"], run_id)
             self.assertTrue(old_status["completed"])
             self.assertEqual(journal.read_bytes(), final)
+
+    def test_init_output_and_refusal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "app.tgz"
+            artifact.write_bytes(b"fixture artifact")
+            config = root / "distroplane.json"
+            args = ("init", "--destination", "npm", "--release", "init-fixture",
+                    "--artifact", artifact, "--output", config, "--non-interactive", "--json")
+            initialized = output(self.cli, *args)
+            self.assertEqual(initialized["outputSchemaVersion"], "1")
+            self.assertEqual(Path(initialized["configPath"]), config)
+            self.assertEqual(initialized["destinations"], ["npm"])
+            self.assertEqual(Path(initialized["artifact"]["path"]), artifact)
+            self.assertEqual(initialized["artifact"]["size"], artifact.stat().st_size)
+            self.assertTrue(initialized["artifact"]["sha256"])
+            Draft202012Validator(read_json(ROOT / "schemas/config-v2.schema.json")).validate(
+                read_json(config))
+            before = config.read_bytes()
+            refused = run(self.cli, *args, expected=3)
+            self.assertEqual(refused.stdout, b"")
+            self.assertEqual(json.loads(refused.stderr)["error"]["kind"], "config_exists")
+            self.assertEqual(config.read_bytes(), before)
 
     def test_cli_error_and_doctor_envelopes(self):
         with tempfile.TemporaryDirectory() as directory:

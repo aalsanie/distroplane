@@ -24,7 +24,7 @@ The nine normalized states are `PLANNED`, `READY`, `RUNNING`, `BLOCKED`, `WAITIN
 
 ## Upgrades and recovery
 
-Keep the original configuration, artifacts, immutable plan, journal, catalog and retained provider binaries. The compatibility suite builds v0.9.3 from its tagged source and exercises recovery using its saved plan, journal and retained provider bytes. Legacy zero-timeout operations retain their identity and use a finite runtime budget. See [recovery guidance](cli.md#ambiguous-publication-recovery) for retired retry grants.
+Keep the original configuration, artifacts, immutable plan, journal, catalog and retained provider binaries. The compatibility suite builds v0.9.3 from its tagged source and exercises recovery using its saved plan, journal and retained provider bytes. Legacy zero-timeout operations retain their identity and use a finite runtime budget. The manual retry authorization available in v0.9.3 has been disabled because absence does not prove an earlier publication cannot complete. See [recovery guidance](cli.md#ambiguous-publication-recovery) for retired retry grants.
 
 Unsupported formats or damaged history require non-mutating refusal. Preserve the original files and use a compatible, supported recovery tool for the recorded format if available; never replan an unfinished release, substitute provider bytes or downgrade to bypass a safety refusal. Journal v1 is unsupported. Do not assume compatibility with other pre-1.0 versions. Before downgrading, verify that the destination CLI supports every saved format and required safety behavior.
 

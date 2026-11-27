@@ -648,7 +648,7 @@
                             "required": [
                               "binary"
                             ],
-                              "properties": {"binary": {"minLength": 1}}
+                            "properties": {"binary": {"minLength": 1}}
                           }
                         },
                         {
@@ -664,7 +664,7 @@
                               "installKind",
                               "installSource"
                             ],
-                              "properties": {"installKind": {"minLength": 1}, "installSource": {"minLength": 1}}
+                            "properties": {"installKind": {"minLength": 1}, "installSource": {"minLength": 1}}
                           }
                         }
                       ]
