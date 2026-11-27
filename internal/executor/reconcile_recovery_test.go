@@ -167,11 +167,7 @@ func TestExecuteRecoversEveryInterruptedObservationBoundary(t *testing.T) {
 func TestReconcileCancellationAndTimeoutPreservePriorEvidence(t *testing.T) {
 	for _, cancelRun := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cancel=%t", cancelRun), func(t *testing.T) {
-			timeout := 250 * time.Millisecond
-			if cancelRun {
-				timeout = time.Second
-			}
-			plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true, timeout: timeout}})
+			plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true, timeout: 2 * time.Second}})
 			path := filepath.Join(t.TempDir(), "run.journal")
 			writer := beginObservationJournal(t, path, plan)
 			seedPendingObservation(t, writer, "op-a", false)
@@ -371,4 +367,38 @@ func TestReconcileRecoveryAfterCompletedPendingObservation(t *testing.T) {
 		t.Fatalf("state=%+v err=%v apply=%d reconcile=%d", state, err, len(driver.applyCalls), len(driver.reconcileCalls))
 	}
 	assertObservationReplay(t, plan, writer)
+}
+
+func TestPersistCompletedObservationAfterContextCancellation(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	path := filepath.Join(t.TempDir(), "run.journal")
+	writer := beginObservationJournal(t, path, plan)
+	seedPendingObservation(t, writer, "op-a", true)
+	operation := plan.Operations()[0]
+	lease, err := NewMemoryLeases().Acquire(context.Background(), LeaseRequest{Key: leaseKey(plan.ID(), operation.ID()), OperationID: operation.ID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	if err := appendLeaseEvent(runID(), writer, operation, journal.EventLeaseAcquired, lease.State()); err != nil {
+		t.Fatal(err)
+	}
+	appendObservationEntry(t, writer, operation.ID(), journal.EventReconcileStarted, journal.Payload{Attempt: 1})
+	appendObservationEntry(t, writer, operation.ID(), journal.EventProviderProcessStarted, journal.Payload{Attempt: 1})
+	appendObservationEntry(t, writer, operation.ID(), journal.EventProviderResponseReceived, journal.Payload{Attempt: 1})
+	callCtx, cancel := context.WithCancel(context.Background())
+	result := published()
+	cancel()
+	invocationWriter := reconciliationWriter{writer: writer, lease: lease.State()}
+	if err := persistReconcileOutcome(context.Background(), callCtx, invocationWriter, runID(), operation, 1, true, result, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := releaseLease(runID(), writer, operation, lease); err != nil {
+		t.Fatal(err)
+	}
+	state := assertObservationReplay(t, plan, writer)
+	op, _ := state.Operation(operation.ID())
+	if op.State != domain.StatePublished || op.Attempt != 1 || op.ReconcileRequired || op.Ambiguous || op.LeaseActive {
+		t.Fatalf("operation=%+v", op)
+	}
 }

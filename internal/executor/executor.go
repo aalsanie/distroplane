@@ -603,6 +603,10 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 			Ambiguous:     current.state.Ambiguous,
 		}
 		result, err := e.driver.Reconcile(callCtx, request)
+		observationErr := err
+		if ctxErr := callCtx.Err(); ctxErr != nil {
+			observationErr = ctxErr
+		}
 		if renewErr := stopRenewal(); renewErr != nil {
 			outcome.infrastructureErr = renewErr
 			return outcome
@@ -613,7 +617,7 @@ func (e *Executor) runTask(parent context.Context, planID domain.PlanID, runID d
 				return outcome
 			}
 		}
-		outcome.infrastructureErr = finishReconcile(callCtx, result, err)
+		outcome.infrastructureErr = finishReconcile(callCtx, result, observationErr)
 		return outcome
 	}
 
@@ -712,9 +716,6 @@ func persistApplyOutcome(parent, callCtx context.Context, writer *journal.Writer
 }
 
 func persistReconcileOutcome(parent, callCtx context.Context, writer eventAppender, runID domain.RunID, operation domain.Operation, attempt uint32, wasAmbiguous bool, result Result, callErr error) error {
-	if callCtx.Err() != nil {
-		callErr = callCtx.Err()
-	}
 	if callErr == nil {
 		if err := result.validate(); err != nil {
 			entry := reconcileResultEntry(runID, operation, attempt, domain.StateWaitingExternal, "", nil, "DRIVER_CONTRACT_ERROR", false)

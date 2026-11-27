@@ -515,7 +515,7 @@ func TestExecuteCancellationAndLaterReconciliation(t *testing.T) {
 }
 
 func TestExecuteSideEffectTimeoutIsAmbiguous(t *testing.T) {
-	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true, timeout: time.Millisecond}})
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true, timeout: 2 * time.Second}})
 	driver := &scriptedDriver{
 		apply: func(ctx context.Context, _ Request) (Result, error) {
 			<-ctx.Done()
@@ -523,13 +523,23 @@ func TestExecuteSideEffectTimeoutIsAmbiguous(t *testing.T) {
 		},
 		reconcile: func(context.Context, Request) (Result, error) { return published(), nil },
 	}
-	state, err := newExecutor(t, driver, Options{}).Execute(context.Background(), plan, runID(), openWriter(t, runID()))
+	writer := openWriter(t, runID())
+	state, err := newExecutor(t, driver, Options{}).Execute(context.Background(), plan, runID(), writer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	op, _ := state.Operation("op-a")
-	if !state.Completed || op.State != domain.StatePublished || op.Attempt != 1 {
-		t.Fatalf("state=%+v op=%+v", state, op)
+	if !state.Completed || op.State != domain.StatePublished || op.Attempt != 1 || len(driver.applyCalls) != 1 || len(driver.reconcileCalls) != 1 {
+		t.Fatalf("state=%+v op=%+v apply=%d reconcile=%d", state, op, len(driver.applyCalls), len(driver.reconcileCalls))
+	}
+	ambiguous := false
+	for _, event := range writer.Events() {
+		if event.Type == journal.EventOutcomeAmbiguous && event.Payload.ErrorCode == "TIMEOUT" {
+			ambiguous = true
+		}
+	}
+	if !ambiguous {
+		t.Fatal("timeout did not record an ambiguous outcome")
 	}
 }
 
