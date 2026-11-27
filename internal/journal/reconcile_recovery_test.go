@@ -206,3 +206,85 @@ func TestAppendWithLeaseAuthority(t *testing.T) {
 		t.Fatalf("closed writer: %v", err)
 	}
 }
+
+func TestFailedObservationPreservesEvidenceAcrossResultFormats(t *testing.T) {
+	plan := testPlan(t)
+	for _, typ := range []EventType{EventReconcileResult, EventOperationWaitingExternal} {
+		t.Run(string(typ), func(t *testing.T) {
+			events := []Event{
+				runStarted(1),
+				attemptStarted(2, "op-c", "target-b", 1),
+				dispatched(3, "op-c", "target-b", 1),
+				event(4, EventOperationWaitingExternal, "op-c", "target-b", Payload{Attempt: 1, ProviderState: "pending", Evidence: evidence("{\"ref\":\"original\"}")}),
+				reconcileStarted(5, "op-c", "target-b", 1),
+			}
+			payload := Payload{Attempt: 1, ErrorCode: "TIMEOUT", Retryable: true}
+			if typ == EventReconcileResult {
+				payload.State = domain.StateWaitingExternal
+			}
+			events = append(events, event(6, typ, "op-c", "target-b", payload))
+			state, err := Reduce(plan, events)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, _ := state.Operation("op-c")
+			if op.State != domain.StateWaitingExternal || !op.ReconcileRequired || op.Ambiguous || op.Attempt != 1 ||
+				op.ProviderState != "pending" || string(op.Evidence) != "{\"ref\":\"original\"}" || op.ErrorCode != "TIMEOUT" {
+				t.Fatalf("operation=%+v", op)
+			}
+		})
+	}
+}
+
+func TestInterruptedObservationInvalidatesEarlierRetryAuthority(t *testing.T) {
+	plan := npmRetryPlan(t)
+	events := ambiguousNpmEvents()
+	events[5].Payload.ProviderState = "absent"
+	events[5].Payload.Evidence = evidence("{\"ref\":\"prior\"}")
+	first := leasePayload("observation-1", "worker", 7, 9)
+	events = append(events,
+		event(7, EventLeaseAcquired, "op-a", "target-a", Payload{Lease: first}),
+		reconcileStarted(8, "op-a", "target-a", 1),
+		event(9, EventLeaseExpired, "op-a", "target-a", Payload{Lease: first}),
+	)
+	assertNoRetry := func(events []Event) {
+		t.Helper()
+		state, err := Reduce(plan, events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		op, _ := state.Operation("op-a")
+		if !op.ReconcileRequired || !op.Ambiguous || op.Attempt != 1 || op.ProviderState != "absent" || string(op.Evidence) != "{\"ref\":\"prior\"}" {
+			t.Fatalf("operation=%+v", op)
+		}
+		next := append(append([]Event(nil), events...), event(uint64(len(events)+1), EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}))
+		if _, err := Reduce(plan, next); err == nil {
+			t.Fatal("old absence authorized another apply")
+		}
+	}
+	assertNoRetry(events)
+	second := leasePayload("observation-2", "worker", 10, 20)
+	events = append(events,
+		event(10, EventLeaseAcquired, "op-a", "target-a", Payload{Lease: second}),
+		reconcileStarted(11, "op-a", "target-a", 1),
+		event(12, EventReconcileResult, "op-a", "target-a", Payload{Attempt: 1, State: domain.StateWaitingExternal, ErrorCode: "TIMEOUT", Retryable: true}),
+		event(13, EventLeaseReleased, "op-a", "target-a", Payload{Lease: second}),
+	)
+	assertNoRetry(events)
+	third := leasePayload("observation-3", "worker", 14, 20)
+	events = append(events,
+		event(14, EventLeaseAcquired, "op-a", "target-a", Payload{Lease: third}),
+		reconcileStarted(15, "op-a", "target-a", 1),
+		event(16, EventReconcileResult, "op-a", "target-a", Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "absent", Evidence: evidence("{\"ref\":\"current\"}")}),
+		event(17, EventLeaseReleased, "op-a", "target-a", Payload{Lease: third}),
+		event(18, EventRetryAuthorized, "op-a", "target-a", Payload{Attempt: 1}),
+	)
+	state, err := Reduce(plan, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, _ := state.Operation("op-a")
+	if op.State != domain.StateReady || op.Attempt != 1 || op.ReconcileRequired || op.Ambiguous {
+		t.Fatalf("fresh absence did not authorize retry: %+v", op)
+	}
+}

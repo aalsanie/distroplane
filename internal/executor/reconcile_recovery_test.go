@@ -342,3 +342,33 @@ func TestObservationRecoveryRejectsInvalidHistory(t *testing.T) {
 		t.Fatalf("complete corruption accepted: %v", err)
 	}
 }
+
+func TestReconcileRecoveryAfterCompletedPendingObservation(t *testing.T) {
+	plan := testPlan(t, []operationSpec{{id: "op-a", sideEffecting: true}})
+	path := filepath.Join(t.TempDir(), "run.journal")
+	writer := beginObservationJournal(t, path, plan)
+	seedPendingObservation(t, writer, "op-a", true)
+	now := time.Now().UTC()
+	lease := &journal.LeasePayload{ID: "old", Owner: "worker", AcquiredAt: now.Add(-2 * time.Second), ExpiresAt: now.Add(-time.Second)}
+	appendObservationEntry(t, writer, "op-a", journal.EventLeaseAcquired, journal.Payload{Lease: lease})
+	appendObservationEntry(t, writer, "op-a", journal.EventReconcileStarted, journal.Payload{Attempt: 1})
+	appendObservationEntry(t, writer, "op-a", journal.EventProviderProcessStarted, journal.Payload{Attempt: 1})
+	appendObservationEntry(t, writer, "op-a", journal.EventProviderResponseReceived, journal.Payload{Attempt: 1})
+	appendObservationEntry(t, writer, "op-a", journal.EventReconcileResult, journal.Payload{Attempt: 1, State: domain.StateWaitingExternal, ProviderState: "review", Evidence: []byte("{\"ref\":\"latest\"}")})
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writer = openObservationJournal(t, path)
+	driver := &scriptedDriver{reconcile: func(_ context.Context, request Request) (Result, error) {
+		if request.Attempt != 1 || request.Previous == nil || !request.Previous.Ambiguous ||
+			request.Previous.ProviderState != "review" || string(request.Previous.Evidence) != "{\"ref\":\"latest\"}" {
+			return Result{}, fmt.Errorf("unexpected prior observation: %+v", request.Previous)
+		}
+		return published(), nil
+	}}
+	state, err := newExecutor(t, driver, Options{MaxAttempts: 1, ReconcileOnly: true}).Execute(context.Background(), plan, runID(), writer)
+	if err != nil || !state.Completed || len(driver.applyCalls) != 0 || len(driver.reconcileCalls) != 1 {
+		t.Fatalf("state=%+v err=%v apply=%d reconcile=%d", state, err, len(driver.applyCalls), len(driver.reconcileCalls))
+	}
+	assertObservationReplay(t, plan, writer)
+}

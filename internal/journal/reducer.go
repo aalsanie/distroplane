@@ -341,7 +341,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 				if !operation.ReconcileRequired || payload.Attempt != operation.Attempt {
 					return DerivedState{}, fmt.Errorf("operation %q has no matching reconciliation", operation.ID)
 				}
-				applyResult(operation, payload, true)
+				applyReconcileResult(operation, payload)
 				refreshReady(operations)
 				break
 			}
@@ -421,12 +421,7 @@ func Reduce(plan domain.Plan, events []Event) (DerivedState, error) {
 			if !operation.ReconcileRequired || !operation.reconciling || event.Payload.Attempt != operation.Attempt {
 				return DerivedState{}, fmt.Errorf("operation %q has no matching reconciliation", operation.ID)
 			}
-			payload := event.Payload
-			if payload.State == domain.StateWaitingExternal && payload.ErrorCode != "" {
-				payload.ProviderState = operation.ProviderState
-				payload.Evidence = operation.Evidence
-			}
-			applyResult(operation, payload, true)
+			applyReconcileResult(operation, event.Payload)
 			operation.observedAbsent = event.Payload.State == domain.StateWaitingExternal && event.Payload.ProviderState == "absent" && event.Payload.ErrorCode == ""
 			refreshReady(operations)
 		default:
@@ -469,6 +464,14 @@ func applyResult(operation *mutableOperation, payload Payload, preserveAmbiguous
 	operation.ProviderResponded = false
 	operation.ReconcileRequired = payload.State == domain.StateWaitingExternal
 	operation.Ambiguous = preserveAmbiguous && wasAmbiguous && operation.ReconcileRequired
+}
+
+func applyReconcileResult(operation *mutableOperation, payload Payload) {
+	if payload.State == domain.StateWaitingExternal && payload.ErrorCode != "" {
+		payload.ProviderState = operation.ProviderState
+		payload.Evidence = operation.Evidence
+	}
+	applyResult(operation, payload, true)
 }
 
 func interruptReconciliation(operation *mutableOperation) {
