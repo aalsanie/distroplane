@@ -89,6 +89,9 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if test.name == "npm" {
+				writeUpdateNPMFixture(t, artifactPath, "sample", "1.2.3")
+			}
 			args := append(initArgs(dir, test.name), optionFlags(test.fields...)...)
 			result, _ := invokeInit(t, exitOK, "", false, args...)
 			if result.OutputSchemaVersion != outputSchemaVersion || result.Artifact.SHA256 == "" || len(result.Destinations) != 1 || len(result.CredentialSources) == 0 {
@@ -163,6 +166,7 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 					t.Fatalf("ZIP metadata: %v", installer)
 				}
 			}
+			exerciseSecondRelease(t, result.ConfigPath, artifactPath, test.name, data)
 		})
 	}
 }

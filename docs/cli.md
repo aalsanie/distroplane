@@ -14,6 +14,18 @@ distroplane publish
 
 In scripts, supply all `init` metadata with flags (`distroplane init --help`). For noninteractive publishing, use `--yes` only after reviewing the plan; `--dry-run` never publishes.
 
+## Prepare another release
+
+After building the next artifact, run `distroplane init --update`. It preserves your existing destinations, credentials and account settings, asks for a different release ID, new artifact paths and destination version/download URLs, then shows the changes before saving. npm compares the name and version in the original and new tarballs; retain both. The release ID need not match the package version, which the npm provider validates during planning.
+
+```sh
+distroplane init --update --release v1.2.4 --artifact dist/tool-1.2.4.tgz --non-interactive
+```
+
+For SDKMAN, Homebrew and WinGet, also supply the corresponding `--set PROVIDER.version=VALUE` and `--set PROVIDER.url=HTTPS_URL` when scripting. Use `--artifact PROVIDER=PATH` for distinct artifacts; destinations sharing a named artifact must still share it. Interactive updates require typing the displayed confirmation. Updates preserve the previous configuration in a non-overwriting backup, never publish, and refuse existing saved release identities. Keep original artifact paths and bytes for recovery; use a new path for each updated artifact.
+
+Guided updates support schema 2 with one object per official provider and the seven setup layouts. Destination arrays, explicit provider executables, unreferenced artifacts, custom providers, schema 1, SDKMAN configurations with explicit checksums, and WinGet configurations with explicit release notes URLs require manual editing instead. `--force` remains a separate replacement operation. To continue an earlier release, use `status --release ID` or `resume --release ID`, not `init --update`.
+
 ## Check and resume
 
 ```sh
