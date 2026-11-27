@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -23,26 +22,26 @@ import (
 )
 
 type doctorFileSnapshot struct {
-	mode     os.FileMode
-	size     int64
-	modified time.Time
-	digest   [32]byte
-	denied   bool
+	mode   os.FileMode
+	size   int64
+	digest [32]byte
+	denied bool
 }
 
 func snapshotDoctorFiles(t *testing.T, root string) map[string]doctorFileSnapshot {
 	t.Helper()
 	result := make(map[string]doctorFileSnapshot)
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		info, err := entry.Info()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
-		value := doctorFileSnapshot{mode: info.Mode(), size: info.Size(), modified: info.ModTime()}
+		value := doctorFileSnapshot{mode: info.Mode()}
 		if info.Mode().IsRegular() {
+			value.size = info.Size()
 			data, err := os.ReadFile(path)
 			if errors.Is(err, os.ErrPermission) {
 				value.denied = true
@@ -67,6 +66,24 @@ func snapshotDoctorFiles(t *testing.T, root string) map[string]doctorFileSnapsho
 	return result
 }
 
+func compareDoctorSnapshots(before, after map[string]doctorFileSnapshot) error {
+	for path, previous := range before {
+		current, ok := after[path]
+		if !ok {
+			return fmt.Errorf("removed %q", path)
+		}
+		if previous != current {
+			return fmt.Errorf("changed %q: before=%+v after=%+v", path, previous, current)
+		}
+	}
+	for path := range after {
+		if _, ok := before[path]; !ok {
+			return fmt.Errorf("created %q", path)
+		}
+	}
+	return nil
+}
+
 func assertDoctorReadOnly(t *testing.T, root, cfg string, want int, check, severity string, flags ...string) doctorOutput {
 	t.Helper()
 	before := snapshotDoctorFiles(t, root)
@@ -87,8 +104,8 @@ func assertDoctorReadOnly(t *testing.T, root, cfg string, want int, check, sever
 			t.Fatalf("human report omitted %s/%s: %s", finding.Code, finding.Severity, stdout.String())
 		}
 	}
-	if after := snapshotDoctorFiles(t, root); !reflect.DeepEqual(before, after) {
-		t.Fatal("doctor mutated persistent project files or directories")
+	if err := compareDoctorSnapshots(before, snapshotDoctorFiles(t, root)); err != nil {
+		t.Fatalf("doctor mutated persistent project state: %v", err)
 	}
 	return report
 }
@@ -433,4 +450,59 @@ func TestDoctorChecksSavedProviderVersion(t *testing.T) {
 	if !hasDoctorCode(report, "PROVIDER_DIGEST_MATCH", doctorPass) || hasDoctorCode(report, "PROVIDER_VERSION", doctorPass) {
 		t.Fatalf("digest match hid a provider version mismatch: %+v", report)
 	}
+}
+
+func TestDoctorSnapshotDetectsPersistentChanges(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDoctorFiles(t, root)
+	stamp := time.Now().Add(-time.Hour)
+	for _, name := range []string{path, root} {
+		if err := os.Chtimes(name, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := compareDoctorSnapshots(before, snapshotDoctorFiles(t, root)); err != nil {
+		t.Fatalf("filesystem timestamp change affected state comparison: %v", err)
+	}
+	assertChanged := func(kind, name string) {
+		t.Helper()
+		err := compareDoctorSnapshots(before, snapshotDoctorFiles(t, root))
+		if err == nil || !strings.Contains(err.Error(), kind+" "+fmt.Sprintf("%q", name)) {
+			t.Fatalf("expected %s for %q, got %v", kind, name, err)
+		}
+	}
+	if err := os.WriteFile(path, []byte("modified"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	assertChanged("changed", path)
+	if err := os.WriteFile(path, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0400); err != nil {
+		t.Fatal(err)
+	}
+	assertChanged("changed", path)
+	if err := os.Chmod(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+	extra := filepath.Join(root, "unexpected")
+	if err := os.Mkdir(extra, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assertChanged("created", extra)
+	if err := os.Remove(extra); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	assertChanged("removed", path)
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assertChanged("changed", path)
 }
