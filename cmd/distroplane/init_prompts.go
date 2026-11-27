@@ -76,33 +76,33 @@ func promptValidated(reader *bufio.Reader, stderr io.Writer, field string, valid
 
 func initFieldPrompt(key, destination string) string {
 	examples := map[string]string{
-		"sdkman.candidate": "existing SDKMAN candidate, e.g. mytool",
-		"sdkman.version": "destination version, e.g. 1.2.3",
-		"sdkman.url": "public HTTPS download URL, e.g. https://example.org/tool.zip",
-		"homebrew.repository": "your tap Git repository, e.g. https://github.com/owner/homebrew-tap.git",
-		"homebrew.path": "manifest path in your tap, e.g. Formula/tool.rb",
-		"homebrew.name": "Ruby formula class, e.g. MyTool",
-		"homebrew.description": "short package description, e.g. Release CLI",
-		"homebrew.homepage": "project HTTPS homepage, e.g. https://example.org/",
-		"homebrew.url": "public HTTPS artifact URL, e.g. https://example.org/tool.tar.gz",
-		"homebrew.version": "destination version, e.g. 1.2.3",
-		"homebrew.binary": "installed executable name, e.g. mytool",
-		"homebrew.java-version": "required Java runtime (8, 11, 17, 21 or 25)",
-		"homebrew.install-kind": "cask installation type (app, pkg or binary)",
+		"sdkman.candidate":        "existing SDKMAN candidate, e.g. mytool",
+		"sdkman.version":          "destination version, e.g. 1.2.3",
+		"sdkman.url":              "public HTTPS download URL, e.g. https://example.org/tool.zip",
+		"homebrew.repository":     "your tap Git repository, e.g. https://github.com/owner/homebrew-tap.git",
+		"homebrew.path":           "manifest path in your tap, e.g. Formula/tool.rb",
+		"homebrew.name":           "Ruby formula class, e.g. MyTool",
+		"homebrew.description":    "short package description, e.g. Release CLI",
+		"homebrew.homepage":       "project HTTPS homepage, e.g. https://example.org/",
+		"homebrew.url":            "public HTTPS artifact URL, e.g. https://example.org/tool.tar.gz",
+		"homebrew.version":        "destination version, e.g. 1.2.3",
+		"homebrew.binary":         "installed executable name, e.g. mytool",
+		"homebrew.java-version":   "required Java runtime (8, 11, 17, 21 or 25)",
+		"homebrew.install-kind":   "cask installation type (app, pkg or binary)",
 		"homebrew.install-source": "path in the archive, e.g. MyTool.app",
-		"homebrew.pr-repository": "pull request destination, e.g. owner/homebrew-tap",
-		"winget.repository": "your manifest fork Git repository, e.g. https://github.com/owner/winget-pkgs.git",
-		"winget.identifier": "WinGet package identifier, e.g. Publisher.MyTool",
-		"winget.version": "destination version, e.g. 1.2.3",
-		"winget.publisher": "package publisher name",
-		"winget.name": "display name of the package",
-		"winget.license": "actual package license, e.g. Apache-2.0",
-		"winget.description": "short package description",
-		"winget.url": "public HTTPS installer URL, e.g. https://example.org/tool.msi",
-		"winget.architecture": "installer architecture (x86, x64, arm, arm64 or neutral)",
-		"winget.pr-repository": "pull request destination, e.g. microsoft/winget-pkgs",
-		"winget.nested-type": "installer inside ZIP (portable, exe or msi)",
-		"winget.nested-files": "relative installer path, e.g. bin/tool.exe; use --set for advanced JSON arrays",
+		"homebrew.pr-repository":  "pull request destination, e.g. owner/homebrew-tap",
+		"winget.repository":       "your manifest fork Git repository, e.g. https://github.com/owner/winget-pkgs.git",
+		"winget.identifier":       "WinGet package identifier, e.g. Publisher.MyTool",
+		"winget.version":          "destination version, e.g. 1.2.3",
+		"winget.publisher":        "package publisher name",
+		"winget.name":             "display name of the package",
+		"winget.license":          "actual package license, e.g. Apache-2.0",
+		"winget.description":      "short package description",
+		"winget.url":              "public HTTPS installer URL, e.g. https://example.org/tool.msi",
+		"winget.architecture":     "installer architecture (x86, x64, arm, arm64 or neutral)",
+		"winget.pr-repository":    "pull request destination, e.g. microsoft/winget-pkgs",
+		"winget.nested-type":      "installer inside ZIP (portable, exe or msi)",
+		"winget.nested-files":     "relative installer path, e.g. bin/tool.exe; use --set for advanced JSON arrays",
 	}
 	if destination == "homebrew:cask" {
 		examples["homebrew.name"] = "cask token, e.g. my-tool"
@@ -116,9 +116,9 @@ func initFieldPrompt(key, destination string) string {
 
 var (
 	initFormulaName = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
-	initCaskName = regexp.MustCompile(`^[a-z0-9][a-z0-9+._-]*$`)
-	initWingetID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+_-]*(\.[A-Za-z0-9][A-Za-z0-9+_-]*)+$`)
-	initLauncher = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	initCaskName    = regexp.MustCompile(`^[a-z0-9][a-z0-9+._-]*$`)
+	initWingetID    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+_-]*(\.[A-Za-z0-9][A-Za-z0-9+_-]*)+$`)
+	initLauncher    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 )
 
 func validateInitField(key, value, destination, nestedType string) error {
@@ -134,8 +134,8 @@ func validateInitField(key, value, destination, nestedType string) error {
 		}
 	case "homebrew.repository", "winget.repository":
 		u, err := url.Parse(value)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Trim(u.Path, "/") == "" {
-			return fmt.Errorf("%s: enter the repository HTTPS URL without credentials", key)
+		if strings.HasPrefix(value, "-") || (strings.Contains(value, "://") && (err != nil || u.Scheme == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "")) {
+			return fmt.Errorf("%s: enter a Git repository location without credentials", key)
 		}
 	case "homebrew.pr-repository", "winget.pr-repository":
 		owner, name, ok := strings.Cut(value, "/")
@@ -206,7 +206,7 @@ func validateInitField(key, value, destination, nestedType string) error {
 }
 
 func validInitRelativePath(value string) bool {
-	return value != "." && !strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "../") &&
+	return value != "" && value != "." && !strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "../") &&
 		value != ".." && !strings.ContainsAny(value, "\\:") && path.Clean(value) == value
 }
 
@@ -232,7 +232,7 @@ func parseInitNestedFiles(value, kind string) ([]map[string]string, error) {
 	for _, file := range files {
 		name := file["relativeFilePath"]
 		key := strings.ToLower(name)
-		if !validInitRelativePath(name) || strings.ToLower(path.Ext(name)) != extension || paths[key] {
+		if config.ValidateText("winget.nested-files", name, false) != nil || !validInitRelativePath(name) || strings.ToLower(path.Ext(name)) != extension || paths[key] {
 			return nil, invalid
 		}
 		paths[key] = true

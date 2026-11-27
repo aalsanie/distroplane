@@ -65,7 +65,7 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 		{"npm", nil, "token"},
 		{"sdkman", []string{"sdkman.candidate=sample", "sdkman.version=1.2.3", "sdkman.url=https://example.invalid/sample.zip"}, "state"},
 		{"homebrew:formula", []string{"homebrew.repository=https://github.com/example/homebrew-tap.git", "homebrew.path=Formula/sample.rb", "homebrew.name=Sample", "homebrew.description=Sample CLI", "homebrew.homepage=https://example.invalid/", "homebrew.url=https://example.invalid/release.tgz", "homebrew.version=1.2.3", "homebrew.binary=sample"}, "formula"},
-		{"homebrew:cask", []string{"homebrew.repository=https://github.com/example/homebrew-tap.git", "homebrew.path=Casks/sample.rb", "homebrew.name=Sample", "homebrew.description=Sample App", "homebrew.homepage=https://example.invalid/", "homebrew.url=https://example.invalid/release.zip", "homebrew.version=1.2.3", "homebrew.install-kind=app", "homebrew.install-source=Sample.app"}, "cask"},
+		{"homebrew:cask", []string{"homebrew.repository=https://github.com/example/homebrew-tap.git", "homebrew.path=Casks/sample.rb", "homebrew.name=sample", "homebrew.description=Sample App", "homebrew.homepage=https://example.invalid/", "homebrew.url=https://example.invalid/release.zip", "homebrew.version=1.2.3", "homebrew.install-kind=app", "homebrew.install-source=Sample.app"}, "cask"},
 		{"homebrew:jvm", []string{"homebrew.repository=https://github.com/example/homebrew-tap.git", "homebrew.path=Formula/sample.rb", "homebrew.name=Sample", "homebrew.description=Sample JVM CLI", "homebrew.homepage=https://example.invalid/", "homebrew.url=https://example.invalid/release.zip", "homebrew.version=1.2.3", "homebrew.binary=sample", "homebrew.java-version=21"}, "jvm-distribution"},
 		{"winget:msi", []string{"winget.repository=https://github.com/example/winget-pkgs.git", "winget.identifier=Example.Sample", "winget.version=1.2.3", "winget.publisher=Example", "winget.name=Sample", "winget.license=MIT", "winget.description=Sample CLI", "winget.url=https://example.invalid/release.msi", "winget.architecture=x64", "winget.pr-repository=microsoft/winget-pkgs"}, "msi"},
 		{"winget:zip", []string{"winget.repository=https://github.com/example/winget-pkgs.git", "winget.identifier=Example.Sample", "winget.version=1.2.3", "winget.publisher=Example", "winget.name=Sample", "winget.license=MIT", "winget.description=Sample CLI", "winget.url=https://example.invalid/release.zip", "winget.architecture=x64", "winget.pr-repository=microsoft/winget-pkgs", "winget.nested-type=portable", `winget.nested-files=[{"relativeFilePath":"bin/sample.exe","portableCommandAlias":"sample"}]`}, "zip"},
@@ -100,6 +100,24 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 			}
 			if strings.Contains(string(data), "SECRET") || !bytes.Contains(data, []byte(`"schemaVersion": "2"`)) {
 				t.Fatalf("unsafe generated config: %s", data)
+			}
+			guided := filepath.Join(dir, "guided.json")
+			var answers []string
+			for _, field := range test.fields {
+				_, value, _ := strings.Cut(field, "=")
+				answers = append(answers, value)
+			}
+			var guidedOut, guidedErr bytes.Buffer
+			guidedArgs := []string{"--output", guided, "--destination", test.name, "--release", "v1.2.3", "--artifact", artifactPath}
+			if code := runInitContext(context.Background(), guidedArgs, strings.NewReader(strings.Join(answers, "\n")+"\n"), true, &guidedOut, &guidedErr); code != exitOK {
+				t.Fatalf("guided %s: %d %s", test.name, code, guidedErr.String())
+			}
+			guidedData, err := os.ReadFile(guided)
+			if err != nil || !bytes.Equal(data, guidedData) {
+				t.Fatalf("guided and scripted templates differ: %v", err)
+			}
+			if !strings.Contains(guidedOut.String(), "Credential ") || !strings.Contains(guidedOut.String(), "Next:") {
+				t.Fatalf("missing setup summary: %s", guidedOut.String())
 			}
 			loaded, err := official.Load(result.ConfigPath)
 			if err != nil || len(loaded.Config.Targets) != 1 {

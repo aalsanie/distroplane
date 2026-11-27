@@ -170,7 +170,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 			allSame = false
 		}
 		if !jsonMode {
-			fmt.Fprintf(stderr, "Artifact %s: %s\nSHA-256 %s\nSize %d bytes\n", provider, artifact.Path, artifact.SHA256, artifact.Size)
+			fmt.Fprintf(stderr, "Artifact %s: %s\nSHA-256 %s\nSize %d bytes\n", provider, safeDisplay(artifact.Path), artifact.SHA256, artifact.Size)
 		}
 	}
 	b := initBuilder{fields: fields, reader: reader, prompts: allowPrompt, stderr: stderr}
@@ -325,9 +325,17 @@ func discoverArtifacts(baseDir string) ([]string, error) {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
-		files, err := os.ReadDir(dir)
+		directory, err := os.Open(dir)
 		if err != nil {
 			return nil, err
+		}
+		files, err := directory.ReadDir(maxDiscoveryEntries + 1)
+		closeErr := directory.Close()
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if closeErr != nil {
+			return nil, closeErr
 		}
 		if len(files) > maxDiscoveryEntries {
 			return nil, fmt.Errorf("artifact directory %q has too many entries; provide --artifact", name)
@@ -414,9 +422,9 @@ func inspectInitArtifact(baseDir, chosen string) (initArtifact, string, error) {
 }
 
 type initBuilder struct {
-	fields  map[string]string
-	reader  *bufio.Reader
-	prompts bool
+	fields      map[string]string
+	reader      *bufio.Reader
+	prompts     bool
 	stderr      io.Writer
 	destination string
 	nestedType  string
@@ -427,6 +435,11 @@ func (b *initBuilder) field(key, fallback string, required bool) (string, error)
 		delete(b.fields, key)
 		if value == "" {
 			return "", fmt.Errorf("%s cannot be empty", key)
+		}
+		if required {
+			if err := validateInitField(key, value, b.destination, b.nestedType); err != nil {
+				return "", fmt.Errorf("%w; correct --set %s=VALUE", err, key)
+			}
 		}
 		return value, nil
 	}

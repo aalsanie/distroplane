@@ -13,9 +13,9 @@ import (
 )
 
 type initCredentialSource struct {
-	Reference string `json:"reference"`
+	Reference   string `json:"reference"`
 	Environment string `json:"environment,omitempty"`
-	Explicit bool `json:"explicit"`
+	Explicit    bool   `json:"explicit"`
 }
 
 func initSources(cfg config.Config, mappings credentialFlags) ([]initCredentialSource, error) {
