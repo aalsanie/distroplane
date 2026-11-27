@@ -109,6 +109,16 @@ func TestInitGeneratesAllOfficialVariantTemplates(t *testing.T) {
 			}
 			var guidedOut, guidedErr bytes.Buffer
 			guidedArgs := []string{"--output", guided, "--destination", test.name, "--release", "v1.2.3", "--artifact", artifactPath}
+			for i := range answers {
+				if code := runInitContext(context.Background(), guidedArgs, strings.NewReader(strings.Join(answers[:i], "\n")+"\n"), true, &guidedOut, &guidedErr); code == exitOK {
+					t.Fatalf("EOF at %s field %d was accepted", test.name, i)
+				}
+				if _, err := os.Stat(guided); !os.IsNotExist(err) {
+					t.Fatalf("incomplete setup wrote a config: %v", err)
+				}
+				guidedOut.Reset()
+				guidedErr.Reset()
+			}
 			if code := runInitContext(context.Background(), guidedArgs, strings.NewReader(strings.Join(answers, "\n")+"\n"), true, &guidedOut, &guidedErr); code != exitOK {
 				t.Fatalf("guided %s: %d %s", test.name, code, guidedErr.String())
 			}

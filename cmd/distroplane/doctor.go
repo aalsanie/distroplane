@@ -195,7 +195,7 @@ func inspectDoctor(ctx context.Context, configPath string, options doctorProbe) 
 			trusted = err == nil && target.Provider.Executable == "" && planner.IsTrustedInstalledProvider(target.Provider.Name, executable)
 		}
 		if err != nil {
-			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider executable is missing or unsafe", "Check the provider beside the selected CLI installation or correct the configured executable path")
+			d.add("PROVIDER_NOT_FOUND", doctorFail, target.ID, "provider "+safeDisplay(target.Provider.Name)+" executable is missing or unsafe", "Install the matching distroplane-provider-"+safeDisplay(target.Provider.Name)+" beside the CLI or correct the configured executable path")
 			d.add("CREDENTIAL_SKIPPED", doctorSkip, target.ID, "provider identity not verified", "")
 			continue
 		}

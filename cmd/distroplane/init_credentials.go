@@ -63,6 +63,10 @@ func writeInitSummary(w io.Writer, result initOutput) {
 			fmt.Fprintf(w, "Credential %s: select an isolated environment name with --credential %s=ENV when running doctor and publish\n", safeDisplay(source.Reference), safeDisplay(source.Reference))
 			continue
 		}
-		fmt.Fprintf(w, "Credential %s: set environment variable %s (value not collected)\n", safeDisplay(source.Reference), safeDisplay(source.Environment))
+		if source.Explicit {
+			fmt.Fprintf(w, "Credential %s: mapped to environment variable %s (value not collected)\n", safeDisplay(source.Reference), safeDisplay(source.Environment))
+		} else {
+			fmt.Fprintf(w, "Credential %s: set %s for the installed official provider (value not collected)\n", safeDisplay(source.Reference), safeDisplay(source.Environment))
+		}
 	}
 }

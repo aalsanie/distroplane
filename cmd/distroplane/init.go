@@ -130,7 +130,7 @@ func runInitContext(ctx context.Context, args []string, input io.Reader, interac
 		}
 	}
 	if _, err := domain.NewReleaseID(releaseID); err != nil {
-		return writeCommandError(stderr, jsonMode, exitUsage, "missing_release", fmt.Errorf("--release: %w", err))
+		return writeCommandError(stderr, jsonMode, exitUsage, "missing_release", fmt.Errorf("release.id: supply a valid --release ID"))
 	}
 	fields := make(map[string]string)
 	for _, option := range options {

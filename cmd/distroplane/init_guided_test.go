@@ -24,7 +24,7 @@ func TestInitCorrectsOnlyInvalidFieldsAndSelectsNumberedArtifact(t *testing.T) {
 	}
 	output := filepath.Join(dir, "guided.json")
 	const canary = "literal-secret-canary"
-	input := strings.Join([]string{"unknown", "sdkman", "", "v1", "99", "missing.zip", "1", "bad/name", "sample", "1.2.3", "https://user:"+canary+"@example.org/file.zip", "https://example.org/file.zip"}, "\n") + "\n"
+	input := strings.Join([]string{"unknown", "sdkman", "", "v1", "99", "missing.zip", "1", "bad/name", "sample", "1.2.3", "https://user:" + canary + "@example.org/file.zip", "https://example.org/file.zip"}, "\n") + "\n"
 	var stdout, stderr bytes.Buffer
 	if code := runInitContext(context.Background(), []string{"--output", output}, strings.NewReader(input), true, &stdout, &stderr); code != exitOK {
 		t.Fatalf("init: %d %s", code, stderr.String())
@@ -53,22 +53,36 @@ func TestInitFieldValidationAndNestedFilePaths(t *testing.T) {
 		key, good, bad, destination, kind string
 	}{
 		{"sdkman.url", "https://example.org/release.zip", "http://example.org/release.zip", "sdkman", ""},
+		{"sdkman.url", "https://example.org/release.zip", "https://example.org/file.zip?token=canary", "sdkman", ""},
+		{"sdkman.url", "https://example.org/release.zip", "https://example.org/file.zip#fragment", "sdkman", ""},
+		{"sdkman.url", "https://example.org/release.zip", "https://", "sdkman", ""},
+		{"sdkman.url", "https://example.org/release.zip", "https://%", "sdkman", ""},
+		{"sdkman.url", "https://example.org/release.zip", "https://user:secret@example.org/file.zip", "sdkman", ""},
 		{"sdkman.candidate", "example", strings.Repeat("a", 129), "sdkman", ""},
 		{"sdkman.version", "1.2.3", "a/b", "sdkman", ""},
 		{"homebrew.repository", "https://github.com/example/tap", "https://secret@example.org/tap", "homebrew:formula", ""},
 		{"winget.repository", "https://github.com/example/fork", "-bad", "winget:zip", ""},
 		{"homebrew.pr-repository", "owner/tap", "owner", "homebrew:formula", ""},
+		{"homebrew.pr-repository", "owner/tap", "/tap", "homebrew:formula", ""},
+		{"homebrew.pr-repository", "owner/tap", "owner/", "homebrew:formula", ""},
+		{"homebrew.pr-repository", "owner/tap", "owner/a b", "homebrew:formula", ""},
 		{"winget.pr-repository", "microsoft/winget-pkgs", "owner/tap/extra", "winget:zip", ""},
 		{"homebrew.path", "Formula/tool.rb", "../tool.rb", "homebrew:formula", ""},
+		{"homebrew.path", "Formula/tool.rb", "Formula/tool.txt", "homebrew:formula", ""},
+		{"homebrew.path", "Formula/tool.rb", "/tool.rb", "homebrew:formula", ""},
+		{"homebrew.path", "Formula/tool.rb", "Formula/../tool.rb", "homebrew:formula", ""},
 		{"homebrew.name", "MyTool", "my-tool", "homebrew:formula", ""},
 		{"homebrew.name", "my-tool", "MyTool", "homebrew:cask", ""},
 		{"homebrew.binary", "tool", "bin/tool", "homebrew:formula", ""},
+		{"homebrew.binary", "tool", ".", "homebrew:formula", ""},
+		{"homebrew.binary", "tool", "..", "homebrew:formula", ""},
 		{"homebrew.binary", "tool", "tool name", "homebrew:jvm", ""},
 		{"homebrew.java-version", "21", "22", "homebrew:jvm", ""},
 		{"homebrew.install-kind", "app", "unknown", "homebrew:cask", ""},
 		{"homebrew.install-source", "MyTool.app", "../MyTool.app", "homebrew:cask", ""},
 		{"winget.identifier", "Example.Tool", "example", "winget:zip", ""},
 		{"winget.version", "1.2.3", "a/b", "winget:zip", ""},
+		{"winget.version", "1.2.3", strings.Repeat("a", 129), "winget:zip", ""},
 		{"winget.publisher", "Example", strings.Repeat("a", 513), "winget:zip", ""},
 		{"winget.architecture", "arm64", "aarch64", "winget:zip", ""},
 		{"winget.nested-type", "portable", "zip", "winget:zip", ""},
@@ -202,6 +216,17 @@ func TestInitExplicitCredentialSourcesAndSecretRefusal(t *testing.T) {
 		}
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("refused configuration written")
+		}
+	}
+	for _, extra := range [][]string{
+		{"--credential", "literal-secret-canary"},
+		{"--credential", "npm-publish=EXPLICIT_NPM_TOKEN", "--credential", "npm-publish=literal-secret-canary"},
+	} {
+		args := append(initArgs(dir, "npm"), "--force")
+		args = append(args, extra...)
+		_, diagnostic := invokeInit(t, exitUsage, "", false, args...)
+		if strings.Contains(diagnostic, "literal-secret-canary") {
+			t.Fatal("malformed credential mapping exposed input")
 		}
 	}
 	other := filepath.Join(dir, "colliding.json")

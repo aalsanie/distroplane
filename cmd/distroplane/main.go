@@ -159,7 +159,7 @@ func printCommandHelp(command string, w io.Writer) bool {
 	case "init":
 		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE] [--credential REF=ENV]\n  Options: --output PATH, --force, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip"
 	case "doctor":
-		summary = "Check local readiness without publishing.\n  distroplane doctor [--config PATH] [--plan PATH] [--remote] [--timeout 3s] [--json]"
+		summary = "Check local readiness without publishing.\n  distroplane doctor [--config PATH] [--plan PATH] [--remote] [--timeout 3s] [--credential REF=ENV] [--json]"
 	case "publish":
 		summary = "Preview, approve and publish a release.\n  distroplane publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID] [--credential REF=ENV] [--json]"
 	case "status":

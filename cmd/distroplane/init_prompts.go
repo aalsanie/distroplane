@@ -62,7 +62,7 @@ func promptValidated(reader *bufio.Reader, stderr io.Writer, field string, valid
 	for {
 		value, err := promptInit(reader, stderr, field)
 		if err != nil && !errors.Is(err, errEmptyInitAnswer) {
-			return "", err
+			return "", fmt.Errorf("%s: %w", field, err)
 		}
 		if err == nil {
 			err = validate(value)
