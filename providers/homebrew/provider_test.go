@@ -374,6 +374,7 @@ func TestAmbiguousPullRequestSubmissionReconciles(t *testing.T) {
 		})
 	}
 }
+
 type lostPushRunner struct {
 	delegate GitRunner
 	mu       sync.Mutex
