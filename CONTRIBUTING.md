@@ -16,6 +16,16 @@ go test -race ./...
 
 CI also runs formatting, fuzz smoke tests, native Linux/macOS/Windows tests and builds, release-build verification, benchmarks, and GitHub Action smoke tests.
 
+### Java adapters
+
+Build the shared native test fixture and set `DISTROPLANE_FIXTURE_BINARY` to its absolute path (`.exe` on Windows):
+
+```sh
+go build -o /absolute/path/to/fixture ./maven-plugin/it/fixture-cli/main.go
+mvn -f maven-plugin/pom.xml verify
+gradle -p gradle-plugin check
+```
+
 ## DCO
 
 Sign off each commit under the [Developer Certificate of Origin 1.1](https://developercertificate.org/):

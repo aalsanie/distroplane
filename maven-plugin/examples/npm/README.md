@@ -1,14 +1,10 @@
 # Maven release plugin consumer example
 
-The published `io.github.aalsanie:distroplane-maven-plugin:1.0.1` is a Maven
-build/release plugin, not a runtime dependency. It distributes **already built**
-artifacts through the native Distroplane CLI and does not publish during
-`mvn package`.
+Publish an existing npm tarball using the [Maven plugin](../../README.md).
 
-1. Build and test your real npm package. Run `npm pack`, then copy or rename
-   the generated archive to `package.tgz` beside this POM. Update the
-   release ID, artifact, and destination to match your package. Do not
-   publish the example's placeholder identity.
+1. Run `npm pack` in your tested npm project and copy the archive to
+   `package.tgz` beside this POM. Replace the placeholder release ID and
+   destination with your own.
 2. Run `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:validate`,
    then `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:plan`.
    Review the plan before publication.

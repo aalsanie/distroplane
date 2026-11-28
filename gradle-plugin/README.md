@@ -1,6 +1,6 @@
 # Distroplane Gradle plugin
 
-The Gradle plugin invokes the native Distroplane CLI; it never publishes directly. The current source registers seven opt-in tasks only and is not attached to `build`, `assemble`, or `publish`. The plugin source targets Java 17+, Gradle 8.14.6 and Gradle 9.8.2. The native CLI version defaults to `0.9.3`; the plugin is independently versioned. Published version [1.0.0](https://plugins.gradle.org/plugin/io.github.aalsanie.distroplane/1.0.0) defaults to CLI 0.9.3 and provides the six release tasks; `distroplaneDoctor` is an additional task in the current source.
+Run Distroplane from Gradle 8.14.6 or 9.8.2 with Java 17+. Apply the plugin to the root project. Publication tasks are never attached to the build lifecycle.
 
 ```groovy
 plugins {
@@ -10,15 +10,26 @@ plugins {
 distroplane {
     cliVersion = '0.9.3'
     config = 'distroplane.json'
-    // archiveSha256 = 'exact 64-character official release archive SHA-256'
 }
 ```
 
-Run `gradle distroplaneValidate`, `gradle distroplanePlan`, `gradle distroplaneStatus`, or `gradle distroplaneResume`. To publish, explicitly set exactly one of `approve = true` or `confirmPlan = '<exact plan ID>'` and invoke `gradle distroplanePublish`. Pending external state (exit 4) fails the Gradle task; inspect the same release state and use `distroplaneResume`, never a new `publish` invocation. `distroplaneInit` requires `initDestination` and `initRelease`, with nonsecret `initFields`. `release`, `run`, and `reconcileOnly` control status/resume.
+## Usage
 
-The plugin downloads the official platform archive and `SHA256SUMS` and verifies the SHA-256 digest, exact package members, release identity and embedded executable hashes. Verified packages are cached under Gradle User Home at `distroplane/cli/<version>/<os>-<arch>/sha256-<digest>/`. Cached members are reverified on every use; corrupt caches fail closed. Gradle `--offline` forbids downloads and requires an already verified cached package. Use `archiveSha256` to pin the archive independently of the release-hosted checksum manifest. GitHub release checksums are not independent publisher signatures.
+Build your artifacts, then review the release with `gradle distroplanePlan`. To publish, set either `approve = true` or `confirmPlan = '<exact plan ID>'` and run `gradle distroplanePublish`.
 
-For multi-project builds, build the artifacts first, then explicitly map Distroplane artifact names to **exact** Gradle archive tasks (without adding an implicit build dependency):
+Use `distroplaneStatus` to inspect a run and `distroplaneResume` to continue it. Pending releases fail the task with CLI exit code 4; resume the original run rather than publishing again. Select a run with `release` or `run`, and use `reconcileOnly` for read-only reconciliation.
+
+`distroplaneValidate` checks configuration. `distroplaneInit` requires `initDestination`, `initRelease` and any required nonsecret `initFields`. The source also provides `distroplaneDoctor`, not yet available in the published plugin.
+
+## CLI installation
+
+The plugin verifies the release archive, package metadata and executable hashes before caching the CLI and providers in Gradle User Home under `distroplane/cli/<version>/<os>-<arch>/sha256-<digest>/`. Cached files are verified on every invocation; corruption fails closed. Gradle `--offline` requires an existing verified cache.
+
+Set `archiveSha256` to an independently obtained archive digest to pin the download. Release-hosted checksums alone do not authenticate the publisher.
+
+## Multi-project builds
+
+Map declared Distroplane artifact names to exact, already built archive tasks:
 
 ```groovy
 distroplane {
@@ -27,9 +38,9 @@ distroplane {
 }
 ```
 
-Mappings must refer to already produced regular files and to artifact names already declared in `distroplane.json`. The plugin never guesses an artifact or builds one automatically. It preserves the original configuration and generates a stable, rebased copy in `.distroplane-gradle/distroplane.json`, alongside the unchanged `.distroplane` durable release state. Keep both directories for recovery. Apply the plugin to the root project only.
+The plugin writes a rebased configuration to `.distroplane-gradle/distroplane.json` without modifying the original or running build tasks. Preserve this directory and the release state for recovery. Gradle configuration cache is unsupported because artifact selection reads the live task graph.
 
-To opt into publishing credentials without passing secret values on the command line:
+## Credentials
 
 ```groovy
 distroplane {
@@ -37,6 +48,4 @@ distroplane {
 }
 ```
 
-Only explicitly selected environment variable values are passed into the child process; CLI output containing any selected secret is suppressed. Configuration-cache execution is explicitly unsupported because exact archive task selection requires the live task graph. The native CLI remains authoritative for provider credentials, side effects, journaling and reconciliation.
-
-Build the controlled fixture with `go build -o /absolute/path/to/fixture ./maven-plugin/it/fixture-cli/main.go` and set `DISTROPLANE_FIXTURE_BINARY` to its absolute path (use `.exe` on Windows). Run `gradle -p gradle-plugin check` to execute unit and functional tests and the strict **greater-than-90% line and branch coverage** gates. The CI matrix exercises Gradle 8 and 9, JDK 17 and 21, and Linux/macOS/Windows.
+Only mapped credentials are passed to the CLI. Output containing their values is suppressed.

@@ -1,10 +1,8 @@
 # Distroplane Maven plugin
 
-A Maven **build plugin** which runs the native Distroplane CLI and providers. It does not build artifacts, publish directly, or attach publication goals to the normal Maven lifecycle.
+Run Distroplane from Maven 3.9+ with JDK 17+. Publication is opt-in and never attached to the normal build lifecycle.
 
-Published Maven Central coordinates: `io.github.aalsanie:distroplane-maven-plugin:1.0.1`. Supported baseline: **JDK 17+**, **Maven 3.9+**, and Distroplane **CLI 0.9.3**. The Maven plugin and native CLI are versioned independently.
-
-Add the published plugin to `<build><plugins>`:
+Add the plugin to `<build><plugins>`:
 
 ```xml
 <plugin>
@@ -18,28 +16,42 @@ Add the published plugin to `<build><plugins>`:
 </plugin>
 ```
 
-In a project with a configured destination and a prebuilt release artifact:
+## Usage
+
+Build your artifacts and review the release:
 
 ```sh
 mvn package
 mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:validate
 mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:plan
+```
+
+Approve publication explicitly with `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>`:
+
+```sh
 mvn -Ddistroplane.approve=true io.github.aalsanie:distroplane-maven-plugin:1.0.1:publish
+```
+
+Inspect or continue the original run:
+
+```sh
 mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:status
 mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:resume
 ```
 
-`init` requires a selected provider, release, artifact and provider-specific nonsecret metadata (configure `<initFields><field>value</field></initFields>` for the native `--set` options): `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:init -Ddistroplane.destination=npm -Ddistroplane.release=v1`. No prompts or secret values are supported for Maven `init`; missing metadata fails without generating a guessed configuration. `publish` refuses to execute unless either `-Ddistroplane.approve=true` or `-Ddistroplane.confirmPlan=<exact-id>` is supplied. `resume` uses the original plan and journal and never generates a replacement publication run. Exit code 4 (`WAITING_EXTERNAL`) fails the Maven goal rather than falsely reporting completion.
+Pending releases fail the goal with CLI exit code 4. After a timeout or interruption, inspect the original run before resuming; do not start another publication.
 
-## Verified bootstrap and offline usage
+The `init` goal requires explicit destination, release, artifact and required metadata (use `<initFields>` for nonsecret provider options). The source also provides `doctor`, not yet available in the published plugin.
 
-The plugin downloads the **version-pinned** platform archive and release `SHA256SUMS` from the official GitHub release over HTTPS, verifies the archive SHA-256, rejects unexpected/missing archive members, validates embedded package metadata, and hashes all five executable files. It extracts to an isolated cache under `~/.m2/distroplane/cli/<version>/<os>-<arch>/sha256-<digest>/` with a per-version file lock and atomic publication. It rechecks the executable digests on every invocation, including offline use. A corrupt cached package **fails**; the plugin never silently re-downloads over it or changes the plan's bound providers.
+## CLI installation
 
-For an independent archive trust pin, configure `<archiveSha256>...64 hex digits...</archiveSha256>` or `-Ddistroplane.archiveSha256=<hash>`. Checksums downloaded alongside a release detect download corruption but do not independently authenticate GitHub's release publisher. In Maven offline mode (`mvn -o ...`), no network fetch occurs: a valid previously cached package is required. Unknown OS/architecture pairs fail before invoking Distroplane. The plugin downloads no artifacts other than the verified CLI package and does not install globally.
+The plugin verifies the release archive, package metadata and executable hashes before caching the CLI and providers in `~/.m2/distroplane/cli/<version>/<os>-<arch>/sha256-<digest>/`. Cached files are verified on every invocation; corruption fails closed. Maven `-o` requires an existing verified cache.
+
+Set `archiveSha256` or `-Ddistroplane.archiveSha256=<hash>` to an independently obtained archive digest to pin the download. Release-hosted checksums alone do not authenticate the publisher.
 
 ## Multi-module and classified artifacts
 
-The plugin never guesses which reactor artifact to publish. Build with `mvn package` first and opt into explicit reactor mappings only for artifacts already declared in `distroplane.json`:
+Map declared Distroplane artifact names to exact, already packaged reactor artifacts:
 
 ```xml
 <artifactMappings>
@@ -57,41 +69,25 @@ The plugin never guesses which reactor artifact to publish. Build with `mvn pack
 </artifactMappings>
 ```
 
-The reactor must contain **exactly one** matching produced artifact for every mapping. Missing, duplicate, symlinked, or unbuilt artifacts fail before publication. The original configuration is never overwritten; an explicit mapped configuration is atomically created under `.distroplane-maven/distroplane.json` and that same stable location is used on subsequent invocations. Keep that managed directory and its `.distroplane` run history for recovery. The plugin does not auto-build, guess a classifier, or create a destination from Maven metadata.
+Each mapping must match exactly one regular artifact file. Missing, ambiguous, symlinked or unbuilt artifacts fail before publication. The plugin writes a rebased configuration to `.distroplane-maven/distroplane.json` without modifying the original. Preserve this directory and the release state for recovery.
 
-## Credential handling
-
-No secret appears in CLI arguments. To opt into a credential source:
+## Credentials
 
 ```xml
 <credentialMappings><npm-publish>NPM_TOKEN</npm-publish></credentialMappings>
 ```
 
-The plugin passes only explicitly mapped environment values to the spawned CLI, plus minimal operating-system process variables. It suppresses command output containing those secrets and does not persist them in the configuration. The CLI and providers remain the authority for credential resolution, review, journaling, publication, and reconciliation. Terminated or timed-out goals preserve existing release state; inspect and resume rather than restarting publication.
+Only mapped credentials are passed to the CLI. Output containing their values is suppressed.
 
-## Compatibility and external publication
+See the [npm example](examples/npm/README.md).
 
-Maven plugin integration tests cover Maven 3.9+ with JDK 17/21 on Linux,
-macOS, and Windows native runners. The source tests verify the seven explicit goals (the published 1.0.1 plugin provides the six release goals),
-immutable cache imports, offline execution, cancellation after durable state
-creation, pending-to-resume handoff, duplicate-publication rejection, and
-multi-module/classifier selection. The controlled test fixture **never publishes**
-to a remote registry. Build it with `go build -o /absolute/path/to/fixture ./maven-plugin/it/fixture-cli/main.go` and set `DISTROPLANE_FIXTURE_BINARY` to its absolute path (use `.exe` on Windows) for local native adapter tests. Maven plugin version and CLI version are independently
-versioned; CLI `0.9.3` is the source test matrix's bootstrap target.
+## Plugin publication
 
-The Central Portal release profile (`-Pcentral-release`) prepares main,
-source, JavaDoc, POM, and GPG-signed artifacts. The manual
-`Stage Maven plugin in Central Portal` workflow requires an exact protected
-`maven-plugin/vX.Y.Z` tag, verified namespace ownership for
-`io.github.aalsanie`, GitHub environment `maven-central` approval, Central
-Portal user token secrets, and a GPG signing key. It uploads a bundle for
-**manual Central Portal approval** (`autoPublish=false`); the GitHub workflow
-does not make artifacts public. Required repository secrets are:
-`MAVEN_CENTRAL_TOKEN_USERNAME`, `MAVEN_CENTRAL_TOKEN_PASSWORD`,
-`MAVEN_GPG_PRIVATE_KEY`, and `MAVEN_GPG_PASSPHRASE`.
+The `central-release` profile signs and stages artifacts for manual Central Portal approval. The [staging workflow](../.github/workflows/maven-central-stage.yml) requires a protected `maven-plugin/vX.Y.Z` tag, an approved `maven-central` environment, namespace ownership and these secrets:
 
-Version `1.0.0` was signed, staged, and manually published through the Central
-Portal. [The clean-consumer verification](https://github.com/aalsanie/distroplane/actions/runs/41023374518)
-passed on Linux, macOS, and Windows with fresh Maven repositories and the
-real native CLI bootstrap. [The npm example](examples/npm/README.md) uses
-the published `1.0.1` version.
+- `MAVEN_CENTRAL_TOKEN_USERNAME`
+- `MAVEN_CENTRAL_TOKEN_PASSWORD`
+- `MAVEN_GPG_PRIVATE_KEY`
+- `MAVEN_GPG_PASSPHRASE`
+
+After publication, run the [clean consumer workflow](../.github/workflows/maven-central-consumer.yml) for the released version.
