@@ -4,6 +4,8 @@ Generates WinGet version, installer, and default-locale manifests, pushes them t
 
 ## Configuration
 
+Run `distroplane init --destination winget:msi` or `distroplane init --destination winget:zip` and supply your writable fork, existing package identifier, version, publisher, name, actual license, description, installer URL, architecture and review repository. ZIP setup also asks for the nested installer type and path.
+
 ```json
 {
   "artifact": "installer",

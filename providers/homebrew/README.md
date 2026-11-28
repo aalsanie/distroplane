@@ -4,6 +4,8 @@ Generates a formula or cask and updates a **custom tap**, either by direct Git p
 
 ## Formula configuration
 
+Run `distroplane init --destination homebrew:formula` (or `homebrew:cask` / `homebrew:jvm` for the respective layout). Supply the tap repository, manifest path, name, description, homepage, version, download URL and install metadata shown below. Pull-request mode additionally requires `--set homebrew.mode=pull-request` and the review repository.
+
 ```json
 {
   "artifact": "archive",

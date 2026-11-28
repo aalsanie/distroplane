@@ -478,6 +478,20 @@ jobs:
           go build -trimpath ./cmd/distroplane-provider-sdkman
           go build -trimpath ./cmd/distroplane-provider-homebrew
           go build -trimpath ./cmd/distroplane-provider-winget
+      - name: Execute documented CLI examples
+        shell: pwsh
+        run: |
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $fake = Join-Path $env:RUNNER_TEMP "distroplane-provider-fake$suffix"
+          go build -trimpath -o $fake ./cmd/distroplane-provider-fake
+          if ($LASTEXITCODE -ne 0) { throw 'Documentation fixture build failed' }
+          & $python scripts/smoke-docs.py --cli "./distroplane$suffix" --fake $fake
+          if ($LASTEXITCODE -ne 0) { throw 'Documented CLI example failed' }
+          if (-not $IsWindows) {
+            & $python scripts/smoke-init-terminal.py --cli "./distroplane$suffix"
+            if ($LASTEXITCODE -ne 0) { throw 'Native terminal setup failed' }
+          }
 
   homebrew-jvm-install:
     needs: authorize

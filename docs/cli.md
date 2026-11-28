@@ -12,11 +12,19 @@ distroplane publish
 
 `init` asks for a release ID, destination, and artifact if not supplied. Choose a numbered artifact or enter its path. Required destination metadata includes a short example and is checked as you enter it. Invalid answers can be corrected without restarting. Press Ctrl-C to cancel without writing configuration. Optional advanced fields use `--set FIELD=VALUE`; use `--credential REF=ENV` to select an environment variable name, never its value. `doctor` checks your configuration and local readiness. `publish` previews the immutable plan, including provider-authored destination and action details, and asks for explicit approval **before** any publication. Providers without review fields display a limited preview. Type the exact displayed confirmation in a terminal; piped input and EOF do not authorize publication. A preview saves the plan and provider snapshots locally without dispatching publication.
 
-In scripts, supply all `init` metadata with flags (`distroplane init --help`). For noninteractive publishing, use `--yes` only after reviewing the plan; `--dry-run` never publishes.
+In scripts, supply all required `init` metadata explicitly. For a prebuilt npm tarball:
+
+```sh
+distroplane init --destination npm --release v1.2.3 --artifact 'dist/tool 1.2.3.tgz' --non-interactive
+distroplane doctor
+distroplane publish --dry-run
+```
+
+Set `NPM_TOKEN` before running `doctor`; for another account, use an explicitly mapped environment source. Use `--confirm-plan ID` with the reviewed plan ID to approve noninteractively; `--dry-run` never publishes.
 
 ## Prepare another release
 
-After building the next artifact, run `distroplane init --update`. It preserves your existing destinations, credentials and account settings, asks for a different release ID, new artifact paths and destination version/download URLs, then shows the changes before saving. npm compares the name and version in the original and new tarballs; retain both. The release ID need not match the package version, which the npm provider validates during planning.
+With a CLI supporting `--update` (current source, not 0.9.3), build the next artifact and run `distroplane init --update`. It preserves your existing destinations, credentials and account settings, asks for a different release ID, new artifact paths and destination version/download URLs, then shows the changes before saving. npm compares the name and version in the original and new tarballs; retain both. The release ID need not match the package version, which the npm provider validates during planning.
 
 ```sh
 distroplane init --update --release v1.2.4 --artifact dist/tool-1.2.4.tgz --non-interactive
@@ -68,6 +76,6 @@ Existing journal-v2 authorization records remain readable. An unfinished run wit
 
 [Configuration](configuration.md) · [Security model](security-model.md)
 
-### Setup metadata
+## Destination setup
 
-Choose a built artifact and its existing destination; setup does not create external accounts, package identifiers or licenses. npm reads package identity during planning. For SDKMAN, provide candidate, version and public download URL; authentication mode and platform are optional `--set` fields. Homebrew requires tap repository, manifest path, name, description, homepage, version, public artifact URL and installation layout fields; pull-request mode also requires the destination repository. WinGet requires fork repository, package identifier, version, publisher, name, actual license, description, public installer URL, architecture and pull-request repository; ZIP additionally requires nested installer type and relative file path. A single ZIP member can be entered as a plain path; advanced portable layouts retain the JSON-array `--set winget.nested-files=VALUE` form. Use `--set` for optional nonsecret settings and `--credential REF=ENV` for explicitly scoped credential sources. The setup summary lists environment names, never their values. Doctor's optional `--remote` probes HTTPS TCP reachability only, not account authorization or publication acceptance.
+Use the existing destination and its required metadata; setup does not create accounts or package identifiers. See [npm](../providers/npm/README.md), [SDKMAN](../providers/sdkman/README.md), [Homebrew](../providers/homebrew/README.md) and [WinGet](../providers/winget/README.md) for provider-specific settings. A WinGet ZIP member can be entered as a plain path; advanced portable layouts use the JSON-array `--set winget.nested-files=VALUE` form. Doctor's optional `--remote` probes HTTPS TCP reachability only, not account authorization or publication acceptance.

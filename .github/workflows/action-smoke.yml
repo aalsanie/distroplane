@@ -33,6 +33,36 @@ jobs:
         id: fixture
         shell: pwsh
         run: ./action/smoke-fixture.ps1
+      - name: Prepare documented publication example
+        if: runner.os == 'Linux'
+        id: documented
+        shell: pwsh
+        run: ./action/smoke-fixture.ps1 -Root documented-action -Mode published -Credential npm-publish
+      - name: Execute pinned README Action
+        if: runner.os == 'Linux'
+        id: documented-publish
+        uses: aalsanie/distroplane@73e97ccbeb0c05ed1a82d836f2d3bba3ff7bc0f4 # v0.9.3
+        env:
+          NPM_TOKEN: documentation-fixture-only
+        with:
+          version: 0.9.3
+          command: publish
+          approve: 'true'
+          credential-mappings: npm-publish=NPM_TOKEN
+          binary: ${{ steps.documented.outputs.cli }}
+          config: ${{ steps.documented.outputs.config }}
+      - name: Verify documented publication result
+        if: runner.os == 'Linux'
+        shell: pwsh
+        env:
+          RESULT: ${{ steps.documented-publish.outputs.result-json }}
+          EXIT_CODE: ${{ steps.documented-publish.outputs.exit-code }}
+        run: |
+          $result = $env:RESULT | ConvertFrom-Json
+          if ($env:EXIT_CODE -ne '0' -or -not $result.approved -or -not $result.run.completed -or
+              $result.plan.planId -cne $result.run.planId -or $result.run.targets[0].state -ne 'PUBLISHED') {
+            throw 'README Action did not execute the approved fixture publication'
+          }
       - name: Verify post-upload Action summary safety
         shell: pwsh
         run: |

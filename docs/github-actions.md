@@ -18,7 +18,7 @@ jobs:
       recovery: ${{ steps.publish.outputs.recovery-artifact-id }}
     steps:
       - uses: actions/checkout@v7
-      - uses: aalsanie/distroplane@main
+      - uses: aalsanie/distroplane@da450287c9ebb2c566a815a105dcb59c5ead8610 # reviewed recovery interface
         id: publish
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -34,7 +34,7 @@ jobs:
     if: needs.publish.outputs.pending == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: aalsanie/distroplane@main
+      - uses: aalsanie/distroplane@da450287c9ebb2c566a815a105dcb59c5ead8610 # reviewed recovery interface
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
@@ -48,7 +48,7 @@ jobs:
           credential-mappings: npm-publish=NPM_TOKEN
 ```
 
-Build your artifact **before** this step. In production, pin `uses:` to a reviewed commit SHA; the current Action interface is not included in the older release tags. Use a published CLI release supporting `publish`, `runs` and `resume`; the version pins must match a compatible release. `approve: 'true'` authorizes real publication.
+Build your artifact **before** this step. The recovery example pins the reviewed source Action because the schema-2 handoff inputs are not in the v0.9.3 Action tag. The CLI version is pinned separately. `approve: 'true'` authorizes real publication.
 
 ## Pending releases
 
