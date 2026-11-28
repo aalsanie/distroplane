@@ -34,4 +34,6 @@ The planning fixture excludes real hashing, subprocesses, and operation-DAG cons
 
 ## Reviewable comparisons
 
-CI records benchmark stdout, runner OS/CPU/Go version, CLI workflow timings, and `performance-comparison.json` in a `performance-evidence` artifact. The comparator in `scripts/compare-benchmarks.py` verifies that critical benchmark names are present; it flags values exceeding twice the historical baseline for investigation. A flag is not a service-level failure, and the absence of a flag is not a regression waiver. Cross-runner differences require hardware and variance review before accepting a new production baseline.
+The [benchmark job](../.github/workflows/ci.yml) records source revision, runner and toolchain, raw timings, allocations, peak heap/goroutines, native release binary sizes, and a same-runner historical journal replay comparison in `performance-evidence`. The comparator flags timings above twice the reference for review; this is advisory, not an SLA.
+
+[CI run 46111876273](https://github.com/aalsanie/distroplane/actions/runs/46111876273) on Go 1.27.3 / AMD EPYC 9V74 measured 819 ms for 100,000 journal events (3.49× the historical 235 ms on Intel Xeon). Replay now validates duplicate JSON keys, including nested evidence; the older reader did not. Preserve that validation. Use the paired comparison to separate reader cost from runner differences before adopting a new baseline.

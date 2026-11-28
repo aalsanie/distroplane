@@ -10,6 +10,19 @@ import (
 )
 
 func Normalize(raw []byte) ([]byte, error) {
+	value, err := parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
+}
+
+func Validate(raw []byte) error {
+	_, err := parse(raw)
+	return err
+}
+
+func parse(raw []byte) (any, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("JSON value is empty")
 	}
@@ -28,7 +41,7 @@ func Normalize(raw []byte) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("trailing JSON data: %w", err)
 	}
-	return json.Marshal(value)
+	return value, nil
 }
 
 func decodeValue(decoder *json.Decoder) (any, error) {

@@ -327,11 +327,12 @@ jobs:
     if: needs.authorize.result == 'success'
     name: Benchmark record
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -341,11 +342,16 @@ jobs:
       - name: Record benchmark environment
         shell: bash
         run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           {
+            git rev-parse HEAD
+            cat /etc/os-release
             uname -a
             go version
-            printf 'CPU: '
-            lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2; exit}'
+            go env -json GOOS GOARCH GOAMD64 CGO_ENABLED GOFLAGS
+            lscpu
+            free -b
           } | tee "$RUNNER_TEMP/performance-env.txt"
       - name: CLI startup
         shell: bash
@@ -376,7 +382,35 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceOneHundredThousandEvents)$' -benchmem -benchtime=3x | tee -a "$RUNNER_TEMP/performance-bench.txt"
+          go test ./internal/journal -run '^$' -bench '^(BenchmarkWriterAppend|BenchmarkReadTenThousandEvents|BenchmarkReadOneHundredThousandEvents|BenchmarkReduceTenThousandEvents|BenchmarkReduceOneHundredThousandEvents)$' -benchmem -benchtime=3x -count=3 | tee -a "$RUNNER_TEMP/performance-bench.txt"
+      - name: Same-runner historical journal replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference="$(mktemp -d)"
+          trap 'git worktree remove --force "$reference"' EXIT
+          git worktree add --detach "$reference" 47e40cbc21605c7ddaa84fe62a8535b52f789eea
+          (
+            cd "$reference"
+            go test ./internal/journal -run '^$' -bench '^BenchmarkReadOneHundredThousandEvents$' -benchmem -benchtime=3x -count=3
+          ) | tee "$RUNNER_TEMP/performance-reference.txt"
+      - name: Record native release binary sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat VERSION)"
+          commit="$(git rev-parse --short=12 HEAD)"
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          for name in distroplane distroplane-provider-npm distroplane-provider-sdkman distroplane-provider-homebrew distroplane-provider-winget; do
+            flags="-s -w -X main.version=$version"
+            if [[ "$name" == distroplane ]]; then
+              flags="$flags -X main.commit=$commit -X main.buildDate=1970-01-01T00:00:00Z"
+            fi
+            CGO_ENABLED=0 go build -trimpath -ldflags "$flags" -o "$directory/$name" "./cmd/$name"
+            test -s "$directory/$name"
+            printf '%s %s\n' "$name" "$(wc -c < "$directory/$name")"
+          done | tee "$RUNNER_TEMP/performance-sizes.txt"
       - name: Provider process startup
         shell: bash
         run: |
@@ -389,7 +423,10 @@ jobs:
           ./scripts/measure-cli-flow.sh 2>&1 | tee "$RUNNER_TEMP/performance-flow.txt"
       - name: Compare benchmark evidence against historical baseline
         run: |
-          python3 scripts/compare-benchmarks.py --input "$RUNNER_TEMP/performance-bench.txt" --output "$RUNNER_TEMP/performance-comparison.json" --commit "$GITHUB_SHA" --environment "$RUNNER_TEMP/performance-env.txt"
+          python3 scripts/compare-benchmarks.py --input "$RUNNER_TEMP/performance-bench.txt" \
+            --reference-input "$RUNNER_TEMP/performance-reference.txt" \
+            --binary-sizes "$RUNNER_TEMP/performance-sizes.txt" \
+            --output "$RUNNER_TEMP/performance-comparison.json" --commit "$GITHUB_SHA" --environment "$RUNNER_TEMP/performance-env.txt"
       - name: Upload reviewable performance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -420,6 +457,15 @@ jobs:
           cache: false
       - name: Test
         run: go test ./...
+      - name: Record native recovery package coverage
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $profile = Join-Path $env:RUNNER_TEMP 'windows-recovery-coverage.out'
+          go test -count=1 -covermode=atomic "-coverprofile=$profile" ./internal/providerretention ./internal/runstate
+          if ($LASTEXITCODE -ne 0) { throw 'Native recovery coverage tests failed' }
+          go tool cover "-func=$profile"
+          if ($LASTEXITCODE -ne 0) { throw 'Native coverage profile unreadable' }
       - name: Native provider execution race tests
         if: runner.os == 'Windows'
         env:
@@ -789,6 +835,8 @@ jobs:
           gradle = needs["preflight"]["outputs"].get("gradle")
           if any(value not in ("true", "false") for value in (expensive, maven, gradle)):
               sys.exit("Invalid change classification")
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and (expensive, maven, gradle) != ("true", "true", "true"):
+              sys.exit("Manual full CI requires all checks")
           if expensive == "false" and (maven != "false" or gradle != "false"):
               sys.exit("Integration checks cannot run on a trivial-only change")
 

@@ -32,6 +32,9 @@ func TestNormalizeRejectsInvalidInputs(t *testing.T) {
 		if _, err := Normalize(input); err == nil {
 			t.Fatalf("expected error for %q", input)
 		}
+		if err := Validate(input); err == nil {
+			t.Fatalf("validation accepted %q", input)
+		}
 	}
 }
 
@@ -58,11 +61,18 @@ func FuzzNormalize(f *testing.F) {
 		[]byte(`{"b":2,"a":1}`),
 		[]byte(`[1,true,null,"x"]`),
 		[]byte(`{"nested":{"z":0,"a":[]}}`),
+		[]byte(`{"nested":{"a":0,"\u0061":1}}`),
+		[]byte(`{"list":[{"x":1,"x":2}]}`),
+		{0xff},
 	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		first, err := Normalize(raw)
+		validationErr := Validate(raw)
+		if (err == nil) != (validationErr == nil) {
+			t.Fatalf("validation and normalization disagree: %v / %v", validationErr, err)
+		}
 		if err != nil {
 			return
 		}

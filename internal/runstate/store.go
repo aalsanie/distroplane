@@ -220,6 +220,10 @@ func directorySync(dir string) error {
 }
 
 func install(dir, name string, value entry) (bool, error) {
+	return installWith(dir, name, value, directorySync)
+}
+
+func installWith(dir, name string, value entry, syncDir func(string) error) (bool, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return false, err
@@ -254,9 +258,9 @@ func install(dir, name string, value entry) (bool, error) {
 		if previous != value {
 			return false, fmt.Errorf("%w: %s", ErrConflict, target)
 		}
-		return false, nil
+		return false, syncDir(dir)
 	}
-	if err := directorySync(dir); err != nil {
+	if err := syncDir(dir); err != nil {
 		return true, err
 	}
 	return true, nil

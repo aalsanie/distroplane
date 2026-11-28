@@ -4,16 +4,18 @@ Core safety invariant: **an operation whose side effect may have been dispatched
 
 ## Tested failure boundaries
 
-| Boundary | Validation |
-| --- | --- |
-| Pre-dispatch preparation | Missing credentials remain `BLOCKED`; restoration resumes the same plan/journal without spending the publication retry budget |
-| Post-dispatch uncertainty | Provider crash, timeout, cancellation, lost response, and ambiguous npm publication require reconciliation rather than an automatic republish |
-| Durable state | Truncated tail recovery; complete-record corruption rejection; concurrent writer locking; disk/write/sync failure cases |
-| Immutable intent | Changed artifacts or provider binaries, tampered plans, and cross-plan journal replay are rejected |
-| Executor scheduling | Dependency ordering, bounded concurrency, lease behavior, cancellation, and quiescence |
-| Protocol and subprocesses | Message/output size limits, process termination, credentials, and response validation |
+| Boundary | Required recovery | Regression tests |
+| --- | --- | --- |
+| Plan save, directory sync | No partial plan or unconfirmed save; retry identical bytes | `TestStoreErrors`, `TestStoreRetriesUncertainDirectorySync` |
+| Claim before journal creation | Preserve reservation; reject replacement | `TestCatalogClaimProcessCrash`, `TestCatalogClaimDirectorySyncFailurePreservesReservation` |
+| Journal append/sync, tail, lock | Poison failed writer; recover partial tail only; reject complete corruption | `TestWriterPoisonsAfterPartialWriteOrSyncFailure`, `TestWriterRecoversTruncatedTailAndResumesSequence`, `TestWriterLockReleasedAfterForcedProcessExit`, `TestReadRejectsCorruption` |
+| Credentials, preparation, process start | No dispatch on missing prerequisite or failed permission | `TestPreparationFailureDoesNotDispatch`, `TestExecuteRecoversProviderStartBeforeDispatch`, `TestExecutorAbortsApplyOnDispatchJournalFailure` |
+| Lease acquire/renew/expire | One authority; observe expired dispatched attempt | `TestExecuteLeaseContentionDoesNotStartAttempt`, `TestExecuteRenewsLongRunningLease`, `TestExpiredLeaseAfterDispatchReconcilesWithoutReapply` |
+| External effect, response, observation/result | Reconcile original attempt; never republish on uncertainty | `TestExecuteRecoversDispatchedAttemptByReconciling`, `TestExecuteRecoversEveryInterruptedObservationBoundary` |
+| Completion | No new attempt | `TestExecuteResumeCompletedRunIsNoop` |
+| Changed intent, inaccessible retained state | Reject mutation; preserve original identity | `TestPublishApprovalRefusesChangesAfterPreview`, `TestResolveRejectsTamperedAndMissingProviderSnapshots`, `TestWindowsRetainedProviderSharingViolations`, `TestWindowsCatalogSharingViolationsPreserveOriginalRun` |
 
-CI includes Linux/macOS/Windows tests and builds, race detection, fuzz smoke tests, provider integration tests, and GitHub Action smoke tests. Scale fixtures cover 1,000 targets, 10,000 operations, and 100,000 journal events; these are test workloads, not supported service-level guarantees.
+For full candidate qualification, dispatch the CI workflow on the candidate ref and approve its existing environment gate. All jobs, including both Java adapter matrices, must pass; path-filtered skips do not qualify a release. Windows recovery coverage is recorded separately from the required Linux statement, line and branch gates.
 
 ## Operational limits
 
