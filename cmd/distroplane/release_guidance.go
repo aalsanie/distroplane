@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -238,12 +239,29 @@ func (a releaseAssessment) next(output stateOutput, s stateTextSelection) string
 	}
 }
 
+func (s stateTextSelection) recoveryError(err error) error {
+	detail := fmt.Errorf("%w; original plan %q, journal %q", err, s.planPath, s.journalPath)
+	if command := s.command("status"); command != "" {
+		return fmt.Errorf("%w; inspect the recorded run with %s", detail, command)
+	}
+	return detail
+}
+
 func writeStateTextWithSelection(w io.Writer, output stateOutput, selection stateTextSelection) {
 	assessment := assessRelease(output)
 	fmt.Fprintf(w, "run %s\nplan %s\ncompleted %t\n", safeDisplay(output.RunID), safeDisplay(output.PlanID), output.Completed)
 	fmt.Fprintf(w, "outcome %s\n", assessment.label(output))
 	fmt.Fprintf(w, "publication may already exist (recorded run): %t\n", assessment.mayExist)
 	fmt.Fprintln(w, "evidence: recorded snapshot, not fresh external verification")
+	if selection.planPath != "" && selection.journalPath != "" {
+		fmt.Fprintf(w, "original plan %s\noriginal journal %s\n", safeDisplay(selection.planPath), safeDisplay(selection.journalPath))
+		if selection.configPath != "" {
+			fmt.Fprintf(w, "state directory %s\n", safeDisplay(filepath.Join(filepath.Dir(selection.configPath), ".distroplane")))
+		}
+		if !output.Completed {
+			fmt.Fprintln(w, "Retain the original artifacts (including the npm archive), configuration, catalog and retained providers.")
+		}
+	}
 	for _, target := range output.Targets {
 		fmt.Fprintf(w, "target %s %s", safeDisplay(target.ID), safeDisplay(target.State))
 		if target.ReconcileRequired {

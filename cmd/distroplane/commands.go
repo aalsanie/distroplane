@@ -237,9 +237,16 @@ func runExecutionContextWithApproval(ctx context.Context, args []string, stdout,
 	if concurrency < 0 {
 		return writeCommandError(stderr, jsonMode, exitUsage, "usage", fmt.Errorf("--concurrency must be zero or greater"))
 	}
+	selection := stateTextSelection{
+		configPath: configPath, planPath: planPath, journalPath: journalPath,
+		runID: requestedRun, catalog: catalogSelected && requestedRun != "",
+	}
+	fail := func(code int, kind string, err error) int {
+		return writeCommandError(stderr, jsonMode, code, kind, selection.recoveryError(err))
+	}
 	persisted, err := planner.Load(planPath)
 	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
+		return fail(exitInvalid, "invalid_plan", err)
 	}
 	if approved != nil {
 		raw, err := persisted.Bytes()
@@ -248,11 +255,11 @@ func runExecutionContextWithApproval(ctx context.Context, args []string, stdout,
 		}
 	}
 	if err := persisted.VerifyProviderDigests(); err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_plan", err)
+		return fail(exitInvalid, "invalid_plan", err)
 	}
 	if !reconcileOnly {
 		if err := planner.VerifyArtifacts(persisted.Plan(), nil); err != nil {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "artifact_changed", err)
+			return fail(exitInvalid, "artifact_changed", err)
 		}
 	}
 	loaded, err := official.Load(configPath)
@@ -264,29 +271,31 @@ func runExecutionContextWithApproval(ctx context.Context, args []string, stdout,
 	}
 	driver, err := executionDriverWithDigests(loaded, persisted.Plan(), persisted.ProviderDigests(), credentialMap)
 	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitOperational, "provider_binding_failed", err)
+		return fail(exitOperational, "provider_binding_failed", err)
 	}
 	runID, err := resolveRunID(journalPath, requestedRun, !reconcileOnly)
 	if err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "invalid_run", err)
+		return fail(exitInvalid, "invalid_run", err)
 	}
+	selection.runID = string(runID)
+	selection.catalog = catalogSelected
 	if err := checkExecutionHistory(persisted.Plan(), journalPath); err != nil {
 		if errors.Is(err, journal.ErrLegacyRetryPending) {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
+			return fail(exitInvalid, "legacy_retry_pending", err)
 		}
-		return writeCommandError(stderr, jsonMode, exitInvalid, "journal_reduce_failed", err)
+		return fail(exitInvalid, "journal_reduce_failed", err)
 	}
 	// Reserve the immutable plan/run/journal binding before any provider
 	// process is allowed to dispatch an irreversible side effect.
 	if err := (runstate.Store{Root: filepath.Join(loaded.BaseDir, ".distroplane")}).ClaimRun(planPath, journalPath, runID); err != nil {
-		return writeCommandError(stderr, jsonMode, exitInvalid, "run_catalog_conflict", err)
+		return fail(exitInvalid, "run_catalog_conflict", err)
 	}
 	writer, err := journal.OpenWriterForExecution(journalPath, runID, persisted.Plan())
 	if err != nil {
 		if errors.Is(err, journal.ErrLegacyRetryPending) {
-			return writeCommandError(stderr, jsonMode, exitInvalid, "legacy_retry_pending", err)
+			return fail(exitInvalid, "legacy_retry_pending", err)
 		}
-		return writeCommandError(stderr, jsonMode, exitOperational, "journal_open_failed", err)
+		return fail(exitOperational, "journal_open_failed", err)
 	}
 	engine, err := executor.New(driver, executor.Options{ReconcileOnly: reconcileOnly, MaxConcurrency: concurrency})
 	if err != nil {
@@ -296,10 +305,10 @@ func runExecutionContextWithApproval(ctx context.Context, args []string, stdout,
 	state, executeErr := engine.Execute(ctx, persisted.Plan(), runID, writer)
 	closeErr := writer.Close()
 	if executeErr != nil {
-		return writeCommandError(stderr, jsonMode, exitOperational, "execution_failed", executeErr)
+		return fail(exitOperational, "execution_failed", executeErr)
 	}
 	if closeErr != nil {
-		return writeCommandError(stderr, jsonMode, exitOperational, "journal_close_failed", closeErr)
+		return fail(exitOperational, "journal_close_failed", closeErr)
 	}
 	output := stateView(persisted.Plan(), state, false)
 	code := stateExit(state)
