@@ -41,21 +41,21 @@ Do not delete `.distroplane/` while a release may still need recovery.
 
 ## Maven plugin
 
-Add the [published Maven plugin](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin/1.0.0) to `<build><plugins>` in your `pom.xml`:
+Add the [published Maven plugin](https://central.sonatype.com/artifact/io.github.aalsanie/distroplane-maven-plugin/1.0.1) to `<build><plugins>` in your `pom.xml`:
 
 ```xml
 <plugin>
   <groupId>io.github.aalsanie</groupId>
   <artifactId>distroplane-maven-plugin</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <configuration>
-    <cliVersion>0.9.2</cliVersion>
+    <cliVersion>0.9.3</cliVersion>
     <config>distroplane.json</config>
   </configuration>
 </plugin>
 ```
 
-With a prebuilt artifact and `distroplane.json`, run `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.0:plan` to review a release. [Maven usage](maven-plugin/README.md).
+With a prebuilt artifact and `distroplane.json`, run `mvn io.github.aalsanie:distroplane-maven-plugin:1.0.1:plan` to review a release. [Maven usage](maven-plugin/README.md).
 
 ## GitHub Action
 

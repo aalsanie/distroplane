@@ -99,7 +99,8 @@ final class CliBootstrapSecurityTest {
     }
 
     @Test void extractsLinuxTarAndVerifiesEveryOfflineExecutable() throws Exception {
-        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
+            "Requires POSIX permissions or symlink support; exercised on Linux and macOS");
         Pack p = pack(LINUX, meta -> {}, null, null, false, false);
         Path cli = bootstrap(p).resolve(temp, VERSION, LINUX, false, null);
         assertTrue(Files.isExecutable(cli));
@@ -113,7 +114,8 @@ final class CliBootstrapSecurityTest {
     }
 
     @Test void rejectsUnsafeTarEntryModesAndDirectoryTypes() throws Exception {
-        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
+            "Requires POSIX permissions or symlink support; exercised on Linux and macOS");
         assertThrows(IOException.class, () -> bootstrap(pack(LINUX, m -> {}, null, null, true, false))
             .resolve(temp.resolve("mode"), VERSION, LINUX, false, null));
         assertThrows(IOException.class, () -> bootstrap(pack(LINUX, m -> {}, null, null, false, true))
@@ -303,7 +305,8 @@ final class CliBootstrapSecurityTest {
     }
 
     @Test void refusesCachedLinuxExecutableWithoutExecutePermission() throws Exception {
-        if (System.getProperty("os.name").toLowerCase().contains("win")) return;
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win"),
+            "Requires POSIX permissions or symlink support; exercised on Linux and macOS");
         Pack valid = pack(LINUX, m -> {}, null, null, false, false);
         Path cache = temp.resolve("linux-executable-check");
         Path cli = bootstrap(valid).resolve(cache, VERSION, LINUX, false, valid.hash());

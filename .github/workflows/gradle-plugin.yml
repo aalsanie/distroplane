@@ -47,6 +47,7 @@ jobs:
           go build -o $native ./maven-plugin/it/fixture-cli/main.go
           if ($LASTEXITCODE -ne 0) { throw 'Native fixture build failed' }
           "DISTROPLANE_FIXTURE_BINARY=$native" | Out-File -FilePath $env:GITHUB_ENV -Append
+          'DISTROPLANE_UNAPPROVED_CANARY=unapproved-fixture-value' | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Verify plugin tests
         run: gradle -p gradle-plugin clean test --no-daemon --stacktrace
       - name: Enforce strict line and branch coverage

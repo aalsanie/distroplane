@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type state struct {
 	RunID     string `json:"runId"`
 	Attempts  int    `json:"attempts"`
 	Completed bool   `json:"completed"`
+	Failed    bool   `json:"failed,omitempty"`
 }
 
 func emit(value any) {
@@ -42,6 +44,10 @@ func main() {
 		fail("INVALID_ARGUMENT", "", 2)
 	}
 	command := os.Args[1]
+	if command == "fixture-process" {
+		processFixture()
+		return
+	}
 	if command == "version" {
 		emit(map[string]any{"outputSchemaVersion": schema, "version": "0.9.3"})
 		return
@@ -54,6 +60,17 @@ func main() {
 	dir, err := os.Getwd()
 	if err != nil {
 		fail("INVALID_CONFIG", "", 3)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".fixture-trace")); err == nil {
+		file, err := os.OpenFile(filepath.Join(dir, ".fixture-cli-invocations"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			fail("STATE_CORRUPT", "", 3)
+		}
+		_, err = fmt.Fprintln(file, command)
+		closeErr := file.Close()
+		if err != nil || closeErr != nil {
+			fail("STATE_CORRUPT", "", 3)
+		}
 	}
 	stateDir := filepath.Join(dir, ".distroplane")
 	stateFile := filepath.Join(stateDir, "fixture-run.json")
@@ -85,7 +102,9 @@ func main() {
 	}
 	run := func(s state) any {
 		result := "PUBLISHED"
-		if !s.Completed {
+		if s.Failed {
+			result = "FAILED"
+		} else if !s.Completed {
 			result = "WAITING_EXTERNAL"
 		}
 		return map[string]any{
@@ -177,6 +196,13 @@ func main() {
 			time.Sleep(30 * time.Second)
 			return
 		}
+		if _, err := os.Stat(filepath.Join(dir, ".fixture-failed")); err == nil {
+			s.Failed = true
+			s.Completed = true
+			write(s)
+			output(s, true)
+			os.Exit(6)
+		}
 		if _, err := os.Stat(filepath.Join(dir, ".fixture-pending")); err == nil {
 			output(s, true)
 			os.Exit(4)
@@ -188,6 +214,10 @@ func main() {
 		s, ok := read()
 		if !ok {
 			fail("STATE_CORRUPT", "", 3)
+		}
+		if s.Failed {
+			output(s, false)
+			os.Exit(6)
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".fixture-pending")); err == nil {
 			output(s, false)
@@ -202,10 +232,79 @@ func main() {
 			fail("STATE_CORRUPT", "", 3)
 		}
 		output(s, false)
+		if s.Failed {
+			os.Exit(6)
+		}
 		if !s.Completed {
 			os.Exit(4)
 		}
 	default:
 		fail("INVALID_ARGUMENT", "", 2)
+	}
+}
+
+func processFixture() {
+	if len(os.Args) != 3 {
+		os.Exit(2)
+	}
+	switch os.Args[2] {
+	case "environment":
+		if os.Getenv("ALLOWED_SECRET") != "secret-canary" || os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("DISTROPLANE_UNAPPROVED_CANARY") != "" {
+			os.Exit(14)
+		}
+		fmt.Println("passed")
+	case "stdout-secret":
+		fmt.Println(os.Getenv("ALLOWED_SECRET"))
+	case "stderr-secret":
+		fmt.Fprintln(os.Stderr, os.Getenv("ALLOWED_SECRET"))
+	case "channels":
+		fmt.Println(`{"outputSchemaVersion":"1"}`)
+		fmt.Fprintln(os.Stderr, "UNTRUSTED-PROVIDER-CONTENT")
+		os.Exit(3)
+	case "stdout-limit":
+		fmt.Print(strings.Repeat("x", 4<<20))
+	case "stderr-limit":
+		fmt.Fprint(os.Stderr, strings.Repeat("x", 1<<20))
+	case "stdout-overflow":
+		fmt.Print(strings.Repeat("x", (4<<20)+1))
+	case "stderr-overflow":
+		fmt.Fprint(os.Stderr, strings.Repeat("x", (1<<20)+1))
+	case "pending":
+		file, err := os.OpenFile("fixture-invocations", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			os.Exit(2)
+		}
+		_, err = fmt.Fprintln(file, "pending")
+		closeErr := file.Close()
+		if err != nil || closeErr != nil {
+			os.Exit(2)
+		}
+		os.Exit(4)
+	case "descendant":
+		executable, err := os.Executable()
+		if err != nil {
+			os.Exit(2)
+		}
+		child := exec.Command(executable, "fixture-process", "child")
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile("fixture-pids.tmp", []byte(fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)), 0600); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		if err := os.Rename("fixture-pids.tmp", "fixture-pids"); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		_ = child.Wait()
+	case "child":
+		time.Sleep(60 * time.Second)
+	case "ok":
+		fmt.Println("ok")
+	default:
+		os.Exit(2)
 	}
 }

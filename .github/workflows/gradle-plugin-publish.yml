@@ -85,6 +85,17 @@ jobs:
         with:
           gradle-version: '8.14.6'
           cache-provider: basic
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build native fixture for adapter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/distroplane-adapter-fixture" ./maven-plugin/it/fixture-cli/main.go
+          echo "DISTROPLANE_FIXTURE_BINARY=$RUNNER_TEMP/distroplane-adapter-fixture" >> "$GITHUB_ENV"
+          echo "DISTROPLANE_UNAPPROVED_CANARY=unapproved-fixture-value" >> "$GITHUB_ENV"
       - name: Verify tests and strict coverage without publishing
         env:
           DISTROPLANE_GRADLE_PLUGIN_VERSION: ${{ inputs.version }}

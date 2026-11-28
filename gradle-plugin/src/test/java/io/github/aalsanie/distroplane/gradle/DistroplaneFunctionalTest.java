@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** Executes actual isolated Gradle builds against the native nonpublishing fixture. */
 final class DistroplaneFunctionalTest {
@@ -32,10 +31,16 @@ final class DistroplaneFunctionalTest {
     static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach void setup() throws Exception {
-        project = Files.createDirectories(temp.resolve("project")).toRealPath();
+        project = Files.createDirectories(temp.resolve("project with spaces")).toRealPath();
         Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'distroplane-test'\n");
         Files.writeString(project.resolve("build.gradle"), "plugins { id 'io.github.aalsanie.distroplane' }\n");
-        fixture = Path.of(System.getenv().getOrDefault("DISTROPLANE_FIXTURE_BINARY", ""));
+        fixture = NativeFixture.binary();
+        Files.createFile(project.resolve(".fixture-trace"));
+    }
+
+    private List<String> invocations() throws IOException {
+        Path trace = project.resolve(".fixture-cli-invocations");
+        return Files.exists(trace) ? Files.readAllLines(trace) : List.of();
     }
 
     private void configure(String content) throws IOException {
@@ -54,7 +59,6 @@ final class DistroplaneFunctionalTest {
     }
 
     private void cacheFixture() throws Exception {
-        assumeTrue(Files.isRegularFile(fixture), "Controlled CLI fixture must be built by CI");
         var p = CliBootstrap.Platform.current(System.getProperty("os.name"), System.getProperty("os.arch"));
         Path root = gradleHome.resolve("distroplane/cli/0.9.3/" + p.os() + "-" + p.arch() + "/sha256-" + pin);
         Files.createDirectories(root.resolve("bin"));
@@ -96,6 +100,7 @@ final class DistroplaneFunctionalTest {
         for (String name : List.of("distroplaneInit", "distroplaneValidate", "distroplanePlan",
             "distroplanePublish", "distroplaneStatus", "distroplaneResume", "distroplaneDoctor")) assertTrue(tasks.getOutput().contains(name));
         run(true, "help");
+        assertTrue(invocations().isEmpty());
         assertFalse(Files.exists(project.resolve(".distroplane")));
     }
 
@@ -158,6 +163,23 @@ final class DistroplaneFunctionalTest {
         assertArrayEquals(original, Files.readAllBytes(stateFile));
     }
 
+    @Test void propagatesTerminalFailureWithoutReplacementPublication() throws Exception {
+        cacheFixture();
+        configure("approve = true");
+        Files.writeString(project.resolve("distroplane.json"), config());
+        Files.createFile(project.resolve(".fixture-failed"));
+        String failed = run(false, "distroplanePublish").getOutput();
+        assertTrue(failed.contains("exited with code 6"));
+        assertTrue(failed.contains("failed or cancelled"));
+        Path recorded = project.resolve(".distroplane/fixture-run.json");
+        byte[] before = Files.readAllBytes(recorded);
+        assertTrue(JSON.readTree(before).path("failed").asBoolean());
+        for (String task : List.of("distroplaneStatus", "distroplaneResume", "distroplanePublish")) {
+            run(false, task);
+            assertArrayEquals(before, Files.readAllBytes(recorded));
+        }
+    }
+
     @Test void refusesUnapprovedPublicationAndMismatchedApprovalOptions() throws Exception {
         cacheFixture();
         Files.writeString(project.resolve("distroplane.json"), config());
@@ -166,8 +188,10 @@ final class DistroplaneFunctionalTest {
         assertFalse(Files.exists(project.resolve(".distroplane")));
         configure("approve = true; confirmPlan = 'fixture-plan'");
         assertTrue(run(false, "distroplanePublish").getOutput().contains("Select exactly one"));
+        assertTrue(invocations().isEmpty());
         configure("confirmPlan = 'fixture-plan'");
         run(true, "distroplanePublish");
+        assertEquals(List.of("publish"), invocations());
         assertTrue(Files.isRegularFile(project.resolve(".distroplane/fixture-run.json")));
     }
 
@@ -186,7 +210,12 @@ final class DistroplaneFunctionalTest {
         var p = CliBootstrap.Platform.current(System.getProperty("os.name"), System.getProperty("os.arch"));
         Path cli = gradleHome.resolve("distroplane/cli/0.9.3/" + p.os() + "-" + p.arch() + "/sha256-" + pin).resolve(p.cli());
         Files.writeString(cli, "CORRUPTED", java.nio.file.StandardOpenOption.APPEND);
+        List<String> before = invocations();
+        byte[] recorded = Files.readAllBytes(project.resolve(".distroplane/fixture-run.json"));
         assertTrue(run(false, "distroplaneValidate").getOutput().contains("corrupt"));
+        assertTrue(run(false, "distroplanePublish").getOutput().contains("corrupt"));
+        assertEquals(before, invocations());
+        assertArrayEquals(recorded, Files.readAllBytes(project.resolve(".distroplane/fixture-run.json")));
     }
 
     @Test void mapsExactArchiveTasksWithoutModifyingSourceConfiguration() throws Exception {
@@ -198,23 +227,51 @@ final class DistroplaneFunctionalTest {
         Files.writeString(project.resolve("build.gradle"),
             "plugins { id 'io.github.aalsanie.distroplane' }\n" +
             "subprojects { apply plugin: 'java' }\n" +
-            "distroplane { archiveSha256 = '" + pin + "'; artifactTasks.put('app', ':alpha:jar'); artifactTasks.put('src', ':beta:jar') }\n");
+            "distroplane { approve = true; archiveSha256 = '" + pin + "'; artifactTasks.put('app', ':alpha:jar'); artifactTasks.put('src', ':beta:jar') }\n");
         String raw = """
             {"schemaVersion":"2","release":{"id":"fixture","artifacts":{
             "app":{"source":"original-a.jar"},"src":{"source":"original-b.jar"},"unmapped":{"source":"untouched.txt"}}},
             "destinations":{}}
             """;
-        Files.writeString(project.resolve("distroplane.json"), raw);
+        Path configDirectory = Files.createDirectory(project.resolve("release configuration"));
+        Path source = configDirectory.resolve("distroplane.json");
+        Files.writeString(source, raw);
+        Files.writeString(project.resolve("build.gradle"), "\ndistroplane { config = 'release configuration/distroplane.json' }\n",
+            java.nio.file.StandardOpenOption.APPEND);
+        assertTrue(run(false, "distroplanePublish").getOutput().contains("has not been packaged"));
+        assertTrue(invocations().isEmpty());
+        assertFalse(Files.exists(project.resolve("alpha/build/libs")));
+        assertFalse(Files.exists(project.resolve(".distroplane")));
+        assertFalse(Files.exists(project.resolve(".distroplane-gradle")));
         run(true, ":alpha:jar", ":beta:jar");
+        assertTrue(invocations().isEmpty());
         run(true, "distroplaneValidate");
+        assertEquals(List.of("validate"), invocations());
         var mapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
         assertTrue(Path.of(mapped.path("release").path("artifacts").path("app").path("source").asText()).toFile().isFile());
         assertTrue(Path.of(mapped.path("release").path("artifacts").path("src").path("source").asText()).toFile().isFile());
-        assertEquals(project.resolve("untouched.txt").toString(),
+        assertEquals(configDirectory.resolve("untouched.txt").toString(),
             mapped.path("release").path("artifacts").path("unmapped").path("source").asText());
-        assertEquals(raw, Files.readString(project.resolve("distroplane.json")));
+        assertEquals(raw, Files.readString(source));
         Files.delete(Path.of(mapped.path("release").path("artifacts").path("app").path("source").asText()));
-        assertTrue(run(false, "distroplanePlan").getOutput().contains("has not been packaged"));
+        assertTrue(run(false, "distroplanePublish").getOutput().contains("has not been packaged"));
+        assertEquals(List.of("validate"), invocations());
+        run(true, ":alpha:jar");
+        String legacy = """
+            {"schemaVersion":"1","release":{"id":"fixture","artifacts":[
+            {"name":"app","source":"original-a.jar"},{"name":"src","source":"original-b.jar"},
+            {"name":"unmapped","source":"untouched.txt"}]},"targets":[]}
+            """;
+        Files.writeString(source, legacy);
+        run(true, "distroplaneValidate");
+        var legacyMapped = JSON.readTree(Files.readAllBytes(project.resolve(".distroplane-gradle/distroplane.json")));
+        assertTrue(Files.isRegularFile(Path.of(legacyMapped.path("release").path("artifacts").get(0).path("source").asText())));
+        assertEquals(configDirectory.resolve("untouched.txt").toString(),
+            legacyMapped.path("release").path("artifacts").get(2).path("source").asText());
+        assertEquals(legacy, Files.readString(source));
+        assertEquals(List.of("validate", "validate"), invocations());
+        assertFalse(Files.exists(project.resolve(".distroplane")));
+        assertFalse(Files.exists(project.resolve(".distroplane-gradle/.distroplane")));
     }
 
     @Test void rejectsInvalidTasksAndPathsBeforeStartingCli() throws Exception {
