@@ -14,6 +14,10 @@ type Store struct {
 }
 
 func (s Store) Save(plan DistributionPlan) (string, error) {
+	return s.saveWith(plan, syncDirectory)
+}
+
+func (s Store) saveWith(plan DistributionPlan, syncDir func(string) error) (string, error) {
 	if strings.TrimSpace(s.Root) == "" {
 		return "", fmt.Errorf("store root must not be empty")
 	}
@@ -30,10 +34,16 @@ func (s Store) Save(plan DistributionPlan) (string, error) {
 		return "", err
 	}
 	final := filepath.Join(directory, string(plan.ID())+".json")
+	confirm := func() (string, error) {
+		if err := syncDir(directory); err != nil {
+			return "", err
+		}
+		return final, nil
+	}
 	if same, err := existingMatches(final, data); err != nil {
 		return "", err
 	} else if same {
-		return final, nil
+		return confirm()
 	}
 
 	temp, err := os.CreateTemp(directory, ".plan-*")
@@ -60,17 +70,14 @@ func (s Store) Save(plan DistributionPlan) (string, error) {
 
 	if err := os.Link(tempName, final); err != nil {
 		if same, existingErr := existingMatches(final, data); existingErr == nil && same {
-			return final, nil
+			return confirm()
 		}
 		if _, statErr := os.Stat(final); statErr == nil {
 			return "", fmt.Errorf("plan %q already exists with different content", plan.ID())
 		}
 		return "", fmt.Errorf("persist plan %q: %w", plan.ID(), err)
 	}
-	if err := syncDirectory(directory); err != nil {
-		return "", err
-	}
-	return final, nil
+	return confirm()
 }
 
 func existingMatches(path string, expected []byte) (bool, error) {

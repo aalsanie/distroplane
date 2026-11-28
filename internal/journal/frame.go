@@ -90,7 +90,7 @@ func decodeEvent(payload []byte) (Event, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return Event{}, fmt.Errorf("%w: trailing JSON data", ErrCorruptRecord)
 	}
-	if _, err := canonicaljson.Normalize(payload); err != nil {
+	if err := canonicaljson.Validate(payload); err != nil {
 		return Event{}, fmt.Errorf("%w: %v", ErrCorruptRecord, err)
 	}
 	if err := event.validate(); err != nil {
@@ -110,7 +110,7 @@ func encodeFrame(event Event) ([]byte, error) {
 	if len(payload) > MaxRecordBytes {
 		return nil, fmt.Errorf("journal record exceeds %d bytes", MaxRecordBytes)
 	}
-	if _, err := canonicaljson.Normalize(payload); err != nil {
+	if err := canonicaljson.Validate(payload); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCorruptRecord, err)
 	}
 	frame := make([]byte, frameHeaderBytes+len(payload))

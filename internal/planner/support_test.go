@@ -236,3 +236,47 @@ func TestBuildDomainRequirements(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreRetriesUncertainDirectorySync(t *testing.T) {
+	p := newPlanner(t, describe("1", protocol.CapabilityPlan), protocol.PlanResponse{}, mustDigest(t, '8'))
+	loaded := baseLoaded(t, baseConfig(`{"id":"a","provider":{"name":"fake"},"configuration":{}}`))
+	plan, err := p.Build(context.Background(), loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := Store{Root: t.TempDir()}
+	directory := filepath.Join(store.Root, "plans")
+	path := filepath.Join(directory, string(plan.ID())+".json")
+	want, err := plan.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("directory sync failed")
+	calls := 0
+	syncFailure := func(dir string) error {
+		calls++
+		if dir != directory {
+			t.Fatalf("sync directory=%q want=%q", dir, directory)
+		}
+		return failure
+	}
+	for range 2 {
+		if got, err := store.saveWith(plan, syncFailure); got != "" || !errors.Is(err, failure) {
+			t.Fatalf("uncertain save acknowledged: %q %v", got, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != string(want) {
+			t.Fatalf("uncertain save changed plan bytes: %v", err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("retry did not re-sync plan directory: calls=%d", calls)
+	}
+	if got, err := store.Save(plan); got != path || err != nil {
+		t.Fatalf("original plan recovery failed: %q %v", got, err)
+	}
+	files, err := os.ReadDir(directory)
+	if err != nil || len(files) != 1 || files[0].Name() != filepath.Base(path) {
+		t.Fatalf("temporary plan files survived: %v %v", files, err)
+	}
+}

@@ -64,3 +64,60 @@ func TestCatalogAmbiguousPlansFailClosed(t *testing.T) {
 		t.Fatalf("ambiguous plan chosen or no candidates displayed: %v", err)
 	}
 }
+
+func TestCatalogClaimDirectorySyncFailurePreservesReservation(t *testing.T) {
+	for _, stage := range []string{"backup", "primary"} {
+		t.Run(stage, func(t *testing.T) {
+			store, plan, id := fixturePlan(t, filepath.Join(t.TempDir(), "project"), "data")
+			planPath, err := canonicalFile(plan, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			journalPath, err := canonicalFile(filepath.Join(store.Root, "original.journal"), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := entry{SchemaVersion: schemaVersion, PlanID: string(id), PlanPath: planPath, RunID: "run-original", JournalPath: journalPath}
+			dir := filepath.Join(store.Root, "catalog", "runs")
+			name := key(string(id)) + ".backup"
+			if stage == "primary" {
+				if created, err := install(dir, name, claim); !created || err != nil {
+					t.Fatalf("backup claim: %t %v", created, err)
+				}
+				name = key(string(id))
+			}
+			failure := errors.New("catalog directory sync failed")
+			failSync := func(string) error { return failure }
+			if created, err := installWith(dir, name, claim, failSync); !created || !errors.Is(err, failure) {
+				t.Fatalf("installed but uncertain claim: %t %v", created, err)
+			}
+			if created, err := installWith(dir, name, claim, failSync); created || !errors.Is(err, failure) {
+				t.Fatalf("identical claim retry acknowledged without sync: %t %v", created, err)
+			}
+			records, err := store.Inventory()
+			if err != nil || len(records) != 1 || records[0].State != "RESERVED" || records[0].RunID != claim.RunID {
+				t.Fatalf("uncertain claim lost reservation: %+v %v", records, err)
+			}
+			alternate := filepath.Join(store.Root, "alternate.journal")
+			if err := store.ClaimRun(planPath, alternate, "run-alternate"); !errors.Is(err, ErrConflict) {
+				t.Fatalf("alternate run accepted: %v", err)
+			}
+			if _, err := os.Stat(alternate); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unexpected alternate journal: %v", err)
+			}
+			if err := store.ClaimRun(planPath, journalPath, "run-original"); err == nil {
+				t.Fatal("uncertain claim with missing journal was restarted")
+			}
+			startJournal(t, journalPath, "run-original", id)
+			if err := store.ClaimRun(planPath, journalPath, "run-original"); err != nil {
+				t.Fatalf("original durable journal not recovered: %v", err)
+			}
+			for _, name := range []string{key(string(id)), key(string(id)) + ".backup"} {
+				got, err := readEntry(filepath.Join(dir, name))
+				if err != nil || got != claim {
+					t.Fatalf("claim changed: %+v %v", got, err)
+				}
+			}
+		})
+	}
+}
