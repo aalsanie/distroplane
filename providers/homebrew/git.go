@@ -3,7 +3,6 @@ package homebrew
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -214,30 +213,40 @@ func (p Provider) commitAndPush(ctx context.Context, payload operationPayload, d
 		return "", fmt.Errorf("stage Homebrew manifest: %w", err)
 	}
 	status, err := runner.Run(ctx, work, env, "diff", "--cached", "--quiet", "--exit-code")
-	if err == nil {
-		current, revErr := runner.Run(ctx, work, env, "rev-parse", "HEAD")
-		if revErr != nil {
-			return "", revErr
+	if err != nil {
+		var exitErr gitExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+			return "", fmt.Errorf("inspect Homebrew manifest change: %s: %w", sanitizeGitOutput(status.Stderr, token), err)
 		}
-		return strings.TrimSpace(current.Stdout), nil
-	}
-	var exitErr gitExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
-		return "", fmt.Errorf("inspect Homebrew manifest change: %s: %w", sanitizeGitOutput(status.Stderr, token), err)
-	}
-	if _, err := runner.Run(ctx, work, env,
-		"-c", "user.name="+payload.Commit.AuthorName,
-		"-c", "user.email="+payload.Commit.AuthorEmail,
-		"commit", "--no-gpg-sign", "-m", payload.Commit.Message,
-	); err != nil {
-		return "", fmt.Errorf("commit Homebrew manifest: %w", err)
+		if _, err := runner.Run(ctx, work, env,
+			"-c", "user.name="+payload.Commit.AuthorName,
+			"-c", "user.email="+payload.Commit.AuthorEmail,
+			"commit", "--no-gpg-sign", "-m", payload.Commit.Message,
+		); err != nil {
+			return "", fmt.Errorf("commit Homebrew manifest: %w", err)
+		}
 	}
 	current, err := runner.Run(ctx, work, env, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("resolve Homebrew commit: %w", err)
 	}
 	commit := strings.TrimSpace(current.Stdout)
-	push, err := runner.Run(ctx, work, env, "push", "origin", "HEAD:refs/heads/"+destinationBranch)
+	if !validGitCommit(commit) {
+		return "", fmt.Errorf("git returned malformed commit identity")
+	}
+	exact, providerErr := observeCommittedFile(ctx, runner, work, env, commit, payload.Path, payload.Content, token)
+	if providerErr != nil {
+		return "", fmt.Errorf("verify committed manifest: %s", providerErr.Message)
+	}
+	if !exact {
+		return "", fmt.Errorf("committed manifest does not match the plan")
+	}
+	pushArgs := []string{"push"}
+	if destinationBranch != payload.Branch {
+		pushArgs = append(pushArgs, "--force-with-lease=refs/heads/"+destinationBranch+":")
+	}
+	pushArgs = append(pushArgs, "origin", "HEAD:refs/heads/"+destinationBranch)
+	push, err := runner.Run(ctx, work, env, pushArgs...)
 	if err != nil {
 		return commit, fmt.Errorf("push Homebrew tap: %s: %w", sanitizeGitOutput(push.Stderr, token), err)
 	}
@@ -256,7 +265,7 @@ func (p Provider) observeBranch(ctx context.Context, payload operationPayload, b
 		return branchObservation{}, classifyGitReadError(ctx, err, output.Stderr, token)
 	}
 	fields := strings.Fields(output.Stdout)
-	if len(fields) < 1 {
+	if len(fields) != 2 || !validGitCommit(fields[0]) || fields[1] != "refs/heads/"+branch {
 		return branchObservation{}, providerError(protocol.ErrorPermanentExternal, "git returned malformed branch metadata", false)
 	}
 	work, err := os.MkdirTemp("", "distroplane-homebrew-observe-")
@@ -268,15 +277,56 @@ func (p Provider) observeBranch(ctx context.Context, payload operationPayload, b
 	if err != nil {
 		return branchObservation{}, classifyGitReadError(ctx, err, clone.Stderr, token)
 	}
-	raw, readErr := readRepositoryFile(work, payload.Path)
-	if errors.Is(readErr, os.ErrNotExist) {
-		return branchObservation{exists: true, commit: fields[0]}, nil
+	head, err := runner.Run(ctx, work, env, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return branchObservation{}, classifyGitReadError(ctx, err, head.Stderr, token)
 	}
-	if readErr != nil {
-		return branchObservation{}, providerError(protocol.ErrorPermanentExternal, readErr.Error(), false)
+	commit := strings.TrimSpace(head.Stdout)
+	if !validGitCommit(commit) {
+		return branchObservation{}, providerError(protocol.ErrorPermanentExternal, "git returned malformed checkout identity", false)
 	}
-	sum := sha256.Sum256(raw)
-	return branchObservation{exists: true, exact: hex.EncodeToString(sum[:]) == payload.ContentSHA256, commit: fields[0]}, nil
+	if commit != fields[0] {
+		return branchObservation{}, providerError(protocol.ErrorTransientExternal, "Homebrew branch moved during observation", true)
+	}
+	exact, providerErr := observeCommittedFile(ctx, runner, work, env, commit, payload.Path, payload.Content, token)
+	if providerErr != nil {
+		return branchObservation{}, providerErr
+	}
+	return branchObservation{exists: true, exact: exact, commit: commit}, nil
+}
+
+func validGitCommit(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func observeCommittedFile(ctx context.Context, runner GitRunner, work string, env []string, commit, relative, content, token string) (bool, *protocol.ProviderError) {
+	tree, err := runner.Run(ctx, work, env, "ls-tree", "-l", "-z", "--full-tree", commit, "--", ":(literal)"+relative)
+	if err != nil {
+		return false, classifyGitReadError(ctx, err, tree.Stderr, token)
+	}
+	if tree.Stdout == "" {
+		return false, nil
+	}
+	metadata, name, ok := strings.Cut(tree.Stdout, "\t")
+	fields := strings.Fields(metadata)
+	if !ok || name != relative+"\x00" || len(fields) != 4 || !validGitCommit(fields[2]) {
+		return false, providerError(protocol.ErrorPermanentExternal, "git returned malformed manifest tree entry", false)
+	}
+	if fields[0] != "100644" && fields[0] != "100755" || fields[1] != "blob" {
+		return false, providerError(protocol.ErrorPermanentExternal, "committed manifest is not a regular file", false)
+	}
+	if fields[3] != fmt.Sprint(len(content)) {
+		return false, nil
+	}
+	blob, err := runner.Run(ctx, work, env, "cat-file", "blob", fields[2])
+	if err != nil {
+		return false, classifyGitReadError(ctx, err, blob.Stderr, token)
+	}
+	return blob.Stdout == content, nil
 }
 
 func (p Provider) gitRunner() GitRunner {

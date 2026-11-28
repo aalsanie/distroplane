@@ -168,7 +168,7 @@ func (p Provider) publish(ctx context.Context, payload operationPayload, key, to
 	request.Header.Set("Consumer-Token", token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return 0, providerError(protocol.ErrorAmbiguousOutcome, "SDKMAN release outcome is unknown; reconcile before retry", false)
 	}
@@ -189,7 +189,7 @@ func (p Provider) publish(ctx context.Context, payload operationPayload, key, to
 	case http.StatusRequestTimeout, http.StatusTooManyRequests:
 		return 0, providerError(protocol.ErrorAmbiguousOutcome, "SDKMAN release outcome is unknown; reconcile before retry", false)
 	default:
-		if response.StatusCode >= 500 {
+		if response.StatusCode >= 500 || (response.StatusCode >= 300 && response.StatusCode < 400) {
 			return 0, providerError(protocol.ErrorAmbiguousOutcome, "SDKMAN release outcome is unknown; reconcile before retry", false)
 		}
 		return 0, providerError(protocol.ErrorPermanentExternal, fmt.Sprintf("SDKMAN vendor API failed with HTTP %d", response.StatusCode), false)
@@ -228,12 +228,12 @@ func (p Provider) lookup(ctx context.Context, payload operationPayload) (observe
 		return observedVersion{}, stateStatusError(response.StatusCode)
 	}
 	var state stateVersion
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
-	if err := decoder.Decode(&state); err != nil {
+	data, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &state) != nil {
 		return observedVersion{}, providerError(protocol.ErrorPermanentExternal, "SDKMAN state API returned malformed version metadata", false)
 	}
 	if state.Candidate != payload.Candidate || state.Version != payload.Version || strings.TrimSpace(state.URL) == "" ||
-		(payload.Mode == AuthState && state.Platform != payload.StatePlatform) {
+		((payload.Mode == AuthState || state.Platform != "") && state.Platform != payload.StatePlatform) {
 		return observedVersion{}, providerError(protocol.ErrorPermanentExternal, "SDKMAN state API returned inconsistent version metadata", false)
 	}
 	return observedVersion{

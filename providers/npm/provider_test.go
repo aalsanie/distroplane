@@ -52,7 +52,7 @@ func (f *registryFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.exchanges++
 		f.mu.Unlock()
-		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+f.oidc {
+		if r.Method != http.MethodPost || r.URL.EscapedPath() != "/-/npm/v1/oidc/token/exchange/package/@scope%2Fwidget" || r.Header.Get("Authorization") != "Bearer "+f.oidc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -67,8 +67,8 @@ func (f *registryFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		expected = exchanged
 	}
 	if r.Header.Get("Authorization") != "Bearer "+expected {
-		_, _ = io.WriteString(w, `{"error":"bad auth `+testToken+`"}`)
 		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"bad auth `+testToken+`"}`)
 		return
 	}
 
@@ -153,6 +153,22 @@ func (f *registryFixture) handlePut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = connection.Close()
+		return
+	}
+	if f.mode == "malformed-success" {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"success":`)
+		return
+	}
+	if f.mode == "truncated-success" {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"success":true}`)
+		return
+	}
+	if f.mode == "trusted" {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"success":true}`)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -318,20 +334,29 @@ func TestApplyAuthenticationConflictAndSecretRedaction(t *testing.T) {
 }
 
 func TestAmbiguousPublishReconcilesAfterConnectionLoss(t *testing.T) {
-	archive, artifact := packageFixture(t, "widget", "4.0.0")
-	_, server := newRegistry(t, "ambiguous")
-	defer server.Close()
-	provider := Provider{Getenv: env(map[string]string{TokenEnvironment: testToken})}
-	payload := plannedPayload(t, Provider{}, archive, artifact, server.URL, "token")
-	if _, providerErr := provider.Apply(context.Background(), applyRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome || providerErr.Retryable {
-		t.Fatalf("err=%v", providerErr)
-	}
-	response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
-	if providerErr != nil || response.Result.State != protocol.ResultPublished {
-		t.Fatalf("response=%+v err=%v", response, providerErr)
+	for _, mode := range []string{"ambiguous", "malformed-success", "truncated-success"} {
+		t.Run(mode, func(t *testing.T) {
+			archive, artifact := packageFixture(t, "widget", "4.0.0")
+			registry, server := newRegistry(t, mode)
+			defer server.Close()
+			provider := Provider{Getenv: env(map[string]string{TokenEnvironment: testToken})}
+			payload := plannedPayload(t, Provider{}, archive, artifact, server.URL, "token")
+			if _, providerErr := provider.Apply(context.Background(), applyRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome || providerErr.Retryable {
+				t.Fatalf("err=%v", providerErr)
+			}
+			response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+			if providerErr != nil || response.Result.State != protocol.ResultPublished {
+				t.Fatalf("response=%+v err=%v", response, providerErr)
+			}
+			registry.mu.Lock()
+			puts := registry.puts
+			registry.mu.Unlock()
+			if puts != 1 {
+				t.Fatalf("reconciliation uploaded again: puts=%d", puts)
+			}
+		})
 	}
 }
-
 func TestRegistryFailureModesAndAbsentReconcile(t *testing.T) {
 	archive, artifact := packageFixture(t, "widget", "5.0.0")
 	_, malformedServer := newRegistry(t, "malformed")
@@ -381,7 +406,7 @@ func TestPackageValidationHelpers(t *testing.T) {
 			t.Fatalf("valid package name rejected: %q", value)
 		}
 	}
-	for _, value := range []string{"", "Widget", "@scope", "a/b", ".", "..", "bad name"} {
+	for _, value := range []string{"", "Widget", "@scope", "a/b", ".", "..", "bad name", "@../widget", "@scope/..", "@scope/a/b", "bad?name", "bad#name", "bad%name", "bad\nname"} {
 		if validPackageName(value) {
 			t.Fatalf("invalid package name accepted: %q", value)
 		}
@@ -398,9 +423,6 @@ func TestPackageValidationHelpers(t *testing.T) {
 	}
 	if escapedPackageName("@scope/widget") != "@scope%2Fwidget" {
 		t.Fatalf("escaped=%q", escapedPackageName("@scope/widget"))
-	}
-	if packageBaseName("@scope/widget") != "widget" {
-		t.Fatal("scoped package basename mismatch")
 	}
 }
 
@@ -492,27 +514,42 @@ func assertPublished(t *testing.T, result protocol.DistributionResult, name, ver
 }
 
 func TestPublishBodyAttachmentMatchesArchive(t *testing.T) {
-	archive, artifact := packageFixture(t, "widget", "7.0.0")
-	packageData, err := loadPackage(archive, artifact.Digest, artifact.Size)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := packageData.publishBody(operationPayload{Registry: "https://registry.example/", Tag: "latest", Access: "public"})
-	var document publishDocument
-	if err := json.Unmarshal(body, &document); err != nil {
-		t.Fatal(err)
-	}
-	attachment := document.Attachments["widget-7.0.0.tgz"]
-	decoded, err := base64.StdEncoding.DecodeString(attachment.Data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	original, _ := os.ReadFile(archive)
-	if string(decoded) != string(original) || attachment.Length != len(original) || attachment.ContentType != "application/octet-stream" {
-		t.Fatal("publish attachment does not match package archive")
+	for _, name := range []string{"widget", "@scope/widget"} {
+		t.Run(name, func(t *testing.T) {
+			archive, artifact := packageFixture(t, name, "7.0.0")
+			packageData, err := loadPackage(archive, artifact.Digest, artifact.Size)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := packageData.publishBody(operationPayload{Registry: "https://registry.example/", Tag: "latest", Access: "public"})
+			var document publishDocument
+			if err := json.Unmarshal(body, &document); err != nil {
+				t.Fatal(err)
+			}
+			if document.ID != name || document.Name != name || string(document.Description) != `"fixture"` || document.DistTags["latest"] != "7.0.0" {
+				t.Fatalf("publish metadata: %+v", document)
+			}
+			var manifest struct {
+				ID   string       `json:"_id"`
+				Dist manifestDist `json:"dist"`
+			}
+			if err := json.Unmarshal(document.Versions["7.0.0"], &manifest); err != nil || manifest.ID != name+"@7.0.0" ||
+				manifest.Dist.Integrity != packageData.integrity || manifest.Dist.Shasum != packageData.shasum ||
+				manifest.Dist.Tarball != "https://registry.example/"+name+"/-/"+name+"-7.0.0.tgz" {
+				t.Fatalf("version metadata: %+v err=%v", manifest, err)
+			}
+			attachment := document.Attachments[name+"-7.0.0.tgz"]
+			decoded, err := base64.StdEncoding.DecodeString(attachment.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, _ := os.ReadFile(archive)
+			if string(decoded) != string(original) || attachment.Length != len(original) || attachment.ContentType != "application/octet-stream" {
+				t.Fatal("publish attachment does not match package archive")
+			}
+		})
 	}
 }
-
 func TestCancelledLookup(t *testing.T) {
 	archive, artifact := packageFixture(t, "widget", "8.0.0")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -536,5 +573,123 @@ func TestReviewRejectsOversizedRegistry(t *testing.T) {
 	request := planRequest(t, archive, artifact, "https://example.test/"+strings.Repeat("a", 512), "token")
 	if _, e := (Provider{}).Plan(context.Background(), request); e == nil {
 		t.Fatal("oversized review accepted")
+	}
+}
+
+func TestTrustedPublishingRecoversWithFreshCredentialAndOriginalArchive(t *testing.T) {
+	archive, artifact := packageFixture(t, "@scope/widget", "9.0.0")
+	packageData, err := loadPackage(archive, artifact.Digest, artifact.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const freshID = "fresh-id-canary"
+	const freshToken = "fresh-registry-token-canary"
+	const endpoint = "/@scope%2Fwidget"
+	var mu sync.Mutex
+	exchanges, puts := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		auth := r.Header.Get("Authorization")
+		switch {
+		case r.Method == http.MethodPost && r.URL.EscapedPath() == "/-/npm/v1/oidc/token/exchange/package"+endpoint:
+			exchanges++
+			switch {
+			case exchanges == 1 && auth == "Bearer "+testOIDC:
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, `{"token_type":"oidc","token":"`+exchanged+`"}`)
+			case auth == "Bearer "+freshID:
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, `{"token_type":"oidc","token":"`+freshToken+`"}`)
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = io.WriteString(w, testOIDC)
+			}
+		case r.Method == http.MethodGet && r.URL.EscapedPath() == endpoint:
+			if puts == 0 && auth == "Bearer "+exchanged {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			if auth != "Bearer "+freshToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"versions":{"9.0.0":{"dist":{"integrity":%q,"shasum":%q}}}}`, packageData.integrity, packageData.shasum)
+		case r.Method == http.MethodPut && r.URL.EscapedPath() == endpoint:
+			puts++
+			var document publishDocument
+			if auth != "Bearer "+exchanged || r.Header.Get("Content-Type") != "application/json" || json.NewDecoder(r.Body).Decode(&document) != nil {
+				t.Error("incorrect direct publish request")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			attachment := document.Attachments["@scope/widget-9.0.0.tgz"]
+			data, err := base64.StdEncoding.DecodeString(attachment.Data)
+			if err != nil || string(data) != string(packageData.data) || attachment.Length != len(packageData.data) {
+				t.Error("publication changed original archive")
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"success":`)
+		default:
+			t.Errorf("unexpected method or endpoint: %s %s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+	provider := Provider{Client: server.Client(), Getenv: env(map[string]string{OIDCTokenEnvironment: testOIDC})}
+	payload := plannedPayload(t, provider, archive, artifact, server.URL, "trusted-publishing")
+	if _, providerErr := provider.Apply(context.Background(), applyRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome || providerErr.Retryable {
+		t.Fatalf("ambiguous acceptance: %+v", providerErr)
+	}
+	if _, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorAuthentication || strings.Contains(providerErr.Message, testOIDC) {
+		t.Fatalf("expired credential: %+v", providerErr)
+	}
+	provider.Getenv = env(map[string]string{OIDCTokenEnvironment: freshID})
+	if err := os.WriteFile(archive, []byte("changed archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorConfiguration {
+		t.Fatalf("changed archive accepted: %+v", providerErr)
+	}
+	if err := os.WriteFile(archive, packageData.data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+	if providerErr != nil {
+		t.Fatal(providerErr)
+	}
+	assertPublished(t, result.Result, "@scope/widget", "9.0.0")
+	for _, secret := range []string{testOIDC, exchanged, freshID, freshToken} {
+		if strings.Contains(string(payload), secret) || strings.Contains(string(result.Result.Evidence), secret) {
+			t.Fatal("credential leaked into immutable payload or evidence")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if exchanges != 3 || puts != 1 {
+		t.Fatalf("exchanges=%d puts=%d", exchanges, puts)
+	}
+}
+
+func TestRegistryRedirectDoesNotRepeatPublicationOrForwardCredential(t *testing.T) {
+	archive, artifact := packageFixture(t, "widget", "10.0.0")
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("registry request followed redirect")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	provider := Provider{Client: server.Client(), Getenv: env(map[string]string{TokenEnvironment: testToken})}
+	payload := plannedPayload(t, provider, archive, artifact, server.URL, "token")
+	if _, providerErr := provider.Apply(context.Background(), applyRequest(payload)); providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome || providerErr.Retryable {
+		t.Fatalf("redirect outcome: %+v", providerErr)
 	}
 }

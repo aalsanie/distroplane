@@ -38,6 +38,7 @@ type attachment struct {
 type publishDocument struct {
 	ID          string                     `json:"_id"`
 	Name        string                     `json:"name"`
+	Description json.RawMessage            `json:"description,omitempty"`
 	Access      string                     `json:"access,omitempty"`
 	DistTags    map[string]string          `json:"dist-tags"`
 	Versions    map[string]json.RawMessage `json:"versions"`
@@ -116,6 +117,12 @@ func packageManifest(data []byte) (map[string]json.RawMessage, string, string, e
 		if err := json.Unmarshal(raw, &manifest); err != nil {
 			return nil, "", "", fmt.Errorf("invalid package.json: %w", err)
 		}
+		var private bool
+		if raw, exists := manifest["private"]; exists {
+			if err := json.Unmarshal(raw, &private); err != nil || private {
+				return nil, "", "", fmt.Errorf("package.json marks the package private or has invalid private metadata")
+			}
+		}
 		var name, version string
 		if err := json.Unmarshal(manifest["name"], &name); err != nil || !validPackageName(name) {
 			return nil, "", "", fmt.Errorf("package.json contains an invalid name")
@@ -129,14 +136,26 @@ func packageManifest(data []byte) (map[string]json.RawMessage, string, string, e
 }
 
 func validPackageName(value string) bool {
-	if value == "" || len(value) > 214 || strings.ToLower(value) != value || strings.ContainsAny(value, " \\") {
+	if value == "" || len(value) > 214 {
 		return false
 	}
 	if strings.HasPrefix(value, "@") {
-		parts := strings.Split(value, "/")
-		return len(parts) == 2 && len(parts[0]) > 1 && parts[1] != ""
+		scope, name, ok := strings.Cut(value[1:], "/")
+		return ok && validPackagePart(scope) && validPackagePart(name)
 	}
-	return !strings.Contains(value, "/") && value != "." && value != ".."
+	return validPackagePart(value)
+}
+
+func validPackagePart(value string) bool {
+	if value == "" || value == "." || value == ".." {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && !strings.ContainsRune("-_.~", r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (p packageArchive) publishBody(payload operationPayload) []byte {
@@ -146,10 +165,11 @@ func (p packageArchive) publishBody(payload operationPayload) []byte {
 	}
 	dist, _ := json.Marshal(manifestDist{Integrity: p.integrity, Shasum: p.shasum, Tarball: tarballURL(payload.Registry, p.name, p.version)})
 	manifest["dist"] = dist
+	manifest["_id"], _ = json.Marshal(p.name + "@" + p.version)
 	encodedManifest, _ := json.Marshal(manifest)
-	filename := packageBaseName(p.name) + "-" + p.version + ".tgz"
+	filename := p.name + "-" + p.version + ".tgz"
 	document := publishDocument{
-		ID: p.name, Name: p.name, Access: payload.Access,
+		ID: p.name, Name: p.name, Description: p.manifest["description"], Access: payload.Access,
 		DistTags: map[string]string{payload.Tag: p.version},
 		Versions: map[string]json.RawMessage{p.version: encodedManifest},
 		Attachments: map[string]attachment{filename: {
@@ -158,11 +178,4 @@ func (p packageArchive) publishBody(payload operationPayload) []byte {
 	}
 	encoded, _ := json.Marshal(document)
 	return encoded
-}
-
-func packageBaseName(name string) string {
-	if index := strings.LastIndexByte(name, '/'); index >= 0 {
-		return name[index+1:]
-	}
-	return name
 }

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
 func TestHomebrewPullRequestLookupIdentityAndMergeMatrix(t *testing.T) {
@@ -95,5 +97,24 @@ func TestHomebrewMalformedPRAndMissingRepositoryValidation(t *testing.T) {
 		if got, err := decodePullRequest(strings.NewReader(raw)); err != nil || !got.exists {
 			t.Fatalf("valid PR rejected: %+v err=%v", got, err)
 		}
+	}
+}
+
+func TestPullRequestSubmissionRedirectDoesNotForwardCredential(t *testing.T) {
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("pull request submission followed redirect")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer destination.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	payload := operationPayload{Mode: "pull-request", Branch: "main", UpdateBranch: "update",
+		PullRequest: pullRequestConfig{API: server.URL, Repository: "owner/repo"}}
+	_, err := (Provider{Client: server.Client()}).submitPullRequest(context.Background(), payload, "secret-canary")
+	if err == nil || err.Code != protocol.ErrorAmbiguousOutcome || err.Retryable || strings.Contains(err.Message, "secret-canary") {
+		t.Fatalf("redirect outcome: %+v", err)
 	}
 }

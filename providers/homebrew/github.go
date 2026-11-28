@@ -52,7 +52,7 @@ func (p Provider) lookupPullRequest(ctx context.Context, payload operationPayloa
 		return pullRequestObservation{}, providerError(protocol.ErrorProviderInternal, "build Homebrew pull request lookup", false)
 	}
 	setGitHubHeaders(request, token)
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return pullRequestObservation{}, classifyPullRequestReadError(ctx, err)
 	}
@@ -99,7 +99,7 @@ func (p Provider) submitPullRequest(ctx context.Context, payload operationPayloa
 	}
 	setGitHubHeaders(request, token)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return pullRequestObservation{}, providerError(protocol.ErrorCancelled, "pull request submission was cancelled", false)
@@ -111,7 +111,14 @@ func (p Provider) submitPullRequest(ctx context.Context, payload operationPayloa
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusCreated {
-		return decodePullRequest(response.Body)
+		observed, decodeErr := decodePullRequest(response.Body)
+		if decodeErr != nil {
+			return pullRequestObservation{}, providerError(protocol.ErrorAmbiguousOutcome, "pull request submission outcome is unknown; reconcile before retry", false)
+		}
+		return observed, nil
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 400 {
+		return pullRequestObservation{}, providerError(protocol.ErrorAmbiguousOutcome, "pull request submission outcome is unknown; reconcile before retry", false)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode == http.StatusUnprocessableEntity {
@@ -126,8 +133,8 @@ func (p Provider) submitPullRequest(ctx context.Context, payload operationPayloa
 
 func decodePullRequest(reader io.Reader) (pullRequestObservation, *protocol.ProviderError) {
 	var value githubPullRequest
-	decoder := json.NewDecoder(io.LimitReader(reader, 1<<20))
-	if err := decoder.Decode(&value); err != nil || value.Number <= 0 || strings.TrimSpace(value.HTMLURL) == "" {
+	data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &value) != nil || value.Number <= 0 || strings.TrimSpace(value.HTMLURL) == "" {
 		return pullRequestObservation{}, providerError(protocol.ErrorPermanentExternal, "pull request API returned malformed response", false)
 	}
 	state := value.State
@@ -135,6 +142,12 @@ func decodePullRequest(reader io.Reader) (pullRequestObservation, *protocol.Prov
 		state = "open"
 	}
 	return pullRequestObservation{exists: true, number: value.Number, url: value.HTMLURL, state: state}, nil
+}
+
+func (p Provider) noRedirectClient() *http.Client {
+	client := *p.client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
 }
 
 func pullRequestEndpoint(cfg pullRequestConfig) string {

@@ -368,7 +368,7 @@ func TestGitHubStatusAndValidationFailures(t *testing.T) {
 	if _, err := provider.lookupPullRequest(context.Background(), payload, testToken); err == nil || err.Code != protocol.ErrorPermanentExternal {
 		t.Fatalf("lookup err=%v", err)
 	}
-	if _, err := provider.submitPullRequest(context.Background(), payload, testToken); err == nil || err.Code != protocol.ErrorPermanentExternal {
+	if _, err := provider.submitPullRequest(context.Background(), payload, testToken); err == nil || err.Code != protocol.ErrorAmbiguousOutcome {
 		t.Fatalf("submit err=%v", err)
 	}
 	if _, err := provider.lookupValidation(context.Background(), payload, pullRequestObservation{headSHA: "abc"}, testToken); err == nil || err.Code != protocol.ErrorPermanentExternal {
