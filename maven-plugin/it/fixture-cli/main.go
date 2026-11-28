@@ -61,6 +61,17 @@ func main() {
 	if err != nil {
 		fail("INVALID_CONFIG", "", 3)
 	}
+	if _, err := os.Stat(filepath.Join(dir, ".fixture-trace")); err == nil {
+		file, err := os.OpenFile(filepath.Join(dir, ".fixture-cli-invocations"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			fail("STATE_CORRUPT", "", 3)
+		}
+		_, err = fmt.Fprintln(file, command)
+		closeErr := file.Close()
+		if err != nil || closeErr != nil {
+			fail("STATE_CORRUPT", "", 3)
+		}
+	}
 	stateDir := filepath.Join(dir, ".distroplane")
 	stateFile := filepath.Join(stateDir, "fixture-run.json")
 	read := func() (state, bool) {
