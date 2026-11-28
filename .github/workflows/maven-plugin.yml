@@ -23,6 +23,11 @@ jobs:
           - { os: windows-latest, java: '21' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    env:
+      MAVEN_OPTS: >-
+        -Daether.connector.http.retryHandler.count=4
+        -Daether.connector.http.retryHandler.interval=10000
+        -Daether.connector.http.retryHandler.intervalMax=60000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,8 +36,21 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
-          cache: maven
-          cache-dependency-path: maven-plugin/pom.xml
+      - name: Restore isolated Maven dependency cache
+        id: dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/maven-it-repository
+          key: maven-it-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk${{ matrix.java }}-${{ hashFiles('maven-plugin/**/pom.xml', '.github/workflows/maven-plugin.yml') }}
+      - name: Verify dependency cache isolation
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          foreach ($path in @('io/github/aalsanie', 'distroplane')) {
+            if (Test-Path -LiteralPath (Join-Path $repo $path)) {
+              throw 'Dependency cache contains locally built or fixture artifacts'
+            }
+          }
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'
@@ -115,3 +133,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Maven integration smoke failed' }
       - name: Verify Central release requirements without uploading
         run: python maven-plugin/it/check-publication.py
+      - name: Remove local artifacts from dependency cache
+        if: success() && steps.dependencies.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'maven-it-repository'
+          foreach ($path in @('io/github/aalsanie', 'distroplane')) {
+            $local = Join-Path $repo $path
+            if (Test-Path -LiteralPath $local) {
+              Remove-Item -LiteralPath $local -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Get-ChildItem -LiteralPath $repo -File -Recurse -Force |
+            Where-Object { $_.Name -match '\.(lastUpdated|part|part\.lock)$' } |
+            Remove-Item -Force -ErrorAction Stop
+      - name: Save isolated Maven dependency cache
+        if: success() && steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/maven-it-repository
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
