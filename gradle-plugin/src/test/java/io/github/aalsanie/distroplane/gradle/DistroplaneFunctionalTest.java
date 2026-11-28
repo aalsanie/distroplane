@@ -95,6 +95,37 @@ final class DistroplaneFunctionalTest {
             """;
     }
 
+    @Test void executesDocumentedGradleExample() throws Exception {
+        Path guide = Path.of("README.md");
+        if (!Files.isRegularFile(guide) || !Files.readString(guide).contains("# Distroplane Gradle plugin")) {
+            guide = Path.of("gradle-plugin", "README.md");
+        }
+        String documentation = Files.readString(guide).replace("\r\n", "\n");
+        String fence = "```groovy\n";
+        int start = documentation.indexOf(fence);
+        assertTrue(start >= 0);
+        int end = documentation.indexOf("```", start + fence.length());
+        assertTrue(end > start);
+        String example = documentation.substring(start + fence.length(), end);
+        assertTrue(example.contains("id 'io.github.aalsanie.distroplane' version '1.0.0'"));
+        // TestKit supplies the source plugin rather than resolving the released plugin.
+        example = example.replace(" version '1.0.0'", "");
+        cacheFixture();
+        Files.writeString(project.resolve("build.gradle"), example);
+        Files.writeString(project.resolve("distroplane.json"), config());
+        Files.writeString(project.resolve("release.tgz"), "prebuilt fixture");
+        assertTrue(documentation.contains("gradle distroplanePlan"));
+        run(true, "distroplanePlan");
+        assertFalse(Files.exists(project.resolve(".distroplane")));
+        Files.writeString(project.resolve("build.gradle"), example + "\ndistroplane { approve = true }\n");
+        run(true, "distroplanePublish");
+        run(true, "distroplaneStatus");
+        run(true, "distroplaneResume");
+        assertEquals(List.of("plan", "publish", "status", "resume"), invocations());
+        assertTrue(JSON.readTree(Files.readAllBytes(project.resolve(".distroplane/fixture-run.json")))
+            .path("completed").asBoolean());
+    }
+
     @Test void registersSevenOptInTasksWithoutLifecyclePublication() throws Exception {
         BuildResult tasks = run(true, "tasks", "--all");
         for (String name : List.of("distroplaneInit", "distroplaneValidate", "distroplanePlan",

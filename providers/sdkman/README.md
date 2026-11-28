@@ -4,6 +4,8 @@ Registers a previously hosted release archive with SDKMAN. The provider does not
 
 ## State API
 
+Run `distroplane init --destination sdkman`; enter your existing candidate, version and public download URL. The corresponding script options are `sdkman.candidate`, `sdkman.version` and `sdkman.url` via `--set`.
+
 ```json
 {
   "artifact": "archive",

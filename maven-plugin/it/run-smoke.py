@@ -2,6 +2,7 @@
 """Native Maven integration smoke: explicit goals, offline cache, recovery and reactor."""
 import argparse
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -53,6 +54,33 @@ def main():
     original_reactor=(reactor/'distroplane.json').read_bytes()
     cmd=[args.maven,'-B','-ntp','-o',f'-Dmaven.repo.local={repo}']
     goal='io.github.aalsanie:distroplane-maven-plugin:1.0.1-SNAPSHOT:'
+    guide=(root/'maven-plugin/README.md').read_text(encoding='utf-8')
+    plugin_blocks=re.findall(r'(?ms)^```xml\n(<plugin>.*?</plugin>)\n^```$', guide)
+    if len(plugin_blocks)!=1:
+        raise AssertionError('expected one documented plugin configuration')
+    example=plugin_blocks[0].replace('<version>1.0.1</version>', '<version>1.0.1-SNAPSHOT</version>')
+    if example==plugin_blocks[0]:
+        raise AssertionError('documented Maven plugin version changed')
+    documented=workspace/'documented Maven project'
+    documented.mkdir()
+    (documented/'pom.xml').write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>'
+        '<groupId>test.integration</groupId><artifactId>docs</artifactId><version>1.0.0</version>'
+        '<packaging>pom</packaging><build><plugins>'+example+'</plugins></build></project>',
+        encoding='utf-8')
+    shutil.copy2(simple/'distroplane.json', documented/'distroplane.json')
+    (documented/'release.tgz').write_bytes(b'prebuilt fixture')
+    (documented/'.fixture-trace').touch()
+    documented_commands=[line for block in re.findall(r'(?ms)^```sh\n(.*?)^```$', guide)
+                         for line in block.splitlines() if line.startswith('mvn ') and 'distroplane-maven-plugin:' in line]
+    expected_goals=['validate','plan','publish','status','resume']
+    if [line.rsplit(':',1)[-1] for line in documented_commands]!=expected_goals:
+        raise AssertionError('documented Maven goal sequence changed')
+    for line in documented_commands:
+        arguments=[part.replace(':1.0.1:', ':1.0.1-SNAPSHOT:') for part in line.split()[1:]]
+        run(cmd+arguments, cwd=documented)
+    if invocations(documented)!=expected_goals:
+        raise AssertionError('documented Maven goals did not reach the native fixture')
     candidates=list(repo.glob('distroplane/cli/0.9.3/*/sha256-*/bin/distroplane*'))
     if len(candidates)!=1 or candidates[0].read_bytes()!=fixture.read_bytes():
         raise AssertionError('expected exactly one verified controlled native fixture')

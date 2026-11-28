@@ -4,6 +4,8 @@ Publishes an existing gzip tarball to an npm-compatible registry through its HTT
 
 ## Configuration
 
+Run `distroplane init --destination npm` with a prebuilt package tarball. The package name and version are read from the archive during planning.
+
 ```json
 {
   "artifact": "package",

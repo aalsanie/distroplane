@@ -11,7 +11,7 @@ LINK = re.compile(r'(?<!!)\[[^\]]+\]\(([^\s)]+)(?:\s+"[^"]*")?\)')
 def markdown_files():
     for name in ("README.md", "SECURITY.md", "CONTRIBUTING.md"):
         yield ROOT / name
-    for folder in ("docs", "providers", "maven-plugin"):
+    for folder in ("docs", "providers", "maven-plugin", "gradle-plugin"):
         yield from sorted((ROOT / folder).rglob("*.md"))
 
 
@@ -50,7 +50,42 @@ class DocumentationTest(unittest.TestCase):
         self.assertIn(f"$env:VERSION = '{version}'", windows)
         linux = (ROOT / "docs/release-verification.md").read_text(encoding="utf-8")
         self.assertIn(f"/v{version}/scripts/install-linux.py", linux)
-        # Maven plugin versions and CLI bootstrap defaults are maintained separately.
+        # The published adapter examples use the independently tested CLI pin.
+        adapter_cli = "0.9.3"
+        for name in ("README.md", "maven-plugin/README.md"):
+            contents = (ROOT / name).read_text(encoding="utf-8")
+            self.assertEqual(re.findall(r"<cliVersion>([^<]+)</cliVersion>", contents), [adapter_cli])
+            self.assertEqual(re.findall(r"<artifactId>distroplane-maven-plugin</artifactId>\s*<version>([^<]+)</version>", contents), ["1.0.1"])
+        for name in ("README.md", "gradle-plugin/README.md"):
+            contents = (ROOT / name).read_text(encoding="utf-8")
+            self.assertEqual(re.findall(r"cliVersion = '([^']+)'", contents), [adapter_cli])
+            self.assertEqual(re.findall(r"id 'io\.github\.aalsanie\.distroplane' version '([^']+)'", contents), ["1.0.0"])
+
+    def test_action_examples_use_reviewed_immutable_refs(self):
+        for name, count in (("README.md", 1), ("docs/github-actions.md", 2)):
+            contents = (ROOT / name).read_text(encoding="utf-8")
+            refs = re.findall(r"uses: aalsanie/distroplane@([^\s]+)", contents)
+            self.assertEqual(len(refs), count)
+            for ref in refs:
+                self.assertRegex(ref, r"^[0-9a-f]{40}$")
+            self.assertIn("approve: 'true'", contents)
+            self.assertIn("credential-mappings: npm-publish=NPM_TOKEN", contents)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/action-smoke.yml").read_text(encoding="utf-8")
+        snippet = re.search(r"(?ms)^```yaml\n(.*?)^```$", readme).group(1)
+        for line in snippet.splitlines():
+            value = line.strip().removeprefix("- ")
+            if value.startswith(("uses:", "version:", "command:", "approve:", "credential-mappings:")):
+                self.assertIn(value, workflow)
+        self.assertEqual(re.search(r"(?ms)^```xml\n(.*?)^```$", readme).group(1),
+                         re.search(r"(?ms)^```xml\n(.*?)^```$",
+                                   (ROOT / "maven-plugin/README.md").read_text(encoding="utf-8")).group(1))
+        self.assertEqual(re.search(r"(?ms)^```groovy\n(.*?)^```$", readme).group(1),
+                         re.search(r"(?ms)^```groovy\n(.*?)^```$",
+                                   (ROOT / "gradle-plugin/README.md").read_text(encoding="utf-8")).group(1))
+        contents = (ROOT / "docs/github-actions.md").read_text(encoding="utf-8")
+        for name in ("run-id", "recovery-plan-id", "recovery-artifact-id"):
+            self.assertIn(name + ": ${{ needs.publish.outputs.", contents)
 
     def test_readme_starts_with_install_and_publish(self):
         contents = (ROOT / "README.md").read_text(encoding="utf-8")

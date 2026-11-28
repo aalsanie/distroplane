@@ -131,6 +131,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Distroplane — release distribution control plane")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Get started:")
+	fmt.Fprintln(w, "  Build your artifact first.")
 	fmt.Fprintln(w, "  distroplane init       create or update release configuration")
 	fmt.Fprintln(w, "  distroplane doctor     check local readiness and next steps")
 	fmt.Fprintln(w, "  distroplane publish    review and publish the release")
@@ -138,6 +139,9 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Check an existing release:")
 	fmt.Fprintln(w, "  distroplane status     see what happened")
 	fmt.Fprintln(w, "  distroplane resume     continue a pending release safely")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Prepare the next release:")
+	fmt.Fprintln(w, "  distroplane init --update")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  init [--update] [--destination PROVIDER] [--release ID] [--artifact PATH]")
@@ -161,15 +165,15 @@ func printCommandHelp(command string, w io.Writer) bool {
 	var summary string
 	switch command {
 	case "init":
-		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE] [--credential REF=ENV]\n  Options: --output PATH, --force, --update, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip"
+		summary = "Create distroplane.json from a prebuilt artifact.\n  distroplane init\n  distroplane init --destination npm --release v1.2.3 --artifact dist/tool.tgz --non-interactive\n  distroplane init --update\n\nUsage:\n  distroplane init [--destination PROVIDER] [--release ID] [--artifact PATH] [--set FIELD=VALUE] [--credential REF=ENV]\n  Options: --output PATH, --force, --update, --non-interactive, --json\n  Providers: npm, sdkman, homebrew:formula, homebrew:cask, homebrew:jvm, winget:msi, winget:zip\n  Provider settings: https://github.com/aalsanie/distroplane/blob/main/docs/configuration.md"
 	case "doctor":
 		summary = "Check local readiness without publishing.\n  distroplane doctor [--config PATH] [--plan PATH] [--remote] [--timeout 3s] [--credential REF=ENV] [--json]"
 	case "publish":
-		summary = "Preview, approve and publish a release.\n  distroplane publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID] [--credential REF=ENV] [--json]"
+		summary = "Preview, approve and publish a release.\n  distroplane publish --dry-run\n  distroplane publish --confirm-plan ID\n\nUsage:\n  distroplane publish [--config PATH] [--dry-run] [--yes | --confirm-plan ID] [--credential REF=ENV] [--json]"
 	case "status":
 		summary = "Inspect an existing release without publishing.\n  distroplane status [--config PATH] [--release ID] [--run ID] [--json]"
 	case "resume":
-		summary = "Continue an existing release without creating a new one.\n  distroplane resume [--config PATH] [--release ID] [--run ID] [--reconcile-only] [--credential REF=ENV] [--json]"
+		summary = "Continue an existing release without creating a new one.\n  distroplane resume --run ID --reconcile-only\n\nUsage:\n  distroplane resume [--config PATH] [--release ID] [--run ID] [--reconcile-only] [--credential REF=ENV] [--json]"
 	case "validate":
 		summary = "Validate release configuration.\n  distroplane validate [--config PATH] [--json]"
 	case "plan":
