@@ -1,6 +1,7 @@
 param(
     [string]$Root = 'smoke',
-    [ValidateSet('published', 'waiting_external')][string]$Mode = 'published'
+    [ValidateSet('published', 'waiting_external')][string]$Mode = 'published',
+    [string]$Credential = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +34,9 @@ $artifact = Join-Path $rootPath 'app.bin'
 
 $providerConfiguration = [ordered]@{
     mode = $Mode
+}
+if ($Credential) {
+    $providerConfiguration['credential'] = $Credential
 }
 if ($Mode -eq 'waiting_external') {
     $providerConfiguration['reconcileState'] = 'published'

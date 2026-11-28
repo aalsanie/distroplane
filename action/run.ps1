@@ -320,33 +320,46 @@ if ($result.Stdout) {
         $journalPath = [string]$parsed.journalPath
     }
 }
+$uploadEvidence = Parse-BooleanInput -Name 'upload-evidence' -Value $env:DISTROPLANE_UPLOAD_EVIDENCE
+$uploadRecovery = $env:DISTROPLANE_UPLOAD_RECOVERY -eq 'true'
+$requestedEvidencePath = $env:DISTROPLANE_EVIDENCE_PATH.Trim()
+$shouldGenerateEvidence = $command -in @('apply', 'reconcile', 'publish', 'resume') -and ($requestedEvidencePath -or $uploadEvidence)
+$statePath = Join-Path (Split-Path -Parent (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG)) '.distroplane'
+if ($command -in @('apply', 'reconcile')) {
+    $planPath = Resolve-LocalPath -Path $env:DISTROPLANE_PLAN
+    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
+}
+if ($runID -and ($command -eq 'resume' -or $uploadRecovery)) {
+    $catalogArguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @('runs', '--config', $env:DISTROPLANE_CONFIG, '--run', $runID, '--json')) {
+        $catalogArguments.Add($argument)
+    }
+    $catalogResult = Invoke-Distroplane -Binary $binary -Arguments $catalogArguments -SensitiveValues $sensitiveValues.ToArray()
+    if ($catalogResult.ExitCode -ne 0 -or -not $catalogResult.Stdout) {
+        if ($shouldGenerateEvidence -or $uploadRecovery) {
+            throw 'Cannot verify the original run catalog for recovery or evidence export.'
+        }
+        Write-Host '::warning::Original run paths unavailable; preserve the existing state.'
+    } else {
+        $catalog = $catalogResult.Stdout | ConvertFrom-Json
+        $matches = @($catalog.runs)
+        if ($catalog.outputSchemaVersion -cne '1' -or $matches.Count -ne 1 -or
+            $matches[0].runId -cne $runID -or $matches[0].planId -cne $planID -or
+            -not $matches[0].planPath -or -not $matches[0].journalPath) {
+            throw 'Original catalog record does not match the returned plan and run.'
+        }
+        $planPath = [string]$matches[0].planPath
+        $journalPath = [string]$matches[0].journalPath
+    }
+}
 Set-ActionOutput -Name 'result-json' -Value $result.Stdout
 Set-ActionOutput -Name 'plan-id' -Value $planID
 Set-ActionOutput -Name 'plan-path' -Value $planPath
 Set-ActionOutput -Name 'run-id' -Value $runID
 Set-ActionOutput -Name 'completed' -Value $completed
-Set-ActionOutput -Name 'state-path' -Value (Join-Path (Split-Path -Parent (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG)) '.distroplane')
-if ($command -in @('apply', 'reconcile')) {
-    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
-}
+Set-ActionOutput -Name 'state-path' -Value $statePath
 Set-ActionOutput -Name 'journal-path' -Value $journalPath
 
-$uploadEvidence = Parse-BooleanInput -Name 'upload-evidence' -Value $env:DISTROPLANE_UPLOAD_EVIDENCE
-$requestedEvidencePath = $env:DISTROPLANE_EVIDENCE_PATH.Trim()
-$shouldGenerateEvidence = $command -in @('apply', 'reconcile', 'publish', 'resume') -and ($requestedEvidencePath -or $uploadEvidence)
-if ($command -in @('apply', 'reconcile')) {
-    $journalPath = Resolve-LocalPath -Path $env:DISTROPLANE_JOURNAL
-}
-if ($command -eq 'resume' -and $shouldGenerateEvidence) {
-    $runs = Join-Path (Split-Path -Parent (Resolve-LocalPath -Path $env:DISTROPLANE_CONFIG)) '.distroplane/catalog/runs'
-    $matches = @(Get-ChildItem -LiteralPath $runs -File -Filter '*.json' -ErrorAction Stop |
-        Where-Object { $_.Name -notlike '*.backup' } |
-        ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
-        Where-Object { $_.runId -ceq $runID -and $_.planId -ceq $planID })
-    if ($matches.Count -ne 1) { throw 'Cannot locate the unique durable journal for evidence export.' }
-    $journalPath = [string]$matches[0].journalPath
-    $planPath = [string]$matches[0].planPath
-}
 $evidencePath = ''
 $evidenceDigest = ''
 

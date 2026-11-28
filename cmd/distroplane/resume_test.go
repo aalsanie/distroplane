@@ -225,12 +225,32 @@ func TestResumeRejectsLostArtifactsButAllowsReconciliation(t *testing.T) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(dir, "app.bin")); err != nil {
+	artifact := filepath.Join(dir, "app.bin")
+	before, err := os.ReadFile(result.JournalPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, d := recoveryCall(t, exitInvalid, "resume", "--config", cfg, "--json")
-	if !bytes.Contains(d, []byte("artifact_changed")) {
-		t.Fatalf("missing artifact did not block execution: %s", d)
+	if err := os.WriteFile(artifact, []byte("changed artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"changed", "missing"} {
+		if scenario == "missing" {
+			if err := os.Remove(artifact); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, d := recoveryCall(t, exitInvalid, "resume", "--config", cfg, "--run", result.Run.RunID, "--json")
+		var diagnostic errorOutput
+		if err := json.Unmarshal(d, &diagnostic); err != nil || diagnostic.Error.Kind != "artifact_changed" ||
+			!strings.Contains(diagnostic.Error.Message, filepath.Base(result.JournalPath)) ||
+			!strings.Contains(diagnostic.Error.Message, filepath.Base(result.Plan.Path)) ||
+			!strings.Contains(diagnostic.Error.Message, result.Run.RunID) {
+			t.Fatalf("%s artifact did not identify original recovery state: %s err=%v", scenario, d, err)
+		}
+		after, err := os.ReadFile(result.JournalPath)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("%s artifact changed journal: %v", scenario, err)
+		}
 	}
 	out, _ := recoveryCall(t, exitOK, "resume", "--config", cfg, "--reconcile-only", "--json")
 	var final stateOutput

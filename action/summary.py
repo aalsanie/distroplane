@@ -306,11 +306,22 @@ def render(env):
             next_action += " Restore only the verified recovery bundle for this exact run before any permitted recovery."
         else:
             next_action += " No verified recovery artifact is available from this run; preserve the original state through an approved mechanism."
+    if execute == "success" and command != "plan":
+        for label, field in (("State directory", "SUMMARY_STATE_PATH"),
+                             ("Original plan", "SUMMARY_PLAN_PATH"),
+                             ("Original journal", "SUMMARY_JOURNAL_PATH")):
+            value = identity(env.get(field))
+            if value:
+                lines.append(f"**{label}:** `{display_identity(value)}`.")
     lines += ["", f"**Next:** {next_action}", ""]
     if recovery and detail is not None and detail["run"]:
         aid, url = recovery
         lines.append(f"**Recovery artifact:** [Uploaded bundle #{aid}]({url}).")
         lines.append("**Recovery compatibility:** Restore to the same runner OS, CPU architecture, and exact absolute `GITHUB_WORKSPACE` path. A new job is not automatically compatible; preserve original artifacts, plan, journal, and provider snapshots.")
+        days = env.get("SUMMARY_RECOVERY_RETENTION", "")
+        if re.fullmatch(r"[1-9][0-9]{0,2}", days):
+            lines.append(f"**Requested retention:** {days} days, subject to repository policy; recover before expiry.")
+        lines.append("Select the artifact from the trusted original workflow run using its artifact ID, plan ID and run ID. Checksums verify content, not provenance.")
     else:
         lines.append("**Recovery artifact:** No verified recovery artifact is available from this run. Runner-local files are not guaranteed to persist into another job.")
     if plan_artifact:

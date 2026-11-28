@@ -20,13 +20,13 @@ func selectRecordedRun(configPath, releaseID, runID string) (runstate.Record, er
 	store := runstate.Store{Root: filepath.Join(filepath.Dir(configPath), ".distroplane")}
 	record, err := store.Select(releaseID, runID)
 	if err != nil {
-		return runstate.Record{}, err
+		return runstate.Record{}, fmt.Errorf("select original run in %q: %w", store.Root, err)
 	}
 	if record.RunID == "" || record.JournalPath == "" {
 		return runstate.Record{}, fmt.Errorf("release %q has no started run; publish must be explicitly approved first", record.ReleaseID)
 	}
 	if record.State == "RESERVED" {
-		return runstate.Record{}, fmt.Errorf("run %q is reserved but its journal is missing; manual recovery required", record.RunID)
+		return runstate.Record{}, fmt.Errorf("run %q is reserved; restore the original journal %q for plan %q; manual recovery required", record.RunID, record.JournalPath, record.PlanPath)
 	}
 	return record, nil
 }

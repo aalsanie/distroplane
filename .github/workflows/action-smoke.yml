@@ -338,6 +338,7 @@ jobs:
           binary: reviewed-smoke/bin/distroplane
           config: reviewed-smoke/distroplane.json
           confirm-plan: ${{ needs.reviewed-plan.outputs.plan-id }}
+          recovery-plan-id: ${{ needs.reviewed-plan.outputs.plan-id }}
           restore-recovery: 'true'
           recovery-artifact-name: reviewed-plan-state
       - name: Verify reviewed plan identity and completion
@@ -373,17 +374,21 @@ jobs:
       - name: Build pending fixture
         id: fixture
         shell: pwsh
-        run: ./action/smoke-fixture.ps1 -Root recovery-smoke -Mode waiting_external
+        run: ./action/smoke-fixture.ps1 -Root recovery-smoke -Mode waiting_external -Credential recovery-auth
       - name: Publish with explicit approval and retain recoverable state
         id: publish
         uses: ./
+        env:
+          RECOVERY_SMOKE_TOKEN: initial-recovery-canary
         with:
           command: publish
           binary: ${{ steps.fixture.outputs.cli }}
           config: ${{ steps.fixture.outputs.config }}
+          credential-mappings: recovery-auth=RECOVERY_SMOKE_TOKEN
           approve: 'true'
           upload-recovery: 'true'
           recovery-artifact-name: action-recovery-${{ matrix.os }}
+          recovery-retention-days: '1'
       - name: Verify pending publication
         shell: pwsh
         env:
@@ -394,6 +399,8 @@ jobs:
           FAILED: ${{ steps.publish.outputs.failed }}
           REJECTED: ${{ steps.publish.outputs.rejected }}
           RECOVERY_ARTIFACT: ${{ steps.publish.outputs.recovery-artifact-id }}
+          RECOVERY_PLAN: ${{ steps.publish.outputs.plan-path }}
+          RECOVERY_JOURNAL: ${{ steps.publish.outputs.journal-path }}
         run: |
           if (-not $env:PLAN_ID -or -not $env:RUN_ID -or -not $env:RECOVERY_ARTIFACT) {
             throw 'publish omitted durable identity or recovery artifact'
@@ -402,6 +409,19 @@ jobs:
               $env:FAILED -ne 'false' -or $env:REJECTED -ne 'false') {
             throw 'pending publish was incorrectly reported as completed or failed'
           }
+          if (-not (Test-Path -LiteralPath $env:RECOVERY_PLAN -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $env:RECOVERY_JOURNAL -PathType Leaf)) {
+            throw 'publication omitted original recovery paths'
+          }
+          @{ planId = $env:PLAN_ID; runId = $env:RUN_ID; artifactId = $env:RECOVERY_ARTIFACT } |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath "$env:RUNNER_TEMP/recovery-identity.json" -Encoding utf8NoBOM
+      - name: Record trusted publication identity for this platform
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: action-recovery-identity-${{ matrix.os }}
+          path: ${{ runner.temp }}/recovery-identity.json
+          retention-days: 1
+          if-no-files-found: error
 
   pending-resume-handoff:
     name: Verified recovery and resume (${{ matrix.os }})
@@ -416,17 +436,59 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download trusted publication identity for this platform
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: action-recovery-identity-${{ matrix.os }}
+          path: ${{ runner.temp }}/recovery-identity
+          digest-mismatch: error
+      - name: Select exact original run
+        id: original
+        shell: pwsh
+        run: |
+          $record = Get-Content -LiteralPath "$env:RUNNER_TEMP/recovery-identity/recovery-identity.json" -Raw | ConvertFrom-Json
+          if ($record.planId -cnotmatch '^sha256-[0-9a-f]{64}$' -or -not $record.runId -or
+              $record.artifactId -notmatch '^[1-9][0-9]{0,19}$') {
+            throw 'invalid original recovery identity'
+          }
+          "plan-id=$($record.planId)" >> $env:GITHUB_OUTPUT
+          "run-id=$($record.runId)" >> $env:GITHUB_OUTPUT
+          "artifact-id=$($record.artifactId)" >> $env:GITHUB_OUTPUT
+          if (Test-Path -LiteralPath 'recovery-smoke') { throw 'recovery job is not clean' }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Install a different CLI and provider
+        id: upgrade
+        shell: pwsh
+        run: |
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          $cli = Join-Path $env:RUNNER_TEMP "distroplane-upgraded$extension"
+          $provider = Join-Path $PWD "recovery-smoke/bin/distroplane-provider-fake$extension"
+          New-Item -ItemType Directory -Path (Split-Path -Parent $provider) -Force | Out-Null
+          go build -trimpath -ldflags "-X main.version=9.9.9-recovery-test" -o $cli ./cmd/distroplane
+          if ($LASTEXITCODE -ne 0) { throw 'failed to build upgraded CLI' }
+          go build -trimpath -ldflags "-s -w" -o $provider ./cmd/distroplane-provider-fake
+          if ($LASTEXITCODE -ne 0) { throw 'failed to build different provider' }
+          "cli=$cli" >> $env:GITHUB_OUTPUT
+          "provider=$provider" >> $env:GITHUB_OUTPUT
       - name: Restore and resume the original pending publication
         id: resume
         uses: ./
+        env:
+          RECOVERY_SMOKE_TOKEN: rotated-recovery-canary
         with:
           command: resume
           config: recovery-smoke/distroplane.json
-          binary: recovery-smoke/bin/distroplane${{ runner.os == 'Windows' && '.exe' || '' }}
+          binary: ${{ steps.upgrade.outputs.cli }}
+          credential-mappings: recovery-auth=RECOVERY_SMOKE_TOKEN
           restore-recovery: 'true'
           release: action-smoke
+          run-id: ${{ steps.original.outputs.run-id }}
+          recovery-plan-id: ${{ steps.original.outputs.plan-id }}
+          recovery-artifact-id: ${{ steps.original.outputs.artifact-id }}
           reconcile-only: 'true'
-          recovery-artifact-name: action-recovery-${{ matrix.os }}
       - name: Verify same-run recovery
         shell: pwsh
         env:
@@ -437,11 +499,20 @@ jobs:
           FAILED: ${{ steps.resume.outputs.failed }}
           EXIT_CODE: ${{ steps.resume.outputs.exit-code }}
           RESULT_JSON: ${{ steps.resume.outputs.result-json }}
+          ORIGINAL_PLAN: ${{ steps.original.outputs.plan-id }}
+          ORIGINAL_RUN: ${{ steps.original.outputs.run-id }}
+          PLAN_PATH: ${{ steps.resume.outputs.plan-path }}
+          JOURNAL_PATH: ${{ steps.resume.outputs.journal-path }}
+          UPGRADED_PROVIDER: ${{ steps.upgrade.outputs.provider }}
         run: |
-          if (-not $env:PLAN_ID -or -not $env:RUN_ID -or
+          if ($env:PLAN_ID -cne $env:ORIGINAL_PLAN -or $env:RUN_ID -cne $env:ORIGINAL_RUN -or
               $env:COMPLETED -ne 'true' -or $env:PENDING -ne 'false' -or
               $env:FAILED -ne 'false' -or $env:EXIT_CODE -ne '0') {
             throw 'restored run did not complete successfully'
+          }
+          if (-not (Test-Path -LiteralPath $env:PLAN_PATH -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $env:JOURNAL_PATH -PathType Leaf)) {
+            throw 'resume omitted original plan and journal paths'
           }
           $entries = @(Get-ChildItem -LiteralPath 'recovery-smoke/.distroplane/catalog/runs' -File |
               Where-Object { $_.Name -like '*.json' -and $_.Name -notlike '*.backup' })
@@ -449,6 +520,14 @@ jobs:
           $record = Get-Content -LiteralPath $entries[0].FullName -Raw | ConvertFrom-Json
           if ($record.planId -ne $env:PLAN_ID -or $record.runId -ne $env:RUN_ID) {
             throw 'resume changed the original durable plan or run identity'
+          }
+          $plan = Get-Content -LiteralPath $env:PLAN_PATH -Raw | ConvertFrom-Json
+          $digest = $plan.targets[0].provider.digest.Substring(7)
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          $retained = "recovery-smoke/.distroplane/providers/fake/$digest/distroplane-provider-fake$extension"
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $retained).Hash.ToLowerInvariant() -ne $digest -or
+              (Get-FileHash -Algorithm SHA256 -LiteralPath $env:UPGRADED_PROVIDER).Hash.ToLowerInvariant() -eq $digest) {
+            throw 'recovery did not preserve the original provider independently of the replacement'
           }
           $output = $env:RESULT_JSON | ConvertFrom-Json
           if ($output.targets.Count -ne 1 -or $output.targets[0].state -ne 'PUBLISHED' -or
