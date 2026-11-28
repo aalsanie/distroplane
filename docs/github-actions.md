@@ -23,7 +23,7 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
-          version: ${{ vars.DISTROPLANE_VERSION }}
+          version: 0.9.3
           command: publish
           approve: 'true'
           credential-mappings: npm-publish=NPM_TOKEN
@@ -38,7 +38,7 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
-          version: ${{ vars.DISTROPLANE_VERSION }}
+          version: 0.9.3
           command: resume
           restore-recovery: 'true'
           recovery-artifact-id: ${{ needs.publish.outputs.recovery }}
@@ -48,7 +48,7 @@ jobs:
           credential-mappings: npm-publish=NPM_TOKEN
 ```
 
-Build your artifact **before** this step. In production, pin `uses:` to a reviewed commit SHA; the current Action interface is not included in the older release tags. Set the repository variable `DISTROPLANE_VERSION` to an actually published compatible CLI release supporting `publish`, `runs` and `resume`; do not use an older CLI that lacks these commands. `approve: 'true'` authorizes real publication.
+Build your artifact **before** this step. In production, pin `uses:` to a reviewed commit SHA; the current Action interface is not included in the older release tags. Use a published CLI release supporting `publish`, `runs` and `resume`; the version pins must match a compatible release. `approve: 'true'` authorizes real publication.
 
 ## Pending releases
 
