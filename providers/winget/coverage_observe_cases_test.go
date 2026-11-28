@@ -3,8 +3,7 @@ package winget
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -31,22 +30,45 @@ func (g coverageObservationGit) Run(_ context.Context, _ string, _ []string, arg
 		if g.mode == "clone-failure" {
 			return gitOutput{Stderr: "authentication failed"}, errors.New("clone failed")
 		}
-		if g.mode != "missing" {
-			dir := args[len(args)-1]
-			for _, file := range g.files {
-				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, file.Path)), 0o700); err != nil {
-					return gitOutput{}, err
-				}
-				content := file.Content
-				if g.mode == "changed" {
-					content = "different"
-				}
-				if err := os.WriteFile(filepath.Join(dir, file.Path), []byte(content), 0o600); err != nil {
-					return gitOutput{}, err
-				}
-			}
-		}
 		return gitOutput{}, nil
+	case "rev-parse":
+		if g.mode == "revision-failure" {
+			return gitOutput{}, errors.New("revision failed")
+		}
+		if g.mode == "bad-revision" {
+			return gitOutput{Stdout: "bad"}, nil
+		}
+		if g.mode == "moved" {
+			return gitOutput{Stdout: strings.Repeat("b", 40) + "\n"}, nil
+		}
+		return gitOutput{Stdout: strings.Repeat("a", 40) + "\n"}, nil
+	case "ls-tree":
+		if g.mode == "tree-failure" {
+			return gitOutput{}, errors.New("tree failed")
+		}
+		if g.mode == "missing" {
+			return gitOutput{}, nil
+		}
+		if g.mode == "bad-tree" {
+			return gitOutput{Stdout: "bad"}, nil
+		}
+		path, content := g.files[0].Path, g.files[0].Content
+		mode := "100644"
+		if g.mode == "symlink" {
+			mode = "120000"
+		}
+		if g.mode == "wrong-size" {
+			content += "extra"
+		}
+		return gitOutput{Stdout: fmt.Sprintf("%s blob %s %d\t%s\x00", mode, strings.Repeat("c", 40), len(content), path)}, nil
+	case "cat-file":
+		if g.mode == "blob-failure" {
+			return gitOutput{}, errors.New("blob failed")
+		}
+		if g.mode == "changed" {
+			return gitOutput{Stdout: "different"}, nil
+		}
+		return gitOutput{Stdout: g.files[0].Content}, nil
 	default:
 		return gitOutput{}, errors.New("unexpected git command")
 	}
@@ -66,6 +88,14 @@ func TestObserveBranchDistinguishesMissingConflictAndExactManifest(t *testing.T)
 		{"unavailable", false, false, true},
 		{"malformed", false, false, true},
 		{"clone-failure", false, false, true},
+		{"revision-failure", false, false, true},
+		{"bad-revision", false, false, true},
+		{"moved", false, false, true},
+		{"tree-failure", false, false, true},
+		{"bad-tree", false, false, true},
+		{"symlink", false, false, true},
+		{"wrong-size", true, false, false},
+		{"blob-failure", false, false, true},
 		{"missing", true, false, false},
 		{"changed", true, false, false},
 		{"exact", true, true, false},

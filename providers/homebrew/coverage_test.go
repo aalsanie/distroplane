@@ -478,7 +478,7 @@ func TestPullRequestLookupAndSubmissionErrors(t *testing.T) {
 	if _, providerErr := provider.lookupPullRequest(context.Background(), payload, testToken); providerErr == nil || providerErr.Code != protocol.ErrorPermanentExternal {
 		t.Fatalf("lookup err=%v", providerErr)
 	}
-	if _, providerErr := provider.submitPullRequest(context.Background(), payload, testToken); providerErr == nil || providerErr.Code != protocol.ErrorPermanentExternal {
+	if _, providerErr := provider.submitPullRequest(context.Background(), payload, testToken); providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome {
 		t.Fatalf("submit err=%v", providerErr)
 	}
 }

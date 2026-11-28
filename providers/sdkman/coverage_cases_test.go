@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aalsanie/distroplane/internal/protocol"
 )
 
 func TestVendorAPIHTTPStatusDecisionMatrix(t *testing.T) {
@@ -101,6 +103,7 @@ func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 		{"server-error", http.StatusBadGateway, "", false, true},
 		{"forbidden", http.StatusForbidden, "", false, true},
 		{"malformed", http.StatusOK, "{", false, true},
+		{"trailing", http.StatusOK, `{"candidate":"sample","version":"1.0.0","url":"https://example.test/release.zip","platform":"linuxx64"} {}`, false, true},
 		{"wrong-candidate", http.StatusOK, `{"candidate":"wrong","version":"1.0.0","url":"https://example.test/release.zip","platform":"linuxx64"}`, false, true},
 		{"wrong-platform", http.StatusOK, `{"candidate":"sample","version":"1.0.0","url":"https://example.test/release.zip","platform":"other"}`, false, true},
 		{"empty-url", http.StatusOK, `{"candidate":"sample","version":"1.0.0","url":"   ","platform":"linuxx64"}`, false, true},
@@ -119,6 +122,12 @@ func TestStateLookupConflictAndRecoveryObservations(t *testing.T) {
 			request := payload
 			request.StateAPI = srv.URL
 			observed, err := (Provider{}).lookup(context.Background(), request)
+			if tc.name == "wrong-platform" {
+				request.Mode = AuthLegacy
+				if legacy, legacyErr := (Provider{}).lookup(context.Background(), request); legacyErr == nil || legacy.exists {
+					t.Fatalf("legacy accepted wrong platform: %+v err=%v", legacy, legacyErr)
+				}
+			}
 			if (err != nil) != tc.error || observed.exists != tc.exists {
 				t.Fatalf("lookup: %+v err=%v", observed, err)
 			}
@@ -201,5 +210,28 @@ func TestStateLoginAuthenticationFailureMatrix(t *testing.T) {
 	}
 	if !validBearer("header.payload.signature") {
 		t.Fatal("valid printable bearer token rejected")
+	}
+}
+
+func TestLegacyVendorRedirectDoesNotForwardCredentials(t *testing.T) {
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("legacy vendor request followed a redirect")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer destination.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/release" || r.Header.Get("Consumer-Key") != "key-canary" || r.Header.Get("Consumer-Token") != "token-canary" {
+			t.Error("unexpected legacy vendor request")
+		}
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	_, err := (Provider{}).publish(context.Background(), operationPayload{
+		API: server.URL, Candidate: "sample", Version: "1.0.0",
+	}, "key-canary", "token-canary")
+	if err == nil || err.Code != protocol.ErrorAmbiguousOutcome || err.Retryable ||
+		strings.Contains(err.Message, "key-canary") || strings.Contains(err.Message, "token-canary") {
+		t.Fatalf("redirect outcome: %+v", err)
 	}
 }

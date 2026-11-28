@@ -250,12 +250,21 @@ func (f *prFixture) serveHTTP(w http.ResponseWriter, request *http.Request) {
 	f.mu.Lock()
 	f.postCount++
 	mode := f.mode
-	if mode == "normal" || mode == "ambiguous" {
+	if mode == "normal" || mode == "ambiguous" || mode == "malformed-success" || mode == "truncated-success" {
 		f.branch = body["head"]
 		f.base = body["base"]
 	}
 	f.mu.Unlock()
 	switch mode {
+	case "malformed-success":
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"number":`)
+		return
+	case "truncated-success":
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"number":1,"html_url":"https://example.test/pr/1","state":"open"}`)
+		return
 	case "ambiguous":
 		hijacker, ok := w.(http.Hijacker)
 		if ok {
@@ -341,18 +350,28 @@ func TestPullRequestBranchConflict(t *testing.T) {
 }
 
 func TestAmbiguousPullRequestSubmissionReconciles(t *testing.T) {
-	repo := newRepo(t)
-	_, server := newPRServer(t, "ambiguous")
-	defer server.Close()
-	provider := authenticatedProvider(server.Client())
-	_, payload := plannedPayload(t, provider, prConfiguration(repo, server))
-	_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
-	if providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome {
-		t.Fatalf("err=%+v", providerErr)
-	}
-	response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
-	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "pull-request-open" {
-		t.Fatalf("response=%+v err=%v", response, providerErr)
+	for _, mode := range []string{"ambiguous", "malformed-success", "truncated-success"} {
+		t.Run(mode, func(t *testing.T) {
+			repo := newRepo(t)
+			fixture, server := newPRServer(t, mode)
+			defer server.Close()
+			provider := authenticatedProvider(server.Client())
+			_, payload := plannedPayload(t, provider, prConfiguration(repo, server))
+			_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+			if providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome {
+				t.Fatalf("err=%+v", providerErr)
+			}
+			response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+			if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal || response.Result.ProviderState != "pull-request-open" {
+				t.Fatalf("response=%+v err=%v", response, providerErr)
+			}
+			fixture.mu.Lock()
+			count := fixture.postCount
+			fixture.mu.Unlock()
+			if count != 1 {
+				t.Fatalf("post count=%d", count)
+			}
+		})
 	}
 }
 
@@ -394,5 +413,40 @@ func TestReviewRejectsUnsafeRepositoryAndOverlongValue(t *testing.T) {
 		if _, e := (Provider{}).Plan(context.Background(), planRequest(t, cfg)); e == nil || strings.Contains(e.Message, "secret-canary") {
 			t.Fatalf("unsafe review accepted or exposed: %v", e)
 		}
+	}
+}
+
+type movingBranchRunner struct {
+	delegate GitRunner
+	move     func()
+}
+
+func (r *movingBranchRunner) Run(ctx context.Context, dir string, env []string, args ...string) (gitOutput, error) {
+	output, err := r.delegate.Run(ctx, dir, env, args...)
+	if err == nil && args[0] == "ls-remote" && r.move != nil {
+		move := r.move
+		r.move = nil
+		move()
+	}
+	return output, err
+}
+
+func TestBranchMovementCannotMisattributeManifestEvidence(t *testing.T) {
+	repo := newRepo(t)
+	provider := Provider{}
+	_, payload := plannedPayload(t, provider, formulaConfiguration(repo.remote, "direct"))
+	commit, err := provider.commitAndPush(context.Background(), payload, "new-tree", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.Git = &movingBranchRunner{delegate: execGitRunner{}, move: func() {
+		repo.promote(t, "new-tree", payload.Branch)
+	}}
+	if observed, providerErr := provider.observeBranch(context.Background(), payload, payload.Branch, ""); providerErr == nil || providerErr.Code != protocol.ErrorTransientExternal || !providerErr.Retryable || observed.exists {
+		t.Fatalf("moving branch produced evidence: %+v err=%+v", observed, providerErr)
+	}
+	observed, providerErr := provider.observeBranch(context.Background(), payload, payload.Branch, "")
+	if providerErr != nil || !observed.exact || observed.commit != commit {
+		t.Fatalf("stable branch evidence: %+v err=%+v want=%s", observed, providerErr, commit)
 	}
 }

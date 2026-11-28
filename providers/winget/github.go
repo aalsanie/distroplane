@@ -93,7 +93,7 @@ func (p Provider) resolveDestinationCommit(ctx context.Context, payload operatio
 		return "", providerError(protocol.ErrorProviderInternal, "build WinGet destination commit lookup", false)
 	}
 	setGitHubHeaders(request, token)
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return "", classifyGitHubReadError(ctx)
 	}
@@ -105,7 +105,8 @@ func (p Provider) resolveDestinationCommit(ctx context.Context, payload operatio
 	var value struct {
 		SHA string `json:"sha"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&value); err != nil || strings.TrimSpace(value.SHA) == "" {
+	data, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &value) != nil || !validGitCommit(value.SHA) {
 		return "", providerError(protocol.ErrorPermanentExternal, "WinGet destination commit API returned malformed response", false)
 	}
 	return strings.TrimSpace(value.SHA), nil
@@ -119,7 +120,7 @@ func (p Provider) readDestinationFile(ctx context.Context, payload operationPayl
 	}
 	setGitHubHeaders(request, token)
 	request.Header.Set("Accept", "application/vnd.github.raw+json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return nil, false, classifyGitHubReadError(ctx)
 	}
@@ -153,7 +154,7 @@ func (p Provider) lookupPullRequest(ctx context.Context, payload operationPayloa
 		return pullRequestObservation{}, providerError(protocol.ErrorProviderInternal, "build WinGet pull request lookup", false)
 	}
 	setGitHubHeaders(request, token)
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return pullRequestObservation{}, classifyGitHubReadError(ctx)
 	}
@@ -189,7 +190,7 @@ func (p Provider) lookupPriorPullRequest(ctx context.Context, payload operationP
 		return pullRequestObservation{}, providerError(protocol.ErrorProviderInternal, "build WinGet prior pull request lookup", false)
 	}
 	setGitHubHeaders(request, token)
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return pullRequestObservation{}, classifyGitHubReadError(ctx)
 	}
@@ -244,7 +245,7 @@ func (p Provider) submitPullRequest(ctx context.Context, payload operationPayloa
 	}
 	setGitHubHeaders(request, token)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return pullRequestObservation{}, providerError(protocol.ErrorCancelled, "WinGet pull request submission was cancelled", false)
@@ -253,7 +254,14 @@ func (p Provider) submitPullRequest(ctx context.Context, payload operationPayloa
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusCreated {
-		return decodePullRequest(response.Body)
+		observed, decodeErr := decodePullRequest(response.Body)
+		if decodeErr != nil {
+			return pullRequestObservation{}, providerError(protocol.ErrorAmbiguousOutcome, "WinGet pull request submission outcome is unknown; reconcile before retry", false)
+		}
+		return observed, nil
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 400 {
+		return pullRequestObservation{}, providerError(protocol.ErrorAmbiguousOutcome, "WinGet pull request submission outcome is unknown; reconcile before retry", false)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode == http.StatusUnprocessableEntity {
@@ -276,7 +284,7 @@ func (p Provider) lookupValidation(ctx context.Context, payload operationPayload
 		return validationObservation{}, providerError(protocol.ErrorProviderInternal, "build WinGet validation lookup", false)
 	}
 	setGitHubHeaders(request, token)
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return validationObservation{}, classifyGitHubReadError(ctx)
 	}
@@ -314,7 +322,8 @@ func (p Provider) lookupValidation(ctx context.Context, payload operationPayload
 
 func decodePullRequest(reader io.Reader) (pullRequestObservation, *protocol.ProviderError) {
 	var value githubPullRequest
-	if err := json.NewDecoder(io.LimitReader(reader, 1<<20)).Decode(&value); err != nil || value.Number <= 0 || strings.TrimSpace(value.HTMLURL) == "" {
+	data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &value) != nil || value.Number <= 0 || strings.TrimSpace(value.HTMLURL) == "" {
 		return pullRequestObservation{}, providerError(protocol.ErrorPermanentExternal, "WinGet pull request API returned malformed response", false)
 	}
 	return observePullRequest(value), nil
@@ -329,6 +338,12 @@ func observePullRequest(value githubPullRequest) pullRequestObservation {
 		state = "open"
 	}
 	return pullRequestObservation{exists: true, number: value.Number, url: value.HTMLURL, state: state, headSHA: value.Head.SHA}
+}
+
+func (p Provider) noRedirectClient() *http.Client {
+	client := *p.client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
 }
 
 func pullRequestEndpoint(cfg pullRequestConfig) string {

@@ -129,3 +129,43 @@ func TestPriorPullRequestEvidenceBindingDecisionMatrix(t *testing.T) {
 		}
 	}
 }
+
+func TestPullRequestSubmissionRedirectDoesNotForwardCredential(t *testing.T) {
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("pull request submission followed redirect")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer destination.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	payload := operationPayload{Branch: "main", UpdateBranch: "update",
+		PullRequest: pullRequestConfig{API: server.URL, Repository: "owner/repo", HeadOwner: "owner"}}
+	_, err := (Provider{Client: server.Client()}).submitPullRequest(context.Background(), payload, "secret-canary")
+	if err == nil || err.Code != protocol.ErrorAmbiguousOutcome || err.Retryable || strings.Contains(err.Message, "secret-canary") {
+		t.Fatalf("redirect outcome: %+v", err)
+	}
+}
+
+func TestDestinationCommitRequiresCompleteImmutableSHA(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	for _, body := range []string{
+		`{"sha":"main"}`,
+		`{"sha":"` + sha + `"} {}`,
+		`{"sha":"` + strings.Repeat("z", 40) + `"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			payload := operationPayload{Branch: "main", PullRequest: pullRequestConfig{API: server.URL, Repository: "owner/repo"}}
+			commit, err := (Provider{Client: server.Client()}).resolveDestinationCommit(context.Background(), payload, "token")
+			if err == nil || commit != "" {
+				t.Fatalf("invalid commit accepted: %q err=%v", commit, err)
+			}
+		})
+	}
+}

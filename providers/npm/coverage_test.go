@@ -121,6 +121,13 @@ func TestPackageFailureCoverage(t *testing.T) {
 	if _, _, _, err := packageManifest(tarball(t, "package/package.json", []byte(`{"name":"widget","version":"bad"}`), int64(len(`{"name":"widget","version":"bad"}`)))); err == nil || !strings.Contains(err.Error(), "semantic version") {
 		t.Fatalf("err=%v", err)
 	}
+	for _, private := range []string{"true", `"true"`, "false"} {
+		manifest := []byte(`{"name":"widget","version":"1.0.0","private":` + private + "}")
+		_, _, _, err := packageManifest(tarball(t, "package/package.json", manifest, int64(len(manifest))))
+		if (err != nil) != (private != "false") {
+			t.Fatalf("private=%s err=%v", private, err)
+		}
+	}
 	if _, _, _, err := packageManifest(tarballHeaderOnly(t, "package/package.json", maxManifestBytes+1)); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("err=%v", err)
 	}
@@ -182,6 +189,9 @@ func TestHTTPStatusAndTransportCoverage(t *testing.T) {
 		{http.StatusInternalServerError, `{}`, protocol.ErrorTransientExternal},
 		{http.StatusCreated, `{}`, protocol.ErrorPermanentExternal},
 		{http.StatusCreated, `{"token":""}`, protocol.ErrorPermanentExternal},
+		{http.StatusCreated, `{"token":"bad token"}`, protocol.ErrorPermanentExternal},
+		{http.StatusCreated, `{"token":"valid"} {}`, protocol.ErrorPermanentExternal},
+		{http.StatusCreated, strings.Repeat(" ", 64<<10+1), protocol.ErrorPermanentExternal},
 	} {
 		provider = Provider{Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return response(tc.status, tc.body), nil
@@ -225,6 +235,9 @@ func TestPublishHTTPCoverage(t *testing.T) {
 		{http.StatusRequestTimeout, protocol.ErrorAmbiguousOutcome},
 		{http.StatusTooManyRequests, protocol.ErrorAmbiguousOutcome},
 		{http.StatusBadRequest, protocol.ErrorPermanentExternal},
+		{http.StatusOK, protocol.ErrorAmbiguousOutcome},
+		{http.StatusAccepted, protocol.ErrorAmbiguousOutcome},
+		{http.StatusTemporaryRedirect, protocol.ErrorAmbiguousOutcome},
 	} {
 		provider := Provider{Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return response(tc.status, `{}`), nil

@@ -215,7 +215,7 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.postCount++
 	mode := f.mode
-	if mode == "normal" || mode == "ambiguous" {
+	if mode == "normal" || mode == "ambiguous" || mode == "malformed-success" || mode == "truncated-success" {
 		head := body["head"]
 		if _, branch, ok := strings.Cut(head, ":"); ok {
 			f.branch = branch
@@ -226,6 +226,15 @@ func (f *apiFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	switch mode {
+	case "malformed-success":
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"number":`)
+		return
+	case "truncated-success":
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"number":1,"html_url":"https://example.test/pr/1","state":"open"}`)
+		return
 	case "ambiguous":
 		if hijacker, ok := w.(http.Hijacker); ok {
 			connection, _, err := hijacker.Hijack()
@@ -495,27 +504,30 @@ func TestClosedPullRequestIsRejected(t *testing.T) {
 }
 
 func TestAmbiguousSubmissionReconcilesWithoutDuplicatePR(t *testing.T) {
-	repo := newRepo(t)
-	fixture, server := newAPIServer(t, "ambiguous")
-	defer server.Close()
-	provider := authenticatedProvider(server.Client())
-	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
-	_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
-	if providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome {
-		t.Fatalf("err=%+v", providerErr)
-	}
-	response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
-	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal {
-		t.Fatalf("response=%+v err=%v", response, providerErr)
-	}
-	fixture.mu.Lock()
-	count := fixture.postCount
-	fixture.mu.Unlock()
-	if count != 1 {
-		t.Fatalf("post count=%d", count)
+	for _, mode := range []string{"ambiguous", "malformed-success", "truncated-success"} {
+		t.Run(mode, func(t *testing.T) {
+			repo := newRepo(t)
+			fixture, server := newAPIServer(t, mode)
+			defer server.Close()
+			provider := authenticatedProvider(server.Client())
+			_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+			_, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+			if providerErr == nil || providerErr.Code != protocol.ErrorAmbiguousOutcome {
+				t.Fatalf("err=%+v", providerErr)
+			}
+			response, providerErr := provider.Reconcile(context.Background(), reconcileRequest(payload))
+			if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal {
+				t.Fatalf("response=%+v err=%v", response, providerErr)
+			}
+			fixture.mu.Lock()
+			count := fixture.postCount
+			fixture.mu.Unlock()
+			if count != 1 {
+				t.Fatalf("post count=%d", count)
+			}
+		})
 	}
 }
-
 func TestForkBaseDoesNotEstablishPublication(t *testing.T) {
 	repo := newRepo(t)
 	_, server := newAPIServer(t, "normal")
@@ -866,5 +878,70 @@ func TestReviewRejectsUnsafeRepositoryAndOverlongValue(t *testing.T) {
 		if _, e := (Provider{}).Plan(context.Background(), planRequest(t, cfg)); e == nil || strings.Contains(e.Message, "secret-canary") {
 			t.Fatalf("unsafe review accepted or exposed: %v", e)
 		}
+	}
+}
+
+type movingBranchRunner struct {
+	delegate GitRunner
+	move     func()
+}
+
+func (r *movingBranchRunner) Run(ctx context.Context, dir string, env []string, args ...string) (gitOutput, error) {
+	output, err := r.delegate.Run(ctx, dir, env, args...)
+	if err == nil && args[0] == "ls-remote" && r.move != nil {
+		move := r.move
+		r.move = nil
+		move()
+	}
+	return output, err
+}
+
+func TestBranchMovementCannotMisattributeManifestEvidence(t *testing.T) {
+	repo := newRepo(t)
+	provider := Provider{}
+	_, server := newAPIServer(t, "normal")
+	defer server.Close()
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	commit, err := provider.commitAndPush(context.Background(), payload, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.Git = &movingBranchRunner{delegate: execGitRunner{}, move: func() {
+		repo.promote(t, payload.UpdateBranch, payload.Branch)
+	}}
+	if observed, providerErr := provider.observeBranch(context.Background(), payload, payload.Branch, ""); providerErr == nil || providerErr.Code != protocol.ErrorTransientExternal || !providerErr.Retryable || observed.exists {
+		t.Fatalf("moving branch produced evidence: %+v err=%+v", observed, providerErr)
+	}
+	observed, providerErr := provider.observeBranch(context.Background(), payload, payload.Branch, "")
+	if providerErr != nil || !observed.exact || observed.commit != commit {
+		t.Fatalf("stable branch evidence: %+v err=%+v want=%s", observed, providerErr, commit)
+	}
+}
+
+func TestMatchingForkBaseStillCreatesSubmissionBranch(t *testing.T) {
+	repo := newRepo(t)
+	fixture, server := newAPIServer(t, "normal")
+	defer server.Close()
+	provider := authenticatedProvider(server.Client())
+	_, payload := plannedPayload(t, provider, baseConfiguration(repo, server))
+	commit, err := provider.commitAndPush(context.Background(), payload, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.promote(t, payload.UpdateBranch, payload.Branch)
+	runExternalGit(t, "", "--git-dir", repo.remote, "update-ref", "-d", "refs/heads/"+payload.UpdateBranch)
+	response, providerErr := provider.Apply(context.Background(), applyRequest(payload))
+	if providerErr != nil || response.Result.State != protocol.ResultWaitingExternal {
+		t.Fatalf("fork-only submission: %+v err=%+v", response, providerErr)
+	}
+	observed, providerErr := provider.observeBranch(context.Background(), payload, payload.UpdateBranch, testToken)
+	if providerErr != nil || !observed.exact || observed.commit != commit {
+		t.Fatalf("missing update branch: %+v err=%+v", observed, providerErr)
+	}
+	fixture.mu.Lock()
+	posts := fixture.postCount
+	fixture.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("post count=%d", posts)
 	}
 }

@@ -50,7 +50,7 @@ func (p Provider) exchangeOIDC(ctx context.Context, payload operationPayload, id
 	}
 	request.Header.Set("Authorization", "Bearer "+idToken)
 	request.Header.Set("Accept", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			return "", providerError(protocol.ErrorCancelled, "npm OIDC exchange was cancelled", false)
@@ -62,8 +62,7 @@ func (p Provider) exchangeOIDC(ctx context.Context, payload operationPayload, id
 		return "", statusError("npm OIDC exchange", response.StatusCode)
 	}
 	var value oidcExchange
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
-	if err := decoder.Decode(&value); err != nil || strings.TrimSpace(value.Token) == "" {
+	if err := decodeRegistryResponse(response.Body, 64<<10, &value); err != nil || strings.TrimSpace(value.Token) == "" || strings.ContainsAny(value.Token, " \t\r\n") {
 		return "", providerError(protocol.ErrorPermanentExternal, "npm OIDC exchange returned an invalid response", false)
 	}
 	return value.Token, nil
@@ -76,7 +75,7 @@ func (p Provider) lookup(ctx context.Context, payload operationPayload, token st
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Accept", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			return observedVersion{}, providerError(protocol.ErrorCancelled, "npm registry lookup was cancelled", false)
@@ -91,8 +90,7 @@ func (p Provider) lookup(ctx context.Context, payload operationPayload, token st
 		return observedVersion{}, statusError("npm registry lookup", response.StatusCode)
 	}
 	var document packument
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 4<<20))
-	if err := decoder.Decode(&document); err != nil {
+	if err := decodeRegistryResponse(response.Body, 4<<20, &document); err != nil || document.Versions == nil {
 		return observedVersion{}, providerError(protocol.ErrorPermanentExternal, "npm registry returned malformed package metadata", false)
 	}
 	version, exists := document.Versions[payload.Version]
@@ -111,13 +109,20 @@ func (p Provider) publish(ctx context.Context, payload operationPayload, package
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	response, err := p.client().Do(request)
+	response, err := p.noRedirectClient().Do(request)
 	if err != nil {
 		return observedVersion{}, providerError(protocol.ErrorAmbiguousOutcome, "npm publish outcome is unknown; reconcile before retry", false)
 	}
 	defer response.Body.Close()
 	switch response.StatusCode {
 	case http.StatusOK, http.StatusCreated:
+		var acknowledgement struct {
+			Success bool `json:"success"`
+			OK      bool `json:"ok"`
+		}
+		if err := decodeRegistryResponse(response.Body, 64<<10, &acknowledgement); err != nil || (!acknowledgement.Success && !acknowledgement.OK) {
+			return observedVersion{}, providerError(protocol.ErrorAmbiguousOutcome, "npm publish acknowledgement is uncertain; reconcile before retry", false)
+		}
 		return observedVersion{exists: true, integrity: packageData.integrity, shasum: packageData.shasum}, nil
 	case http.StatusConflict:
 		observed, reconcileErr := p.lookup(ctx, payload, token)
@@ -130,7 +135,7 @@ func (p Provider) publish(ctx context.Context, payload operationPayload, package
 	case http.StatusForbidden:
 		return observedVersion{}, providerError(protocol.ErrorAuthorization, "npm registry rejected publication authorization", false)
 	default:
-		if response.StatusCode >= 500 || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests {
+		if response.StatusCode >= 500 || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || (response.StatusCode >= 200 && response.StatusCode < 400) {
 			return observedVersion{}, providerError(protocol.ErrorAmbiguousOutcome, "npm publish outcome is unknown; reconcile before retry", false)
 		}
 		return observedVersion{}, providerError(protocol.ErrorPermanentExternal, fmt.Sprintf("npm registry rejected publication with HTTP %d", response.StatusCode), false)
@@ -181,5 +186,22 @@ func packageURL(registry, name string) string {
 }
 
 func tarballURL(registry, name, version string) string {
-	return packageURL(registry, name) + "/-/" + packageBaseName(name) + "-" + version + ".tgz"
+	return registry + name + "/-/" + name + "-" + url.PathEscape(version) + ".tgz"
+}
+
+func (p Provider) noRedirectClient() *http.Client {
+	client := *p.client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
+}
+
+func decodeRegistryResponse(reader io.Reader, limit int64, destination any) error {
+	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > limit {
+		return fmt.Errorf("npm registry response exceeds size limit")
+	}
+	return json.Unmarshal(data, destination)
 }

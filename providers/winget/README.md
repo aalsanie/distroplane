@@ -54,6 +54,13 @@ At planning time, the provider verifies ZIP size/SHA-256 and exact-case nested f
 
 WinGet's [installer manifest schema](https://github.com/microsoft/winget-pkgs/blob/master/doc/manifest/schema/1.12.0/installer.md) defines the emitted nested-installer fields. The Windows integration test executes a nested ZIP fixture and, when `winget` is available, runs `winget validate`; external review and index publication are separate.
 
-## Results
+## Publication and recovery
 
-Submission returns `WAITING_EXTERNAL`. Reconciliation checks PR status and validation, then observes all planned manifest files at **one resolved commit** on the destination's base branch. Only byte-for-byte matching content is `PUBLISHED`; missing content stays `WAITING_EXTERNAL`, and conflicting content is `REJECTED`. A merged PR alone is not publication proof.
+| Condition | Result |
+| --- | --- |
+| Destination repository/base branch contains all three exact planned manifests at one resolved commit | `PUBLISHED` |
+| Conflicting destination content, conflicting update branch, closed unmerged PR, or failed validation | `REJECTED` |
+| Submission, pending checks/review, or merged PR without destination content | `WAITING_EXTERNAL` |
+| Branch moves during observation or submission acknowledgement is lost | Reconcile without pushing or opening another PR |
+
+A matching fork, an accepted PR or a passing check alone is not publication proof. Local repository and controlled API tests cover submission, review, source-branch deletion and destination observation; external policy and client-index availability remain outside that evidence.

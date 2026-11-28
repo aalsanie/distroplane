@@ -3,6 +3,7 @@ package homebrew
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,8 @@ import (
 type coverageGitRunner struct {
 	failure string
 	change  bool
+	path    string
+	content string
 }
 
 func (r coverageGitRunner) Run(_ context.Context, _ string, _ []string, args ...string) (gitOutput, error) {
@@ -24,7 +27,19 @@ func (r coverageGitRunner) Run(_ context.Context, _ string, _ []string, args ...
 		return gitOutput{}, gitExitError{Code: 1, Err: errors.New("changes pending")}
 	}
 	if name == "rev-parse" {
+		if r.failure == "bad-revision" {
+			return gitOutput{Stdout: "bad"}, nil
+		}
 		return gitOutput{Stdout: strings.Repeat("a", 40) + "\n"}, nil
+	}
+	if name == "ls-tree" {
+		return gitOutput{Stdout: fmt.Sprintf("100644 blob %s %d\t%s\x00", strings.Repeat("b", 40), len(r.content), r.path)}, nil
+	}
+	if name == "cat-file" {
+		if r.failure == "changed-blob" {
+			return gitOutput{Stdout: "changed"}, nil
+		}
+		return gitOutput{Stdout: r.content}, nil
 	}
 	return gitOutput{}, nil
 }
@@ -47,11 +62,15 @@ func TestGitPublicationFailureBoundaries(t *testing.T) {
 		{"unchanged-revision", "rev-parse", false, true},
 		{"commit", "commit", true, true},
 		{"revision", "rev-parse", true, true},
+		{"malformed-revision", "bad-revision", true, true},
+		{"tree", "ls-tree", true, true},
+		{"blob", "cat-file", true, true},
+		{"changed-blob", "changed-blob", true, true},
 		{"push", "push", true, true},
 		{"changed", "", true, false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			runner := coverageGitRunner{failure: scenario.fail, change: scenario.change}
+			runner := coverageGitRunner{failure: scenario.fail, change: scenario.change, path: payload.Path, content: payload.Content}
 			provider := Provider{Git: runner}
 			commit, err := provider.commitAndPush(context.Background(), payload, payload.UpdateBranch, "token")
 			if (err != nil) != scenario.shouldFail {

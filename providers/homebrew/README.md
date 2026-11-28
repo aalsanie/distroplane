@@ -49,6 +49,14 @@ Supported `javaVersion` values are `8`, `11`, `17`, `21`, and `25`. The formula 
 
 This is opt-in; ordinary single-binary formulas remain unchanged. A macOS integration test installs and executes a generated JVM distribution formula with separate runtime JARs. It does not stand in for Homebrew Core review or broad policy compliance.
 
-## Results
+## Publication and recovery
 
-Matching planned content already on the tap's base branch is `PUBLISHED`. Direct mode commits and pushes that content. Pull-request mode reports `WAITING_EXTERNAL` until reconciliation observes the planned content on the base branch. A closed PR without that content or a conflicting update branch is `REJECTED`. Reconciliation only observes; it never pushes or opens another PR.
+| Condition | Result |
+| --- | --- |
+| Tap/base branch/manifest path contains the exact planned Git blob | `PUBLISHED` |
+| Direct push of verified planned content succeeds | `PUBLISHED` |
+| PR opened or merged, but exact base-tree content is not observed | `WAITING_EXTERNAL` |
+| Conflicting update branch or closed unmerged PR | `REJECTED` |
+| Branch moves during observation or submission acknowledgement is lost | Reconcile without pushing or opening another PR |
+
+Observations bind content to the checked commit. Direct and review flows are exercised against local Git repositories and controlled GitHub APIs.
